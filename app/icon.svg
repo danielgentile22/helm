@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke="#d98c5b" stroke-width="2" stroke-linecap="round">
+  <!-- H.E.L.M. — ship's wheel: the helm that steers the vault -->
+  <circle cx="16" cy="16" r="8.5"/>
+  <circle cx="16" cy="16" r="4.4"/>
+  <line x1="16" y1="2.5" x2="16" y2="29.5"/>
+  <line x1="2.5" y1="16" x2="29.5" y2="16"/>
+  <line x1="6.45" y1="6.45" x2="25.55" y2="25.55"/>
+  <line x1="6.45" y1="25.55" x2="25.55" y2="6.45"/>
+  <g fill="#d98c5b" stroke="none">
+    <circle cx="16" cy="16" r="2.4"/>
+    <circle cx="16" cy="2.5" r="1.7"/>
+    <circle cx="16" cy="29.5" r="1.7"/>
+    <circle cx="2.5" cy="16" r="1.7"/>
+    <circle cx="29.5" cy="16" r="1.7"/>
+    <circle cx="6.45" cy="6.45" r="1.7"/>
+    <circle cx="25.55" cy="25.55" r="1.7"/>
+    <circle cx="6.45" cy="25.55" r="1.7"/>
+    <circle cx="25.55" cy="6.45" r="1.7"/>
+  </g>
+</svg>
