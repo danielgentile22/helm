@@ -33,8 +33,8 @@ import { queryTasks, createTask, MORPHY_DB_ID_DEFAULT } from "./notion.js";
 
 const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
 
-// --- Config — env vars first (shell or ~/.claude/.env), then defaults that
-// work on a fresh clone (the bundled starter vault next to this folder).
+// --- Config — env vars first (shell or ~/.claude/.env). VAULT_ROOT is
+// required and has no default; the runner exits if it's unset (see below).
 function loadEnvFile() {
   const envPath = join(homedir(), ".claude", ".env");
   if (!existsSync(envPath)) return {};
@@ -57,8 +57,15 @@ function loadEnvFile() {
 const _env = loadEnvFile();
 const env = (k) => process.env[k] || _env[k];
 
-const VAULT_ROOT =
-  env("VAULT_ROOT") || env("AGENTIC_OS_VAULT") || join(RUNNER_DIR, "..", "starter-vault");
+const VAULT_ROOT = env("VAULT_ROOT") || env("AGENTIC_OS_VAULT");
+if (!VAULT_ROOT) {
+  console.error(
+    "[runner] VAULT_ROOT is not set. HELM has no vault to read or write. Set " +
+      "it in your shell or ~/.claude/.env — e.g. VAULT_ROOT=/Users/you/Projects/Vault " +
+      "— then restart the runner."
+  );
+  process.exit(1);
+}
 // MUST match HUD_TZ in lib/config.ts — "today" has to mean the same day in
 // both places or daily notes split across two dates near midnight UTC.
 const HUD_TZ = env("HUD_TZ") || "America/Chicago";
