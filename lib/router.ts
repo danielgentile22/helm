@@ -934,13 +934,15 @@ async function haikuRoute(
 }
 
 // --- local engine -----------------------------------------------------------
-// qwen3.5:4b via Ollama — picked by bench (scripts/bench-router-model.mjs):
+// qwen3:4b via Ollama — picked by bench (scripts/bench-router-model.mjs):
 // 15/16 tier accuracy, 16/16 JSON + skill discipline, p50 ~600ms / p90 ~800ms
 // warm on the 5090. Grammar-enforced JSON via Ollama's `format` schema, so
 // parsing never fails — validateRouted only has to police the VALUES.
+// The default tag MUST name a locally pulled model (`ollama list`) or local
+// routing fails the moment VOICE_ROUTER_MODEL is unset.
 
 const OLLAMA_URL = () => homeEnv("OLLAMA_URL") || "http://127.0.0.1:11434";
-const LOCAL_ROUTER_MODEL = () => homeEnv("VOICE_ROUTER_MODEL") || "qwen3.5:4b";
+const LOCAL_ROUTER_MODEL = () => homeEnv("VOICE_ROUTER_MODEL") || "qwen3:4b";
 const LOCAL_TIMEOUT_MS = 6000; // covers a cold model load; warm calls ~600ms
 
 const ROUTE_SCHEMA = {
@@ -989,7 +991,7 @@ async function localRoute(
     body: JSON.stringify({
       model: LOCAL_ROUTER_MODEL(),
       stream: false,
-      think: false, // qwen3.5 small ships thinking-off, but be explicit
+      think: false, // qwen3 small ships thinking-off, but be explicit
       keep_alive: "24h",
       format: ROUTE_SCHEMA,
       options: { temperature: 0.2, num_predict: 200 },

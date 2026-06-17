@@ -115,9 +115,12 @@ def transcribe_pcm(audio_f32):
 # The HUD connects to ws://:3108/events. The wake thread emits through
 # emit_event() which hops onto the uvicorn event loop thread-safely.
 
-# Push-to-talk is the default; hands-free wake is opt-in and needs a wake
-# model set via WAKE_MODEL (no model ships with HELM).
-WAKE_ENABLED = os.environ.get("WAKE_WORD", "off").lower() not in ("off", "0", "false")
+# Push-to-talk is the default. Hands-free wake is opt-in and needs BOTH the
+# switch on (WAKE_WORD=on) AND a wake model (WAKE_MODEL — none ships with
+# HELM). Either one missing ⇒ the listener never starts and /health reports
+# wake disabled.
+_wake_requested = os.environ.get("WAKE_WORD", "off").lower() not in ("off", "0", "false")
+WAKE_ENABLED = _wake_requested and bool(WAKE_MODEL)
 WAKE_THRESHOLD = float(os.environ.get("WAKE_THRESHOLD", "0.5"))
 
 ws_clients: set = set()

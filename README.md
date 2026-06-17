@@ -90,7 +90,7 @@ in the repo root instead (they're inlined into the client at build).
 | `AGENTIC_OS_MODEL` | model for background `claude -p` runs | `claude-opus-4-8` |
 | `ANTHROPIC_API_KEY` | enables Haiku intent routing (~$0.002/ask) | unset (optional) |
 | `VOICE_ROUTER` | force router engine: `auto`/`rules`/`haiku`/`local` | `auto` |
-| `VOICE_ROUTER_MODEL` / `OLLAMA_URL` | local routing fallback | `qwen3.5:4b` / `:11434` |
+| `VOICE_ROUTER_MODEL` / `OLLAMA_URL` | local routing fallback | `qwen3:4b` / `:11434` |
 | `VOICE_SERVER_URL` | TTS/STT server | `http://127.0.0.1:3108` |
 | `KOKORO_VOICE` / `KOKORO_SPEED` | TTS voice + speed | `bm_george` / `1.0` |
 | `WHISPER_MODEL` / `WHISPER_PROMPT` | STT model + vocab bias | `small.en` / built-in |

@@ -48,9 +48,9 @@ class WakeListener:
         self._thread.start()
 
     def _run(self):
+        # server.py only constructs this listener when WAKE_MODEL is set, so
+        # WAKE_MODEL is guaranteed non-empty here — no need to re-check.
         try:
-            if not WAKE_MODEL:
-                raise RuntimeError("no WAKE_MODEL configured — push-to-talk only")
             import sounddevice as sd
             from openwakeword.model import Model
 
