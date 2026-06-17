@@ -25,7 +25,6 @@ function state(over: Partial<VaultState> = {}): VaultState {
       heartbeat_age_s: 1,
       alive: true,
     },
-    latestVideo: null,
     daily: null,
     runs: [],
     queue: [],

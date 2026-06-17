@@ -4,7 +4,7 @@ import { VAULT_ROOT, HUD_TZ } from "./config";
 
 // ---------------------------------------------------------------------------
 // V.A.U.L.T. data layer — reads the SAME files the vault cockpit reads.
-// Zero new plumbing: metrics.csv, runner-status.json, latest-video.json,
+// Zero new plumbing: metrics.csv, runner-status.json,
 // system/runs/*.json, daily-notes/YYYY-MM-DD.md.
 // ---------------------------------------------------------------------------
 
@@ -60,17 +60,6 @@ export interface RunnerStatus {
   alive: boolean;
 }
 
-export interface LatestVideo {
-  title: string;
-  url: string;
-  video_id: string;
-  views: number;
-  likes: number;
-  comments: number;
-  published_at: string;
-  status: string;
-}
-
 export interface DailyNote {
   date: string;
   isToday: boolean;
@@ -108,7 +97,6 @@ export interface VaultState {
   vault_root: string;
   metrics: Metric[];
   runner: RunnerStatus | null;
-  latestVideo: LatestVideo | null;
   daily: DailyNote | null;
   runs: RunEntry[];
   queue: QueueEntry[];
@@ -200,24 +188,6 @@ export function readRunnerStatus(): RunnerStatus | null {
     pending: Number(j.pending ?? 0),
     heartbeat_age_s: age,
     alive: age !== null && age < 120, // heartbeat every ~30s; 2min = dead
-  };
-}
-
-// --- latest-video.json --------------------------------------------------------
-export function readLatestVideo(): LatestVideo | null {
-  const j = safeJson<Record<string, unknown>>(
-    path.join(VAULT_ROOT, "system", "metrics", "latest-video.json")
-  );
-  if (!j) return null;
-  return {
-    title: String(j.title ?? ""),
-    url: String(j.url ?? ""),
-    video_id: String(j.video_id ?? ""),
-    views: Number(j.views ?? 0),
-    likes: Number(j.likes ?? 0),
-    comments: Number(j.comments ?? 0),
-    published_at: String(j.published_at ?? ""),
-    status: String(j.status ?? "?"),
   };
 }
 
@@ -539,7 +509,6 @@ export function readVaultState(): VaultState {
     vault_root: VAULT_ROOT,
     metrics: readMetrics(),
     runner: readRunnerStatus(),
-    latestVideo: readLatestVideo(),
     daily: readDailyNote(),
     runs: readRecentRuns(),
     queue: readQueue(),
