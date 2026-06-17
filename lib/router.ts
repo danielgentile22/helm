@@ -432,8 +432,8 @@ function waveTop(h: string): string {
 
 // Morning-kickoff template — the shape, not a script. Every slot fills from
 // live state at ask-time:
-//   audience pulse (all platforms) → latest-video momentum → ONE wave-top AI
-//   headline → today's mission → "where do you want me to start?"
+//   audience pulse (all platforms) → ONE wave-top AI headline → today's
+//   mission → "where do you want me to start?"
 // Wave tops only; everything is one follow-up question away. ~55 words.
 function briefing(state: VaultState): {
   text: string;
@@ -467,15 +467,6 @@ function briefing(state: VaultState): {
     );
   } else {
     parts.push(opener);
-  }
-
-  const v = state.latestVideo;
-  if (v) {
-    if (v.url) reveals.push({ kind: "link", target: v.url, label: "latest deploy", at: mark() });
-    const days = Math.max((Date.now() - Date.parse(v.published_at)) / 86_400_000, 0.25);
-    parts.push(
-      `The latest video's pulling about ${spokenNum(v.views / days)} views a day — ${spokenNum(v.views)} so far.`
-    );
   }
 
   const report = readMorningReport(2);
@@ -678,15 +669,6 @@ function stateAnswer(t: string, state: VaultState): StateAnswer | null {
       panels: ["vitals"],
     };
   }
-  if (/latest video|last video|video doing/.test(t)) {
-    const v = state.latestVideo;
-    return {
-      text: v
-        ? `The latest video — ${v.title} — is at ${spokenNum(v.views)} views and ${spokenNum(v.likes)} likes.`
-        : "I don't have video data yet.",
-      panels: ["vitals", "objective"],
-    };
-  }
   if (/token|claude usage/.test(t)) {
     const m = metric(state, "claude_code", "tokens_5h");
     return {
@@ -806,7 +788,6 @@ function stateSummary(state: VaultState): string {
   }
   const r = state.runner;
   lines.push(r ? `runner: ${r.alive ? "alive" : "down"}, busy=${r.busy}, pending=${r.pending}` : "runner: no status");
-  if (state.latestVideo) lines.push(`latest video: "${state.latestVideo.title}" views=${state.latestVideo.views}`);
   if (state.daily) {
     lines.push(`top3: ${state.daily.top3.map((p) => `${p.done ? "[x]" : "[ ]"} ${p.text}`).join("; ")}`);
     lines.push(`schedule: ${state.daily.schedule.map((s) => `${s.time} ${s.item}`).join("; ")}`);
@@ -839,7 +820,7 @@ function routerSystem(state: VaultState, convo: string): string {
 {"tier": 1|2|3, "skill": "<skill-name or omit>", "reply": "<short spoken response, max 2 sentences, plain text>", "panels": ["<dashboard panels the reply references, from: ${PANEL_IDS.join(", ")}>"]}
 
 Tier 1: user wants to RUN one of these skills: ${[...ALLOWED_SKILLS].join(", ")}. Set "skill". Reply = brief ack. ONLY when they want it run or refreshed — asking what's IN a report / what it said / its highlights is tier 2: answer from the recent-runs summaries in the snapshot, do NOT re-run the skill.
-Tier 2: user asks about dashboard state. Answer ONLY from the snapshot below — NEVER invent specifics that aren't in it. If they ask for detail beyond what the snapshot holds (e.g. "which three sponsor emails?" when only a count is listed), that is tier 3: the background session can read the full report. If they ask for the daily briefing / "what's going on today", compose a tight rundown: open directives, next schedule item, focus, latest video, MRR.
+Tier 2: user asks about dashboard state. Answer ONLY from the snapshot below — NEVER invent specifics that aren't in it. If they ask for detail beyond what the snapshot holds (e.g. "which three sponsor emails?" when only a count is listed), that is tier 3: the background session can read the full report. If they ask for the daily briefing / "what's going on today", compose a tight rundown: open directives, next schedule item, focus, MRR.
 Tier 3: anything needing real reasoning, outside data, or report contents beyond the snapshot summaries. It will be dispatched to a background Claude session automatically. Reply = a brief "working on it" style ack.
 
 Greetings and chitchat ("hey", "what's up", "how are you", "thanks", "can you hear me") are tier 2 — reply conversationally in one or two short sentences, optionally flavored with the snapshot. NEVER send chitchat to tier 3; a background session for a greeting wastes half a minute.

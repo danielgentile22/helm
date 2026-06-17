@@ -202,7 +202,7 @@ function runAnnouncement(skill: string, status: string, summary: string, label?:
 // panels (memoized — only re-render when their slice of state changes)
 // ---------------------------------------------------------------------------
 
-const SOCIAL_DEFS: { source: string; metric: string; label: string; raw?: boolean }[] = [
+const VITAL_DEFS: { source: string; metric: string; label: string; raw?: boolean }[] = [
   { source: "uscf", metric: "rating", label: "USCF Rating", raw: true },
 ];
 
@@ -221,8 +221,6 @@ function VitalLabel({ m, label }: { m: Metric; label: string }) {
 const Vitals = memo(function Vitals({ state, hot }: { state: VaultState; hot?: boolean }) {
   const metrics = state.metrics;
   const tokens = findMetric(metrics, "claude_code", "tokens_5h");
-  const vidMetric = findMetric(metrics, "youtube", "latest_video_views");
-  const v = state.latestVideo;
   const mp = state.morphy;
 
   // auto-calibrating cap: 100% = the biggest 5h window ever recorded —
@@ -231,12 +229,9 @@ const Vitals = memo(function Vitals({ state, hot }: { state: VaultState; hot?: b
     ? Math.max(...tokens.history.map((h) => h.value), tokens.value)
     : null;
 
-  const vidDays = v ? Math.max((Date.now() - Date.parse(v.published_at)) / 86_400_000, 0.25) : null;
-  const vidPerDay = v && vidDays ? v.views / vidDays : null;
-
   return (
     <section className={`block boot-stagger ${hot ? "voice-hot" : ""}`} style={{ animationDelay: "0.1s" }}>
-      <SectionTitle title="System Vitals" tick="AUDIENCE.LINK" />
+      <SectionTitle title="System Vitals" tick="VITALS.LINK" />
       {mp && mp.ok !== false && (
         <div className="vital">
           <span className="label">
@@ -252,7 +247,7 @@ const Vitals = memo(function Vitals({ state, hot }: { state: VaultState; hot?: b
           <span className="delta">{mp.ideas_awaiting ?? 0} ideas</span>
         </div>
       )}
-      {SOCIAL_DEFS.map((def) => {
+      {VITAL_DEFS.map((def) => {
         const m = findMetric(metrics, def.source, def.metric);
         if (!m) return null;
         const dw = m.deltaWeek;
@@ -273,19 +268,6 @@ const Vitals = memo(function Vitals({ state, hot }: { state: VaultState; hot?: b
           </div>
         );
       })}
-
-      {v && vidMetric && (
-        <div className={`vital ${fmtAge(vidMetric.timestamp).stale ? "is-stale" : ""}`}>
-          <VitalLabel m={vidMetric} label="Latest Video" />
-          <span className="value">
-            <CountUp value={v.views} />
-          </span>
-          <span className="delta">{vidPerDay !== null ? `≈${fmt(vidPerDay)} /day` : "—"}</span>
-          <div className="spark-row">
-            <Sparkline points={vidMetric.history.map((h) => h.value)} />
-          </div>
-        </div>
-      )}
 
       {tokens && tokenPeak !== null && tokenPeak > 0 && (
         <div className={`vital ${fmtAge(tokens.timestamp).stale ? "is-stale" : ""}`}>
