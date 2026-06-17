@@ -15,6 +15,3 @@ voice-server/__pycache__/
 runner/runner.log
 runner/runner.pid
 .helm-config.json
-starter-vault/system/queue/*.json
-starter-vault/system/voice/
-starter-vault/system/runner-status.json

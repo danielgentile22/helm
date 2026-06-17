@@ -10,11 +10,15 @@ real file. No theater.
 
 ```bash
 npm install
-npx next dev -p 3107        # → http://localhost:3107
+export VAULT_ROOT=/path/to/your/vault   # required — no default
+npx next dev -p 3107                     # → http://localhost:3107
 ```
 
-That's it for the visual demo — the HUD boots against the bundled
-`starter-vault/` with sample data. Two more pieces make it real:
+`VAULT_ROOT` points at the folder of plain files the HUD reads and writes
+(set it in your shell or `~/.claude/.env`; see [Vault structure](#vault-structure)
+for the layout). It's required — start without it and the HUD and runner
+both fail fast with a message naming the setting rather than rendering demo
+data. Two more pieces make it real:
 
 1. **The runner** (background skill executor): `node runner/runner.js` in a
    second terminal. Needs the `claude` CLI installed and logged in.
@@ -54,7 +58,7 @@ this machine (HUD, runner, voice, and the USCF rating feed).
 ## Vault structure
 
 ```
-VAULT_ROOT/                       (default: ./starter-vault)
+VAULT_ROOT/                       (required — set via env, no default)
 ├── system/
 │   ├── queue/                    intents written by HUD, claimed by runner
 │   ├── runs/                     run records + logs (*.json, *.md)
@@ -80,7 +84,7 @@ in the repo root instead (they're inlined into the client at build).
 
 | Var | Purpose | Default |
 |---|---|---|
-| `VAULT_ROOT` | vault folder | `./starter-vault` |
+| `VAULT_ROOT` | vault folder | **required** (no default) |
 | `HUD_TZ` | IANA timezone for "today" (HUD + runner) | `America/Chicago` |
 | `HUD_USER_NAME` | how voice notes refer to you | `User` |
 | `AGENTIC_OS_MODEL` | model for background `claude -p` runs | `claude-opus-4-8` |
