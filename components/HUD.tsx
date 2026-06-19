@@ -223,6 +223,9 @@ const Vitals = memo(function Vitals({ state, hot }: { state: VaultState; hot?: b
   const tokens = findMetric(metrics, "claude_code", "tokens_5h");
   const jobApps = findMetric(metrics, "jobs", "applications");
   const jobWeek = findMetric(metrics, "jobs", "applied_7d");
+  const ghCommits = findMetric(metrics, "github", "commits_7d");
+  const ghPrs = findMetric(metrics, "github", "open_prs");
+  const ghIssues = findMetric(metrics, "github", "open_issues");
   const mp = state.morphy;
 
   // auto-calibrating cap: 100% = the biggest 5h window ever recorded —
@@ -261,6 +264,21 @@ const Vitals = memo(function Vitals({ state, hot }: { state: VaultState; hot?: b
             <CountUp value={mp.open_total ?? 0} raw />
           </span>
           <span className="delta">{mp.ideas_awaiting ?? 0} ideas</span>
+        </div>
+      )}
+      {ghCommits && (
+        <div className={`vital ${fmtAge(ghCommits.timestamp).stale ? "is-stale" : ""}`}>
+          <VitalLabel m={ghCommits} label="Morphy Commits" />
+          <span className="value">
+            <CountUp value={ghCommits.value} raw />
+            <span className="unit-pct"> /7d</span>
+          </span>
+          <span className={`delta ${(ghPrs?.value ?? 0) + (ghIssues?.value ?? 0) > 0 ? "" : "zero"}`}>
+            {`${ghPrs?.value ?? 0} open PR${(ghPrs?.value ?? 0) === 1 ? "" : "s"} · ${ghIssues?.value ?? 0} issue${(ghIssues?.value ?? 0) === 1 ? "" : "s"}`}
+          </span>
+          <div className="spark-row">
+            <Sparkline points={ghCommits.history.map((h) => h.value)} />
+          </div>
         </div>
       )}
       {VITAL_DEFS.map((def) => {
