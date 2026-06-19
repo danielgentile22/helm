@@ -28,8 +28,8 @@ data. Two more pieces make it real:
 it starts whatever isn't running (voice server, runner, HUD) detached, so
 everything survives closing the terminal. To make it automatic at login,
 the launchd agents under `~/Library/LaunchAgents/com.helm.*` handle it on
-this machine (HUD, runner, voice, the USCF rating feed, and the hourly
-Claude-token feed).
+this machine (HUD, runner, voice, the USCF rating feed, the hourly
+Claude-token feed, and the daily job-application feed).
 
 ## How it works
 
@@ -69,6 +69,7 @@ VAULT_ROOT/                       (required — set via env, no default)
 │   ├── schemas/daily-note.md     frozen daily-note contract
 │   └── runner-status.json        runner heartbeat (written by runner)
 ├── daily-notes/YYYY-MM-DD.md     priorities, schedule, focus
+├── jobs/applications.jsonl       job applications — one JSON record per line
 └── inbox/
     ├── reports/morning/          morning briefings (feeds the AI Wire)
     └── voice/                    voice-ask answers
@@ -76,6 +77,21 @@ VAULT_ROOT/                       (required — set via env, no default)
 
 Everything degrades gracefully: missing files render as empty panels, a
 dead runner shows RUNNER OFFLINE, missing voice-server returns a clean 503.
+
+**Job applications** (`jobs/applications.jsonl`) back the "Job Applications"
+vitals tile. Each line is one application — greppable, hand-editable, and
+append-only, so the data is yours independent of the HUD:
+
+```json
+{"company":"Acme","role":"Backend Engineer","applied":"2026-06-15","status":"applied","link":"https://..."}
+```
+
+`company` or `role` is required; `applied` (YYYY-MM-DD) drives the
+"this week" count; `id` (optional) is the de-dup handle. The daily
+`feeds/job-applications.py` reads this store and writes `jobs/applications`
+(total) and `jobs/applied_7d` (last 7 days) to `metrics.csv`. **How records
+get *captured* — voice command, inbox-scan, or manual edit — is deliberately
+left open**; for now, append a line by hand or seed a sample to demo the tile.
 
 ## Configuration
 
@@ -87,6 +103,7 @@ in the repo root instead (they're inlined into the client at build).
 |---|---|---|
 | `VAULT_ROOT` | vault folder | **required** (no default) |
 | `CLAUDE_PROJECTS_DIR` | transcript root the token feed scans | `~/.claude/projects` |
+| `JOBS_DIR` | folder holding `applications.jsonl` (job feed) | `$VAULT_ROOT/jobs` |
 | `HUD_TZ` | IANA timezone for "today" (HUD + runner) | `America/Chicago` |
 | `HUD_USER_NAME` | how voice notes refer to you | `User` |
 | `AGENTIC_OS_MODEL` | model for background `claude -p` runs | `claude-opus-4-8` |

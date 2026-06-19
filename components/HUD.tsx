@@ -221,6 +221,8 @@ function VitalLabel({ m, label }: { m: Metric; label: string }) {
 const Vitals = memo(function Vitals({ state, hot }: { state: VaultState; hot?: boolean }) {
   const metrics = state.metrics;
   const tokens = findMetric(metrics, "claude_code", "tokens_5h");
+  const jobApps = findMetric(metrics, "jobs", "applications");
+  const jobWeek = findMetric(metrics, "jobs", "applied_7d");
   const mp = state.morphy;
 
   // auto-calibrating cap: 100% = the biggest 5h window ever recorded —
@@ -232,6 +234,20 @@ const Vitals = memo(function Vitals({ state, hot }: { state: VaultState; hot?: b
   return (
     <section className={`block boot-stagger ${hot ? "voice-hot" : ""}`} style={{ animationDelay: "0.1s" }}>
       <SectionTitle title="System Vitals" tick="VITALS.LINK" />
+      {jobApps && (
+        <div className={`vital ${fmtAge(jobApps.timestamp).stale ? "is-stale" : ""}`}>
+          <VitalLabel m={jobApps} label="Job Applications" />
+          <span className="value">
+            <CountUp value={jobApps.value} raw />
+          </span>
+          <span className={`delta ${(jobWeek?.value ?? 0) > 0 ? "" : "zero"}`}>
+            {(jobWeek?.value ?? 0) > 0 ? `▲ ${jobWeek!.value} this week` : "none this week"}
+          </span>
+          <div className="spark-row">
+            <Sparkline points={jobApps.history.map((h) => h.value)} />
+          </div>
+        </div>
+      )}
       {mp && mp.ok !== false && (
         <div className="vital">
           <span className="label">
