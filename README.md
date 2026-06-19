@@ -28,7 +28,8 @@ data. Two more pieces make it real:
 it starts whatever isn't running (voice server, runner, HUD) detached, so
 everything survives closing the terminal. To make it automatic at login,
 the launchd agents under `~/Library/LaunchAgents/com.helm.*` handle it on
-this machine (HUD, runner, voice, and the USCF rating feed).
+this machine (HUD, runner, voice, the USCF rating feed, and the hourly
+Claude-token feed).
 
 ## How it works
 
@@ -85,6 +86,7 @@ in the repo root instead (they're inlined into the client at build).
 | Var | Purpose | Default |
 |---|---|---|
 | `VAULT_ROOT` | vault folder | **required** (no default) |
+| `CLAUDE_PROJECTS_DIR` | transcript root the token feed scans | `~/.claude/projects` |
 | `HUD_TZ` | IANA timezone for "today" (HUD + runner) | `America/Chicago` |
 | `HUD_USER_NAME` | how voice notes refer to you | `User` |
 | `AGENTIC_OS_MODEL` | model for background `claude -p` runs | `claude-opus-4-8` |

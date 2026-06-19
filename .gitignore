@@ -12,6 +12,7 @@ voice-server/*.onnx
 voice-server/*.bin
 voice-server/samples/
 voice-server/__pycache__/
+feeds/__pycache__/
 runner/runner.log
 runner/runner.pid
 .helm-config.json

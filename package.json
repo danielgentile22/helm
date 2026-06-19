@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "tsx scripts/test-router.ts"
+    "test": "tsx scripts/test-router.ts && python3 feeds/test_claude_tokens.py"
   },
   "dependencies": {
     "next": "^15.3.2",
