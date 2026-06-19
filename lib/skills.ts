@@ -14,6 +14,7 @@ export const ALLOWED_SKILLS = new Set([
   "plan-today",
   "plan-tomorrow",
   "vault-cleanup",
+  "weekly-review", // Sunday synthesis across the three directives → reports trail
   "voice-ask", // tier-3 open-ended asks → headless claude -p via runner
   // Morphy ↔ Notion native skills — executed in-process by the runner (REST),
   // NOT via `claude -p`, so they have no buildPrompt() case.

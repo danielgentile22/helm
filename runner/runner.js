@@ -27,9 +27,10 @@ import {
 } from "node:fs";
 import { join, basename, dirname } from "node:path";
 import { homedir, platform } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { watch } from "node:fs/promises";
 import { queryTasks, createTask, MORPHY_DB_ID_DEFAULT } from "./notion.js";
+import { notify, loadNotifyConfig } from "./notify.js";
 
 const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -83,7 +84,9 @@ const MORPHY_DB_ID = env("MORPHY_DB_ID") || MORPHY_DB_ID_DEFAULT;
 const MORPHY_DIR = join(VAULT_ROOT, "Atlas", "Projects", "Morphy");
 const MORPHY_STATE_FILE = join(VAULT_ROOT, "system", "morphy-state.json");
 // Native skills run in Node here (Notion REST), NOT via headless `claude -p`.
-const NATIVE_SKILLS = new Set(["morphy-sync", "morphy-task-add"]);
+// Exported so the skill-contract test can assert each ALLOWED_SKILL is either
+// native or has a prompt-builder case + deliverable path (see test-skill-contract).
+export const NATIVE_SKILLS = new Set(["morphy-sync", "morphy-task-add"]);
 const MORPHY_SYNC_INTERVAL_MS = 30 * 60_000;
 
 // Calendar agenda cache. The runner has no Google OAuth, so a headless agent
@@ -114,6 +117,13 @@ function modelFor(intent) {
   const m = intent?.args?.model;
   return typeof m === "string" && MODEL_ALLOWLIST.has(m) ? m : CLAUDE_MODEL;
 }
+
+// --- Native macOS notifications --------------------------------------------
+// Fired from the runner (not the browser) so alerts land with no HUD tab open.
+// A run finishing with a deliverable, a run failing, and a Morphy board delta
+// each post a banner via runner/notify.js → osascript. Gate them with
+// HELM_NOTIFY (off disables all) and HELM_NOTIFY_EVENTS (comma list of types).
+const NOTIFY_CONFIG = loadNotifyConfig(env);
 
 function writeHeartbeat() {
   try {
@@ -189,7 +199,7 @@ function tomorrowDate() {
  * Per-skill deliverable path inside the vault — where the user-facing
  * artifact lands. The HUD's Documents panel + doc callouts deep-link here.
  */
-function deliverablePathFor(intent) {
+export function deliverablePathFor(intent) {
   const id8 = (intent.id || "x").slice(0, 8);
   const date = todayDate();
   const args = intent.args || {};
@@ -204,6 +214,8 @@ function deliverablePathFor(intent) {
       return `inbox/reports/inbox-briefs/${date}-${id8}.md`;
     case "vault-cleanup":
       return `inbox/reports/vault-cleanup/${date}-cleanup-${id8}.md`;
+    case "weekly-review":
+      return `inbox/reports/weekly/${date}-weekly-review-${id8}.md`;
     case "voice-ask":
       return `inbox/voice/${date}-${slugify(args.prompt || "ask")}-${id8}.md`;
     default:
@@ -226,7 +238,7 @@ const AUTONOMOUS_PREFIX =
  * plan-today/plan-tomorrow, Gmail in inbox-brief); without the connector the
  * model degrades gracefully and says so in the note.
  */
-function buildPrompt(intent, deliverable) {
+export function buildPrompt(intent, deliverable) {
   const skill = intent.skill;
   const args = intent.args || {};
 
@@ -241,6 +253,8 @@ function buildPrompt(intent, deliverable) {
       return `${AUTONOMOUS_PREFIX}\n\nTask: triage the Gmail inbox and save the brief at exactly ${deliverable}.\n\nSteps:\n1. Pull the last 24h via the Anthropic Gmail MCP connector — mcp__claude_ai_Gmail__search_threads with query "in:inbox newer_than:1d", pageSize 50. If the connector is unavailable, write a short note saying so and stop.\n2. Classify each thread: urgent (deadlines, money, blocked people) / warm (real humans worth replying to) / opportunities (sponsorships, partnerships) / meetings / noise.\n3. Save the triage at ${deliverable}. YAML frontmatter \`date\`, \`skill: inbox-brief\`, \`tags: [inbox, triage]\`. Body groups messages by category, most urgent first.\n4. Do NOT send anything — drafting and sending stay manual.\n\nEnd your reply with: SAVED ${deliverable}`;
     case "vault-cleanup":
       return `${AUTONOMOUS_PREFIX}\n\nTask: tidy the vault and report at exactly ${deliverable}.\n\nScan the vault for stale files (untouched > 7 days, outside system/ and archive/). Move them into archive/ subfolders mirroring their source folder. Write a one-page report at ${deliverable} — YAML frontmatter \`date\`, \`skill: vault-cleanup\`, \`tags: [cleanup, ops]\`; body lists what moved and what was skipped.\n\nEnd your reply with: SAVED ${deliverable}`;
+    case "weekly-review":
+      return `${AUTONOMOUS_PREFIX}\n\nTask: produce Daniel's weekly review — a Sunday synthesis of the past 7 days across his three standing directives — and save it at exactly ${deliverable}.\n\nDaniel's directives, in priority order: (1) land a software-engineering job; (2) land the first client for Morphy Consulting (RF/antenna + cell-tower lease analytics); (3) reach a 1600 USCF chess rating. Frame the whole review around these three.\n\nGather the week's evidence from the vault (all paths relative to the current directory — read what exists, skip what doesn't):\n1. Daily notes — read every daily-notes/YYYY-MM-DD.md from the last 7 days. Pull completed vs. carried-over Top 3 priorities, the focus line, and anything notable in the notes.\n2. Delivered reports — skim this week's reports under inbox/reports/ (morning/, inbox-briefs/, vault-cleanup/, and any prior weekly/) for events or items worth carrying into the synthesis.\n3. Morphy board — read system/morphy-state.json (the runner's cache of the shared Notion board): open task count, ideas awaiting review, who owns what, and the week's adds/closes from its delta. If the file is missing or its "ok" field is false, note the board isn't syncing and move on.\n4. Metric history — read system/metrics/metrics.csv (columns: timestamp,source,metric,value,status,error). For each directive's metric compute the week-over-week move (first vs. last point in the window): uscf/rating (chess), jobs/applications and jobs/applied_7d (job search), github/commits_7d + open_prs + open_issues (Morphy code), claude_code/tokens_5h (overall activity). Report start→end and the delta; say "flat" when a number didn't move.\n\nStructure the note: top-level "# Weekly Review" + "**Week of:** <Mon date>–<Sun date>", then "## At a Glance" (3-5 bullets — the week's headline across all three directives, each naming the metric that moved), then one section per directive: "## Job Search", "## Morphy Consulting", "## Chess — Road to 1600". In each: what actually happened this week (from the notes/reports), the metric trend, and a one-word verdict — advanced / held / stalled. Then "## Momentum & Metrics" (a compact markdown table: metric, start, end, delta), then "## Next Week" (3 concrete, directive-aligned priorities drawn from what's still unfinished). Be specific and grounded — cite real numbers and real task names; never invent activity that isn't in the files. If a directive had no activity this week, say so plainly rather than padding.\n\nYAML frontmatter: \`date\`, \`skill: weekly-review\`, \`tags: [weekly, review]\`.\n\nEnd your reply with: SAVED ${deliverable}`;
     case "voice-ask": {
       const ask = (args.prompt || "").trim();
       if (!ask) return null;
@@ -269,10 +283,10 @@ function buildPrompt(intent, deliverable) {
 // already in-flight.
 const MAX_CONCURRENT = 3;
 const SERIAL_SKILLS = new Set(["plan-today", "plan-tomorrow"]);
-const DEDUPE_SKILLS = new Set(["morning-report", "inbox-brief"]);
-// Long-haul skills get a 20-min hard timeout instead of 10 — web-research
-// runs routinely take longer than you'd guess.
-const LONG_SKILLS = new Set(["morning-report"]);
+const DEDUPE_SKILLS = new Set(["morning-report", "inbox-brief", "weekly-review"]);
+// Long-haul skills get a 20-min hard timeout instead of 10 — web-research and
+// the week-spanning weekly synthesis routinely take longer than you'd guess.
+const LONG_SKILLS = new Set(["morning-report", "weekly-review"]);
 
 let active = 0;
 const inFlight = new Set(); // intent.skill values currently running
@@ -523,6 +537,24 @@ args: ${argsJson}
     });
   });
 
+  // Native banner: a deliverable landing → run-complete, any error → run-failed.
+  // Fire-and-forget; a notification failure must never affect the run.
+  try {
+    if (status.status === "ok" && deliverable) {
+      notify(
+        { type: "run-complete", skill: intent.skill, summary: status.summary, deliverable },
+        NOTIFY_CONFIG
+      );
+    } else if (status.status === "error") {
+      notify(
+        { type: "run-failed", skill: intent.skill, summary: status.summary },
+        NOTIFY_CONFIG
+      );
+    }
+  } catch (e) {
+    log(`${runId}: notify failed: ${e.message}`);
+  }
+
   try {
     unlinkSync(queuePath);
   } catch {
@@ -673,6 +705,18 @@ async function morphySync(reason = "scheduled") {
   log(
     `morphy-sync (${reason}): ${tasks.length} tasks, ${open_total} open, ${ideas_awaiting} ideas, +${delta.added.length}/-${delta.closed.length}`
   );
+
+  // Notify only on the background cadence — that's "Michael changed the board
+  // while I was away." Skip startup (delta vs a possibly-stale cache) and the
+  // user-initiated syncs (after-add / on-demand), where Daniel made the change.
+  if (reason === "scheduled" && (delta.added.length || delta.closed.length)) {
+    try {
+      notify({ type: "morphy-delta", added: delta.added, closed: delta.closed }, NOTIFY_CONFIG);
+    } catch (e) {
+      log(`morphy-sync notify failed: ${e.message}`);
+    }
+  }
+
   return state;
 }
 
@@ -923,42 +967,61 @@ function pidAlive(pid) {
   }
 }
 
-if (existsSync(PIDFILE)) {
-  try {
-    const otherPid = parseInt(readFileSync(PIDFILE, "utf8").trim(), 10);
-    if (Number.isInteger(otherPid) && otherPid !== process.pid && pidAlive(otherPid)) {
-      log(`another runner alive at pid ${otherPid} — exiting this one (pid ${process.pid})`);
-      process.exit(0);
+// Boot the daemon. Pulled into a function and gated behind the entrypoint check
+// below so the module can be IMPORTED (by the skill-contract test) without
+// acquiring the lock, writing the heartbeat, or starting any loops/spawns.
+function main() {
+  if (existsSync(PIDFILE)) {
+    try {
+      const otherPid = parseInt(readFileSync(PIDFILE, "utf8").trim(), 10);
+      if (Number.isInteger(otherPid) && otherPid !== process.pid && pidAlive(otherPid)) {
+        log(`another runner alive at pid ${otherPid} — exiting this one (pid ${process.pid})`);
+        process.exit(0);
+      }
+    } catch {
+      /* stale pidfile — overwrite */
     }
+  }
+  writeFileSync(PIDFILE, String(process.pid), "utf8");
+  process.on("exit", () => {
+    try {
+      const cur = parseInt(readFileSync(PIDFILE, "utf8").trim(), 10);
+      if (cur === process.pid) unlinkSync(PIDFILE);
+    } catch {
+      /* ignore */
+    }
+  });
+
+  ensureDirs();
+  log(
+    `runner booted (pid ${process.pid}) vault=${VAULT_ROOT} model=${CLAUDE_MODEL} ` +
+      `notify=${NOTIFY_CONFIG.enabled ? [...NOTIFY_CONFIG.types].join("+") || "none" : "off"}`
+  );
+  writeHeartbeat();
+  setInterval(writeHeartbeat, 15_000);
+  // Morphy board: sync once on boot, then every 30 min while the runner is alive.
+  morphySync("startup").catch((e) => log(`morphy startup sync: ${e.message}`));
+  setInterval(
+    () => morphySync("scheduled").catch((e) => log(`morphy sync: ${e.message}`)),
+    MORPHY_SYNC_INTERVAL_MS
+  );
+  // Calendar agenda: same cache-on-a-cadence shape, refreshed by a headless agent.
+  agendaSync("startup").catch((e) => log(`agenda startup sync: ${e.message}`));
+  setInterval(
+    () => agendaSync("scheduled").catch((e) => log(`agenda sync: ${e.message}`)),
+    AGENDA_SYNC_INTERVAL_MS
+  );
+  watchLoop();
+  loop();
+}
+
+// Only boot when run directly (`node runner/runner.js`), never when imported.
+function runningAsEntrypoint() {
+  try {
+    return import.meta.url === pathToFileURL(process.argv[1] || "").href;
   } catch {
-    /* stale pidfile — overwrite */
+    return false;
   }
 }
-writeFileSync(PIDFILE, String(process.pid), "utf8");
-process.on("exit", () => {
-  try {
-    const cur = parseInt(readFileSync(PIDFILE, "utf8").trim(), 10);
-    if (cur === process.pid) unlinkSync(PIDFILE);
-  } catch {
-    /* ignore */
-  }
-});
 
-ensureDirs();
-log(`runner booted (pid ${process.pid}) vault=${VAULT_ROOT} model=${CLAUDE_MODEL}`);
-writeHeartbeat();
-setInterval(writeHeartbeat, 15_000);
-// Morphy board: sync once on boot, then every 30 min while the runner is alive.
-morphySync("startup").catch((e) => log(`morphy startup sync: ${e.message}`));
-setInterval(
-  () => morphySync("scheduled").catch((e) => log(`morphy sync: ${e.message}`)),
-  MORPHY_SYNC_INTERVAL_MS
-);
-// Calendar agenda: same cache-on-a-cadence shape, refreshed by a headless agent.
-agendaSync("startup").catch((e) => log(`agenda startup sync: ${e.message}`));
-setInterval(
-  () => agendaSync("scheduled").catch((e) => log(`agenda sync: ${e.message}`)),
-  AGENDA_SYNC_INTERVAL_MS
-);
-watchLoop();
-loop();
+if (runningAsEntrypoint()) main();

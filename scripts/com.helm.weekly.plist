@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  Weekly-review schedule. Fires every Sunday at 17:00 local time, dropping a
+  `weekly-review` intent into the runner's queue (it does NOT run claude itself —
+  the always-alive com.helm.runner picks the intent up and executes the skill).
+
+  Install:  cp scripts/com.helm.weekly.plist ~/Library/LaunchAgents/
+            launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.helm.weekly.plist
+  Run now:  launchctl kickstart -k gui/$(id -u)/com.helm.weekly
+
+  No RunAtLoad on purpose — a login should not fire an expensive weekly run.
+-->
+<dict>
+    <key>Label</key>
+    <string>com.helm.weekly</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/node</string>
+        <string>/Users/user/Projects/helm/scripts/queue-intent.mjs</string>
+        <string>weekly-review</string>
+        <string>schedule:weekly</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/user/Projects/helm</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>0</integer>
+        <key>Hour</key>
+        <integer>17</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/user/Projects/helm/logs/weekly.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/user/Projects/helm/logs/weekly.log</string>
+</dict>
+</plist>
