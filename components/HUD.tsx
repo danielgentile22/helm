@@ -330,6 +330,7 @@ const DECK_SKILLS: { skill: string; label: string }[] = [
   { skill: "plan-today", label: "Plan Today" },
   { skill: "plan-tomorrow", label: "Plan Tmrw" },
   { skill: "vault-cleanup", label: "Vault Clean" },
+  { skill: "weekly-review", label: "Weekly Rev" },
   { skill: "morphy-sync", label: "Morphy Sync" },
 ];
 
