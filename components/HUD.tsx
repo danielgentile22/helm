@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import type { VaultState, Metric } from "@/lib/vault";
 import { voice } from "@/lib/voiceClient";
 import { scrubRunSummary, humanizeFailure } from "@/lib/spokenText";
+import { ratingProgress } from "@/lib/vitals";
 import { BG_MODES, type BgMode, type CoreMode } from "./GraphCore";
 import ReportOverlay from "./ReportOverlay";
 
@@ -202,8 +203,18 @@ function runAnnouncement(skill: string, status: string, summary: string, label?:
 // panels (memoized — only re-render when their slice of state changes)
 // ---------------------------------------------------------------------------
 
-const VITAL_DEFS: { source: string; metric: string; label: string; raw?: boolean }[] = [
-  { source: "uscf", metric: "rating", label: "USCF Rating", raw: true },
+// goal/floor opt a tile into a progress-to-goal bar (the floor→goal band the
+// value is measured within — see ratingProgress). Tiles without a goal render
+// no bar.
+const VITAL_DEFS: {
+  source: string;
+  metric: string;
+  label: string;
+  raw?: boolean;
+  goal?: number;
+  floor?: number;
+}[] = [
+  { source: "uscf", metric: "rating", label: "USCF Rating", raw: true, goal: 1600, floor: 1200 },
 ];
 
 function VitalLabel({ m, label }: { m: Metric; label: string }) {
@@ -296,6 +307,14 @@ const Vitals = memo(function Vitals({ state, hot }: { state: VaultState; hot?: b
             <span className={`delta ${deltaCls}`}>
               {dw === null ? "—" : dw === 0 ? "steady /wk" : `${dw > 0 ? "▲" : "▼"} ${fmt(Math.abs(dw))} /wk`}
             </span>
+            {def.goal != null && (
+              <div className="progress" title={`${m.value} → ${def.goal}`}>
+                <div className="bar">
+                  <i style={{ width: `${ratingProgress(m.value, def.goal, def.floor)}%` }} />
+                </div>
+                <span className="goal-tag">{def.goal}</span>
+              </div>
+            )}
             <div className="spark-row">
               <Sparkline points={m.history.map((h) => h.value)} />
             </div>
