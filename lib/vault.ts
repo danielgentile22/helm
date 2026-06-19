@@ -92,6 +92,25 @@ export interface MorphyState {
   tasks?: MorphyTask[];
 }
 
+/** Calendar agenda cache — written by the runner's headless agent
+ *  (system/agenda.json). The HUD reads this; it never calls Calendar. ok=false
+ *  or a date that isn't today → the HUD falls back to the daily-note ## Schedule. */
+export interface AgendaEvent {
+  time: string; // "HH:MM" (24h, HUD_TZ) or "all-day"
+  end?: string;
+  item: string;
+  allDay?: boolean;
+  location?: string;
+}
+export interface AgendaState {
+  ok: boolean;
+  reason?: string; // why the last sync failed (when ok=false)
+  last_sync_ts: string;
+  date: string; // YYYY-MM-DD in HUD_TZ — the day these events belong to
+  tz?: string;
+  events: AgendaEvent[];
+}
+
 export interface VaultState {
   generated_at: string;
   vault_root: string;
@@ -102,6 +121,7 @@ export interface VaultState {
   queue: QueueEntry[];
   morning: MorningReport | null;
   morphy: MorphyState | null;
+  agenda: AgendaState | null;
   etas: Record<string, number>; // skill → median duration_s of past ok runs
 }
 
@@ -502,6 +522,11 @@ export function readMorphyState(): MorphyState | null {
   return safeJson<MorphyState>(path.join(VAULT_ROOT, "system", "morphy-state.json"));
 }
 
+/** Calendar agenda cache, written by the runner each sync. null = never synced. */
+export function readAgenda(): AgendaState | null {
+  return safeJson<AgendaState>(path.join(VAULT_ROOT, "system", "agenda.json"));
+}
+
 // --- consolidated snapshot --------------------------------------------------------
 export function readVaultState(): VaultState {
   return {
@@ -514,6 +539,7 @@ export function readVaultState(): VaultState {
     queue: readQueue(),
     morning: readMorningReport(),
     morphy: readMorphyState(),
+    agenda: readAgenda(),
     etas: readSkillEtas(),
   };
 }

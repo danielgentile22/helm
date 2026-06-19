@@ -633,10 +633,22 @@ function parseHHMM(t: string): number {
 
 const Schedule = memo(function Schedule({ state, hot }: { state: VaultState; hot?: boolean }) {
   const d = state.daily;
+  const a = state.agenda;
   const now = useClock();
-  if (!d || d.schedule.length === 0) return null;
-  const nowMin = now && d.isToday ? now.getHours() * 60 + now.getMinutes() : -1;
-  const items = d.schedule.map((s) => ({ ...s, min: parseHHMM(s.time) }));
+  // The agenda cache is "today's" only when its date matches the local day (the
+  // same browser-local clock the highlight below uses). A stale or ok:false
+  // cache is ignored, and we fall back to the daily-note ## Schedule.
+  const todayLocal = now ? new Intl.DateTimeFormat("en-CA").format(now) : null;
+  const useAgenda = !!(a && a.ok && a.events.length > 0 && todayLocal && a.date === todayLocal);
+
+  const items0: { time: string; item: string }[] = useAgenda
+    ? a!.events.map((e) => ({ time: e.time, item: e.item }))
+    : d?.schedule ?? [];
+  if (items0.length === 0) return null;
+
+  const live = useAgenda || (d?.isToday ?? false);
+  const nowMin = now && live ? now.getHours() * 60 + now.getMinutes() : -1;
+  const items = items0.map((s) => ({ ...s, min: parseHHMM(s.time) }));
   // current block = latest item that has started
   let currentIdx = -1;
   if (nowMin >= 0) {
@@ -644,15 +656,17 @@ const Schedule = memo(function Schedule({ state, hot }: { state: VaultState; hot
       if (items[i].min >= 0 && items[i].min <= nowMin) currentIdx = i;
     }
   }
-  const ageDays = d.isToday ? 0 : noteAgeDays(d.date);
+  const stale = !live;
+  const ageDays = live ? 0 : d ? noteAgeDays(d.date) : 0;
+  const tick = useAgenda ? "TODAY · CAL" : d?.isToday ? "TODAY" : `${ageDays}D OLD`;
   return (
     <section
-      className={`block boot-stagger ${d.isToday ? "" : "note-stale"} ${hot ? "voice-hot" : ""}`}
+      className={`block boot-stagger ${stale ? "note-stale" : ""} ${hot ? "voice-hot" : ""}`}
       style={{ animationDelay: "0.34s" }}
     >
       <SectionTitle
         title="Schedule"
-        tick={d.isToday ? "TODAY" : `${ageDays}D OLD`}
+        tick={tick}
         href="https://calendar.google.com/calendar/u/0/r/day"
       />
       <div className="sched">
@@ -669,7 +683,7 @@ const Schedule = memo(function Schedule({ state, hot }: { state: VaultState; hot
           </div>
         ))}
       </div>
-      {d.focus && <div className="focus-line">focus · {d.focus}</div>}
+      {d?.focus && <div className="focus-line">focus · {d.focus}</div>}
     </section>
   );
 });
