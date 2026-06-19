@@ -86,6 +86,14 @@ const MORPHY_STATE_FILE = join(VAULT_ROOT, "system", "morphy-state.json");
 const NATIVE_SKILLS = new Set(["morphy-sync", "morphy-task-add"]);
 const MORPHY_SYNC_INTERVAL_MS = 30 * 60_000;
 
+// Calendar agenda cache. The runner has no Google OAuth, so a headless agent
+// reaches Calendar via MCP and writes system/agenda.json (the HUD reads this and
+// never calls Calendar — same local-only firewall as the Morphy board). Each
+// refresh spawns `claude -p`, so the cadence is gentle and env-overridable.
+const AGENDA_STATE_FILE = join(VAULT_ROOT, "system", "agenda.json");
+const AGENDA_SYNC_INTERVAL_MS = (Number(env("AGENDA_SYNC_MIN")) || 30) * 60_000;
+const AGENDA_SYNC_TIMEOUT_MS = 3 * 60_000;
+
 const IS_WINDOWS = platform() === "win32";
 const CLAUDE_BIN = IS_WINDOWS ? "claude.exe" : "claude";
 // Pin the model for ALL headless spawns — never inherit the interactive CLI
@@ -668,6 +676,117 @@ async function morphySync(reason = "scheduled") {
   return state;
 }
 
+// --- Calendar agenda cache --------------------------------------------------
+// A headless `claude -p` reaches Calendar via MCP and writes system/agenda.json.
+// If Calendar isn't reachable in headless mode the agent writes ok:false, and
+// the HUD falls back to the daily-note ## Schedule. Mirrors morphySync's
+// cache-on-a-cadence shape; the runner validates the agent's write so the HUD
+// always reads a well-formed file.
+function agendaSyncPrompt(date, tz) {
+  return (
+    "Execute autonomously in headless mode. Do not ask for confirmation, do not " +
+    "call AskUserQuestion, produce no spoken summary. Your only job is to write " +
+    "one JSON file.\n\n" +
+    "Task: write today's calendar agenda to exactly system/agenda.json (relative " +
+    "to the current directory).\n\n" +
+    `1. If a Google Calendar MCP connector is available, list today's events for ${date} ` +
+    `in timezone ${tz}, sorted by start time, from the user's primary calendar.\n` +
+    "2. Write system/agenda.json with EXACTLY this shape and nothing else:\n" +
+    `{"ok": true, "last_sync_ts": "<current UTC time as ISO-8601, e.g. 2026-06-19T16:30:00Z>", ` +
+    `"date": "${date}", "tz": "${tz}", "events": [{"time": "09:00", "end": "09:30", ` +
+    `"item": "Event title", "allDay": false, "location": ""}]}\n` +
+    `   - time and end are 24-hour HH:MM in ${tz}. For an all-day event set ` +
+    `"time":"all-day", "end":"", "allDay":true, and list it first.\n` +
+    "   - item is the event title; location may be \"\". Keep events sorted by start.\n" +
+    "   - An empty day is valid: write \"events\": [].\n" +
+    "3. If NO Google Calendar connector is available, or the lookup fails, instead " +
+    `write: {"ok": false, "reason": "<short reason>", "last_sync_ts": "<UTC ISO>", ` +
+    `"date": "${date}", "tz": "${tz}", "events": []}\n\n` +
+    "Write ONLY that one file — no other files, no markdown. Your final reply must be the single word DONE."
+  );
+}
+
+async function agendaSync(reason = "scheduled") {
+  const date = todayDate();
+  const tz = HUD_TZ;
+  const prompt = agendaSyncPrompt(date, tz);
+
+  const code = await new Promise((resolve) => {
+    let settled = false;
+    const finish = (c) => {
+      if (!settled) {
+        settled = true;
+        resolve(c);
+      }
+    };
+    let proc;
+    try {
+      proc = spawn(
+        CLAUDE_BIN,
+        ["-p", prompt, "--model", CLAUDE_MODEL, "--dangerously-skip-permissions"],
+        { shell: false, windowsHide: true, stdio: ["ignore", "ignore", "pipe"], cwd: VAULT_ROOT }
+      );
+    } catch (e) {
+      log(`agenda-sync spawn failed: ${e.message}`);
+      finish(-1);
+      return;
+    }
+    const timer = setTimeout(() => {
+      try {
+        proc.kill();
+      } catch {
+        /* ignore */
+      }
+      finish(-2);
+    }, AGENDA_SYNC_TIMEOUT_MS);
+    let err = "";
+    proc.stderr.on("data", (c) => {
+      err += c.toString();
+    });
+    proc.on("error", (e) => {
+      clearTimeout(timer);
+      log(`agenda-sync error: ${e.message}`);
+      finish(-1);
+    });
+    proc.on("close", (c) => {
+      clearTimeout(timer);
+      if (err.trim()) log(`agenda-sync stderr: ${err.trim().slice(0, 160)}`);
+      finish(c ?? 0);
+    });
+  });
+
+  // Validate the agent's write. A well-formed file (ok true OR false) is the
+  // source of truth — return it untouched. Only when the agent produced nothing
+  // usable do we write a clean ok:false so the HUD falls back instead of choking.
+  // A prior good cache for a different day is left alone: the HUD's date check
+  // guards staleness, so we never clobber yesterday on a transient failure.
+  try {
+    const cache = readJson(AGENDA_STATE_FILE);
+    if (cache && typeof cache.ok === "boolean" && Array.isArray(cache.events)) {
+      log(`agenda-sync (${reason}): ok=${cache.ok} events=${cache.events.length} date=${cache.date}`);
+      return cache;
+    }
+  } catch {
+    /* no parseable cache — fall through */
+  }
+
+  const fallback = {
+    ok: false,
+    reason: code === -2 ? "agenda agent timed out" : "agenda agent produced no valid cache",
+    last_sync_ts: new Date().toISOString(),
+    date,
+    tz,
+    events: [],
+  };
+  try {
+    writeJson(AGENDA_STATE_FILE, fallback);
+  } catch {
+    /* ignore */
+  }
+  log(`agenda-sync (${reason}): no valid cache (code ${code}) — wrote ok:false`);
+  return fallback;
+}
+
 // Native skills execute in Node (direct Notion REST) instead of `claude -p`.
 async function processNative(intent, runId, queuePath) {
   const tsStarted = new Date().toISOString();
@@ -834,6 +953,12 @@ morphySync("startup").catch((e) => log(`morphy startup sync: ${e.message}`));
 setInterval(
   () => morphySync("scheduled").catch((e) => log(`morphy sync: ${e.message}`)),
   MORPHY_SYNC_INTERVAL_MS
+);
+// Calendar agenda: same cache-on-a-cadence shape, refreshed by a headless agent.
+agendaSync("startup").catch((e) => log(`agenda startup sync: ${e.message}`));
+setInterval(
+  () => agendaSync("scheduled").catch((e) => log(`agenda sync: ${e.message}`)),
+  AGENDA_SYNC_INTERVAL_MS
 );
 watchLoop();
 loop();

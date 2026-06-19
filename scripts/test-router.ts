@@ -30,6 +30,7 @@ function state(over: Partial<VaultState> = {}): VaultState {
     queue: [],
     morning: null,
     morphy: null,
+    agenda: null,
     etas: {},
     ...over,
   };
