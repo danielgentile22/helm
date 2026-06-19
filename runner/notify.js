@@ -24,16 +24,21 @@ export const NOTIFY_EVENT_TYPES = ["run-complete", "run-failed", "morphy-delta"]
 /**
  * Build the notification config from an env accessor (pass the runner's `env`).
  *   HELM_NOTIFY        — "off" disables everything (default: on).
- *   HELM_NOTIFY_EVENTS — comma list of event types to allow; default = all
- *                        three. Unknown names are dropped; "" → nothing fires.
+ *   HELM_NOTIFY_EVENTS — comma list of event types to allow. UNSET → all three
+ *                        (the default). Any explicit value is an allow-list:
+ *                        unknown names are dropped, and "" (or whitespace) →
+ *                        nothing fires — a way to mute every type with
+ *                        HELM_NOTIFY still on.
  */
 export function loadNotifyConfig(env = (k) => process.env[k]) {
   const enabled = String(env("HELM_NOTIFY") ?? "on").trim().toLowerCase() !== "off";
   const raw = env("HELM_NOTIFY_EVENTS");
   let types;
-  if (raw == null || String(raw).trim() === "") {
-    types = new Set(NOTIFY_EVENT_TYPES);
+  if (raw == null) {
+    types = new Set(NOTIFY_EVENT_TYPES); // unset → default to all three
   } else {
+    // An explicit value is an allow-list. "" splits/filters down to the empty
+    // set, so an explicit blank fires nothing (distinct from unset).
     types = new Set(
       String(raw)
         .split(",")
