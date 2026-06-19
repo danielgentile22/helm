@@ -711,6 +711,7 @@ body {
   grid-template-areas:
     "label delta"
     "value value"
+    "goal  goal"
     "spark spark";
   align-items: baseline;
   padding: 10px 0 12px;
@@ -751,6 +752,36 @@ body {
 }
 .vital .delta.neg { color: var(--err); }
 .vital .delta.zero { color: var(--ink-faint); }
+
+/* progress-to-goal bar — same fill pattern as .objective .progress (track +
+   absolutely-positioned transitioning fill), sized for a vitals tile and
+   trailed by the goal number. The grid row sits between value and sparkline. */
+.vital .progress {
+  grid-area: goal;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+}
+.vital .progress .bar {
+  position: relative;
+  flex: 1;
+  height: 2px;
+  background: var(--line-faint);
+  overflow: hidden;
+}
+.vital .progress .bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--ember-deep), var(--ember-hot));
+  transition: width 1.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.vital .progress .goal-tag {
+  font-size: 7px;
+  letter-spacing: 0.16em;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
 
 .spark-row {
   grid-area: spark;
@@ -803,7 +834,8 @@ body {
 
 .vital.is-stale .value,
 .vital.is-stale .delta,
-.vital.is-stale .spark {
+.vital.is-stale .spark,
+.vital.is-stale .progress {
   opacity: 0.45;
 }
 

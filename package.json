@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "tsx scripts/test-router.ts && tsx scripts/test-skill-contract.ts && tsx scripts/test-notify.ts && python3 feeds/test_claude_tokens.py && python3 feeds/test_job_applications.py && python3 feeds/test_morphy_github.py"
+    "test": "tsx scripts/test-router.ts && tsx scripts/test-skill-contract.ts && tsx scripts/test-notify.ts && tsx scripts/test-vitals.ts && python3 feeds/test_claude_tokens.py && python3 feeds/test_job_applications.py && python3 feeds/test_morphy_github.py"
   },
   "dependencies": {
     "next": "^15.3.2",
