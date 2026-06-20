@@ -6,7 +6,8 @@ import type { VaultState, Metric } from "@/lib/vault";
 import { voice } from "@/lib/voiceClient";
 import { scrubRunSummary, humanizeFailure } from "@/lib/spokenText";
 import { ratingProgress } from "@/lib/vitals";
-import { BG_MODES, type BgMode, type CoreMode } from "./GraphCore";
+import { deriveCore, type CoreSignals } from "@/lib/core";
+import { BG_MODES, type BgMode, type CoreMode, type CoreFlare } from "./GraphCore";
 import ReportOverlay from "./ReportOverlay";
 
 const GraphCore = dynamic(() => import("./GraphCore"), { ssr: false });
@@ -782,6 +783,11 @@ export default function HUD() {
   const [ptt, setPtt] = useState(false);
   const [wakeListening, setWakeListening] = useState(false);
   const [hotPanels, setHotPanels] = useState<string[]>([]);
+  // monotonic tallies of the discrete events that flare the core — a run
+  // finishing, a report landing, the Morphy board moving. deriveCore turns a
+  // tally advancing into a one-shot pulse (see the flare effect below).
+  const [events, setEvents] = useState({ runsDone: 0, reportsIn: 0, morphyMoves: 0 });
+  const [flare, setFlare] = useState<CoreFlare | null>(null);
   // report reveal: callouts = cards branching off the core (max 4 anchor
   // slots around the orb — same hairline language). kind "doc" opens the
   // overlay, kind "link" opens the source in a new tab, kind "task" is a
@@ -823,6 +829,13 @@ export default function HUD() {
   reportOpenRef.current = report !== null;
   const seenRunsRef = useRef<Set<string>>(new Set());
   const spokenRunsRef = useRef<Set<string>>(new Set());
+  // flare bookkeeping: a per-event seq the renderer keys on, the previous signal
+  // snapshot deriveCore diffs against, and the last-seen marks the report/Morphy
+  // detectors prime from so a pre-existing report/delta doesn't flare on load.
+  const flareSeqRef = useRef(0);
+  const prevSignalsRef = useRef<CoreSignals | null>(null);
+  const lastReportRef = useRef<string | null>(null);
+  const lastMorphyRef = useRef<string | null>(null);
 
   const pushLine = useCallback((cls: string, text: string) => {
     setFeed((f) => [...f.slice(-30), { ts: nowHHMMSS(), cls, text }]);
@@ -1000,6 +1013,11 @@ export default function HUD() {
           pushLine("sys", `background → ${next.toUpperCase()}`);
           return next;
         });
+      } else if (e.key === "f" || e.key === "F") {
+        // fire a test flare (cycles run → report → morphy) for layout/filming
+        const kind = (["run", "report", "morphy"] as const)[flareSeqRef.current % 3];
+        setFlare({ kind, seq: ++flareSeqRef.current });
+        pushLine("sys", `core flare → ${kind.toUpperCase()}`);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -1127,6 +1145,8 @@ export default function HUD() {
         );
       }
     });
+    // each newly-terminal run flares the core (post-priming only)
+    if (done.length) setEvents((e) => ({ ...e, runsDone: e.runsDone + done.length }));
   }, [state]);
 
   const onQueued = useCallback(
@@ -1136,23 +1156,70 @@ export default function HUD() {
     [pushLine]
   );
 
+  // report-landing: the morning report's path changes when a fresh one lands.
+  // Prime on first sight (page may open with a report already present).
+  useEffect(() => {
+    const rel = state?.morning?.rel ?? "";
+    if (lastReportRef.current === null) {
+      lastReportRef.current = rel;
+      return;
+    }
+    if (rel && rel !== lastReportRef.current) {
+      lastReportRef.current = rel;
+      setEvents((e) => ({ ...e, reportsIn: e.reportsIn + 1 }));
+    }
+  }, [state?.morning?.rel]);
+
+  // Morphy delta: a sync that actually moved the board (added/closed > 0) gets a
+  // fingerprint; an empty sync leaves the last real mark in place so it doesn't
+  // false-fire when the delta clears.
+  useEffect(() => {
+    const d = state?.morphy?.delta;
+    const moved = (d?.added?.length ?? 0) + (d?.closed?.length ?? 0);
+    const mark = moved > 0 ? `${state?.morphy?.last_sync_ts ?? ""}:${moved}` : "";
+    if (lastMorphyRef.current === null) {
+      lastMorphyRef.current = mark;
+      return;
+    }
+    if (mark && mark !== lastMorphyRef.current) {
+      lastMorphyRef.current = mark;
+      setEvents((e) => ({ ...e, morphyMoves: e.morphyMoves + 1 }));
+    }
+  }, [state?.morphy?.last_sync_ts]);
+
+  // turn an advanced tally into a one-shot flare. deriveCore diffs this snapshot
+  // against the previous one; mode booleans are irrelevant to the flare, so they
+  // ride neutral here (mode itself is derived live below).
+  useEffect(() => {
+    const snap: CoreSignals = {
+      error: false,
+      listening: false,
+      speaking: false,
+      working: false,
+      ...events,
+    };
+    const { flare: f } = deriveCore(snap, prevSignalsRef.current ?? undefined);
+    prevSignalsRef.current = snap;
+    if (f) setFlare({ kind: f, seq: ++flareSeqRef.current });
+  }, [events]);
+
   // auto mode: fetch error → error; PTT held or wake window open → listening;
   // voice playing → speaking (orb mouths it, even mid-work); runner busy →
-  // working; else idle
-  const autoMode: CoreMode = error
-    ? "error"
-    : ptt || wakeListening
-      ? "listening"
-      : voiceSpeaking
-        ? "speaking"
-        : state?.runner?.busy
-          ? "working"
-          : "idle";
+  // working; else idle. deriveCore owns the precedence (same order as before).
+  const autoMode = deriveCore({
+    error,
+    listening: ptt || wakeListening,
+    speaking: voiceSpeaking,
+    working: !!state?.runner?.busy,
+    runsDone: events.runsDone,
+    reportsIn: events.reportsIn,
+    morphyMoves: events.morphyMoves,
+  }).mode;
   const mode = modeOverride ?? autoMode;
 
   return (
     <main className="stage">
-      <GraphCore mode={mode} bgMode={bgMode} getLevel={voice.getLevel} />
+      <GraphCore mode={mode} bgMode={bgMode} getLevel={voice.getLevel} flare={flare} />
 
       <div className="scrim scrim-l" aria-hidden="true" />
       <div className="scrim scrim-r" aria-hidden="true" />

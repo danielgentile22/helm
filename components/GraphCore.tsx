@@ -6,6 +6,7 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import type { CoreMode, CoreEvent } from "@/lib/core";
 
 // ---------------------------------------------------------------------------
 // GRAPH CORE — HELM core visual.
@@ -17,9 +18,24 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 // playing; falls back to the synthetic envelope (demo key 4, no audio).
 // ---------------------------------------------------------------------------
 
-export type CoreMode = "idle" | "working" | "listening" | "speaking" | "error";
+export type { CoreMode } from "@/lib/core";
 export type BgMode = "flat" | "depth" | "grid" | "nebula";
 export const BG_MODES: BgMode[] = ["flat", "depth", "grid", "nebula"];
+
+/** A one-shot pulse to layer on the steady mode feel — `seq` bumps per event so
+ *  the render loop can tell a fresh flare from the same one held across frames. */
+export interface CoreFlare {
+  kind: CoreEvent;
+  seq: number;
+}
+
+// each event arrives with its own weight — a finished run hits hardest, a board
+// move is the most subtle — scaling the brightness/spread of the decaying pulse
+const FLARE_GAIN: Record<CoreEvent, number> = {
+  run: 1.0,
+  report: 0.85,
+  morphy: 0.7,
+};
 
 // color comes from a slow hue voyage (full spectrum ~70s); modes shape
 // tempo + brightness, error locks the hue to red
@@ -29,12 +45,17 @@ interface ModeFeel {
   hueRate: number; // hue cycle multiplier
 }
 
+// tuned so the five states read at a glance rather than blurring together:
+// idle is calm and a touch dim; working races (fast drift, bright, hue
+// voyaging); listening nearly freezes the hue (holding still to hear);
+// speaking is animated with the hue tracking the voice; error is agitated
+// motion locked to red but not blown out.
 const FEELS: Record<CoreMode, ModeFeel> = {
-  idle: { speed: 1, boost: 1, hueRate: 1 },
-  working: { speed: 1.7, boost: 1.25, hueRate: 2.2 },
-  listening: { speed: 1.2, boost: 1.1, hueRate: 0.6 },
-  speaking: { speed: 1.3, boost: 1.15, hueRate: 1 },
-  error: { speed: 1.8, boost: 1.2, hueRate: 0 },
+  idle: { speed: 0.85, boost: 0.95, hueRate: 1.0 },
+  working: { speed: 1.95, boost: 1.32, hueRate: 2.8 },
+  listening: { speed: 1.15, boost: 1.08, hueRate: 0.35 },
+  speaking: { speed: 1.35, boost: 1.22, hueRate: 1.15 },
+  error: { speed: 2.1, boost: 1.18, hueRate: 0 },
 };
 
 const ERROR_HUE = 0.015;
@@ -119,19 +140,24 @@ export default function GraphCore({
   mode = "idle",
   bgMode = "depth",
   getLevel,
+  flare = null,
 }: {
   mode?: CoreMode;
   bgMode?: BgMode;
   /** real speech envelope 0..1, or null when no audio is playing */
   getLevel?: () => number | null;
+  /** transient event pulse layered on the mode feel; null between events */
+  flare?: CoreFlare | null;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const modeRef = useRef<CoreMode>(mode);
   const bgRef = useRef<BgMode>(bgMode);
   const getLevelRef = useRef(getLevel);
+  const flareRef = useRef(flare);
   modeRef.current = mode;
   bgRef.current = bgMode;
   getLevelRef.current = getLevel;
+  flareRef.current = flare;
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -430,6 +456,12 @@ export default function GraphCore({
     const clock = new THREE.Clock();
     let level = 0;
     let speed = 1;
+    // flare: a discrete event kicks the envelope to 1, which then decays toward
+    // rest over ~1s. flareSeen tracks the last seq consumed so a held flare prop
+    // pulses once, not every frame; flareGain is the active event's weight.
+    let flareEnv = 0;
+    let flareSeen = -1;
+    let flareGain = 0;
     let hue = 0.62; // start at the reference blue, then voyage
     let lastT = 0;
     // speed-integrated clock — mode changes alter velocity, never position
@@ -465,6 +497,16 @@ export default function GraphCore({
       level += (targetLevel - level) * (targetLevel > level ? 0.5 : 0.12);
       speed += (feel.speed - speed) * 0.03;
       simT += dt * speed;
+
+      // flare envelope — a new event kicks it to full, then it decays toward 0
+      const fl = flareRef.current;
+      if (fl && fl.seq !== flareSeen) {
+        flareSeen = fl.seq;
+        flareEnv = 1;
+        flareGain = FLARE_GAIN[fl.kind];
+      }
+      flareEnv += (0 - flareEnv) * Math.min(1, dt * 2.6);
+      const flarePulse = flareEnv * flareGain; // brightness/spread amount this frame
 
       // slow hue voyage (~70s per lap); speech nudges it along, error parks on red
       if (modeRef.current !== "error") {
@@ -513,9 +555,10 @@ export default function GraphCore({
       nodeMat.uniforms.uTime.value = t;
       nodeMat.uniforms.uLevel.value = level;
       nodeMat.uniforms.uHue.value = h;
-      // speech = whole-system brightness pulse, not a center flash
-      nodeMat.uniforms.uBoost.value = feel.boost * (1 + level * 0.6);
-      edgeMat.opacity = 0.11 + 0.05 * Math.sin(t * 0.7) + level * 0.22;
+      // speech = whole-system brightness pulse, not a center flash; an event
+      // flare adds a brief brightness/spread bump on top
+      nodeMat.uniforms.uBoost.value = feel.boost * (1 + level * 0.6 + flarePulse * 0.9);
+      edgeMat.opacity = 0.11 + 0.05 * Math.sin(t * 0.7) + level * 0.22 + flarePulse * 0.18;
 
       // background layers
       const bg = bgRef.current;
@@ -536,11 +579,13 @@ export default function GraphCore({
       }
 
       halo.material.color.copy(nodeMat.uniforms.uOuter.value as THREE.Color);
-      halo.material.opacity = 0.08 + level * 0.1;
+      // halo blooms wider and brighter on a flare — the "spread" of the pulse
+      halo.material.opacity = 0.08 + level * 0.1 + flarePulse * 0.16;
+      halo.scale.setScalar(3.0 + flarePulse * 1.1);
 
       cloud.rotation.y = simT * 0.1;
       cloud.rotation.x = Math.sin(t * 0.07) * 0.08 + target.y * 0.25;
-      bloom.strength = 0.45 + level * 0.35;
+      bloom.strength = 0.45 + level * 0.35 + flarePulse * 0.7;
 
       camera.position.x += (target.x * 1.1 - camera.position.x) * 0.04;
       camera.position.y += (-target.y * 0.7 - camera.position.y) * 0.04;
