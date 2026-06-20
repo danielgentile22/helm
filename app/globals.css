@@ -1232,6 +1232,18 @@ body {
   50% { height: 16%; }
 }
 
+/* JS-driven VU meter: bar heights come from levelToBars via --h (0..1); no
+   keyframes — the rAF loop in AudioIO sets the height every frame. A whisper of
+   transition smooths between frames without lagging the amplitude. */
+.wave.metered i {
+  height: calc(var(--h, 0.08) * 100%);
+  animation: none;
+  transition: height 0.07s linear;
+}
+.wave.metered.idle i {
+  opacity: 0.32;
+}
+
 .audio-meta {
   display: flex;
   justify-content: space-between;

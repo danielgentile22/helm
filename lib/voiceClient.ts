@@ -55,6 +55,9 @@ class VoiceClient {
   private onDeliverableCb: DeliverableListener = () => {};
   private recorder: MediaRecorder | null = null;
   private micStream: MediaStream | null = null;
+  private micAnalyser: AnalyserNode | null = null;
+  private micData: Uint8Array<ArrayBuffer> | null = null;
+  private micSource: MediaStreamAudioSourceNode | null = null;
   private currentStop: (() => void) | null = null;
   private chunks: BlobPart[] = [];
   private captureStart = 0;
@@ -269,6 +272,19 @@ class VoiceClient {
     return Math.min(rms * 3.2, 1); // speech RMS ~0..0.3 → usable 0..1
   };
 
+  /** real mic envelope, 0..1 — null unless a PTT capture is recording */
+  getMicLevel = (): number | null => {
+    if (!this.recorder || !this.micAnalyser || !this.micData) return null;
+    this.micAnalyser.getByteTimeDomainData(this.micData);
+    let sum = 0;
+    for (let i = 0; i < this.micData.length; i++) {
+      const d = (this.micData[i] - 128) / 128;
+      sum += d * d;
+    }
+    const rms = Math.sqrt(sum / this.micData.length);
+    return Math.min(rms * 4.5, 1); // mic runs quieter than TTS — lift a bit more
+  };
+
   /** begin PTT recording; resolves false if mic unavailable or voice offline */
   async startCapture(): Promise<boolean> {
     if (this.disabled) {
@@ -285,6 +301,18 @@ class VoiceClient {
     } catch {
       this.log("err", "microphone access denied");
       return false;
+    }
+    // tap the mic into its own analyser for the live meter — never connected to
+    // destination (no monitoring, no feedback). The clip still records as before;
+    // this only reads the level locally. Built once, reused across captures.
+    this.ensureGraph();
+    if (this.ctx && this.micStream && !this.micSource) {
+      this.micAnalyser = this.ctx.createAnalyser();
+      this.micAnalyser.fftSize = 1024;
+      this.micAnalyser.smoothingTimeConstant = 0.4;
+      this.micData = new Uint8Array(this.micAnalyser.fftSize);
+      this.micSource = this.ctx.createMediaStreamSource(this.micStream);
+      this.micSource.connect(this.micAnalyser);
     }
     this.chunks = [];
     this.recorder = new MediaRecorder(this.micStream);
