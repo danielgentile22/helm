@@ -9,6 +9,7 @@ import { ratingProgress } from "@/lib/vitals";
 import { levelToBars } from "@/lib/audio";
 import { deriveCore, type CoreSignals } from "@/lib/core";
 import { deriveDeckState, type DeckPhase } from "@/lib/deck";
+import { obsidianUri, OBSIDIAN_VAULT } from "@/lib/obsidian";
 import { BG_MODES, type BgMode, type CoreMode, type CoreFlare } from "./GraphCore";
 import ReportOverlay from "./ReportOverlay";
 
@@ -162,6 +163,26 @@ function SectionTitle({ title, tick, href }: { title: string; tick?: string; hre
       )}
       {tick && <span className="tick">{tick}</span>}
     </div>
+  );
+}
+
+// secondary "open in Obsidian" affordance — a vault deep link that opens the
+// REAL note in the app, sitting beside the in-app overlay (which stays the
+// default click). Renders nothing when no vault name is configured or the
+// target isn't a vault .md (external links, the synthetic transcript). Stops
+// propagation so the row/callout's own click is untouched.
+function ObsidianLink({ path }: { path: string }) {
+  if (!OBSIDIAN_VAULT || !path.endsWith(".md")) return null;
+  return (
+    <a
+      className="obsidian-link"
+      href={obsidianUri(OBSIDIAN_VAULT, path)}
+      title="open in Obsidian"
+      aria-label="open in Obsidian"
+      onClick={(e) => e.stopPropagation()}
+    >
+      ⬡
+    </a>
   );
 }
 
@@ -598,7 +619,10 @@ const Documents = memo(function Documents({
       {docs.map((doc) => (
         <div className="doc-row" key={doc.path} role="button" onClick={() => onOpen(doc.path)}>
           <span className="doc-skill">{doc.skill.replace(/-/g, " ")}</span>
-          <span className="doc-age">{fmtAge(doc.ts).label}</span>
+          <span className="doc-meta">
+            <span className="doc-age">{fmtAge(doc.ts).label}</span>
+            <ObsidianLink path={doc.path} />
+          </span>
         </div>
       ))}
     </section>
@@ -1396,6 +1420,7 @@ export default function HUD() {
                       </span>
                     )}
                   </span>
+                  {c.kind === "doc" && <ObsidianLink path={c.target} />}
                   <button
                     className="callout-x"
                     aria-label="dismiss"
