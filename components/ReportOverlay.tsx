@@ -1,5 +1,7 @@
 "use client";
 
+import { obsidianUri, OBSIDIAN_VAULT } from "@/lib/obsidian";
+
 // ---------------------------------------------------------------------------
 // Report reveal overlay — renders a vault markdown deliverable inside the
 // HUD (no app switch, stays cinematic). Animates out from the core. Esc or
@@ -58,11 +60,6 @@ function mdToHtml(md: string): string {
   return out.join("\n");
 }
 
-// Obsidian vault name (folder basename) — the obsidian:// URI needs the exact
-// name. Client-side, so NEXT_PUBLIC_ (inlined at build). Unset = the "open in
-// Obsidian" deep link is hidden.
-const OBSIDIAN_VAULT = process.env.NEXT_PUBLIC_OBSIDIAN_VAULT ?? "";
-
 export default function ReportOverlay({
   report,
   onClose,
@@ -76,7 +73,7 @@ export default function ReportOverlay({
   const title = report.path.split("/").pop()?.replace(/\.md$/, "") ?? report.path;
   // synthetic docs (e.g. the voice transcript) aren't vault notes — no deep link
   const isVaultNote = report.path.endsWith(".md");
-  const obsidianHref = `obsidian://open?vault=${encodeURIComponent(OBSIDIAN_VAULT)}&file=${encodeURIComponent(report.path.replace(/\.md$/, ""))}`;
+  const obsidianHref = obsidianUri(OBSIDIAN_VAULT, report.path);
   return (
     <div className="report-overlay" onClick={onClose}>
       <div className="report-panel" onClick={(e) => e.stopPropagation()}>

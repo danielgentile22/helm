@@ -906,9 +906,37 @@ body {
   text-transform: capitalize;
 }
 
+.doc-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: none;
+}
+
 .doc-age {
   font-size: 8px;
   color: var(--ink-faint);
+}
+
+/* secondary "open in Obsidian" deep link — a quiet glyph beside the in-app
+   overlay (the default click). Cobalt to read as a link, not an action. */
+.obsidian-link {
+  flex: none;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--cobalt);
+  text-decoration: none;
+  opacity: 0.55;
+  cursor: pointer;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+.obsidian-link:hover {
+  opacity: 1;
+  color: var(--white-hot);
+}
+.callout-box .obsidian-link {
+  flex: none;
+  padding: 2px 2px;
 }
 
 /* AI wire — headlines */
