@@ -1147,9 +1147,20 @@ body {
   cursor: default;
 }
 
-.deck-btn.fired {
+/* queued — intent is waiting its turn: ember-hot label, the dot pulses */
+.deck-btn.queued {
   color: var(--ember-hot);
+}
+.deck-btn.queued .deck-label {
   animation: blip 1.2s ease-in-out infinite;
+}
+
+/* running — the runner is actively on it: brightest label, a continuously
+   spinning ring (distinct from the queued pulse) + a live elapsed clock, over a
+   faint warm wash so it reads apart from idle/queued at a glance */
+.deck-btn.running {
+  color: var(--white-hot);
+  background: oklch(0.67 0.13 40 / 0.07);
 }
 
 .deck-dot {
@@ -1161,9 +1172,37 @@ body {
   flex: none;
 }
 
-.deck-btn.fired .deck-dot {
+.deck-btn.queued .deck-dot {
   background: var(--ember-hot);
   box-shadow: 0 0 8px var(--ember-hot);
+}
+
+/* spinner replaces the dot while running — a rotating arc */
+.deck-spinner {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  border: 1.4px solid var(--ember-hot);
+  border-top-color: transparent;
+  border-right-color: transparent;
+  box-shadow: 0 0 6px oklch(0.67 0.13 40 / 0.5);
+  animation: deck-spin 0.7s linear infinite;
+}
+
+/* elapsed stopwatch, in place of the hover arrow */
+.deck-elapsed {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  color: var(--ember-hot);
+}
+
+@keyframes deck-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .deck-hint {
