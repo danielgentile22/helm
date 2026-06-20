@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { VaultState, Metric } from "@/lib/vault";
 import { voice } from "@/lib/voiceClient";
@@ -8,6 +8,7 @@ import { scrubRunSummary, humanizeFailure } from "@/lib/spokenText";
 import { ratingProgress } from "@/lib/vitals";
 import { levelToBars } from "@/lib/audio";
 import { deriveCore, type CoreSignals } from "@/lib/core";
+import { deriveDeckState, type DeckPhase } from "@/lib/deck";
 import { BG_MODES, type BgMode, type CoreMode, type CoreFlare } from "./GraphCore";
 import ReportOverlay from "./ReportOverlay";
 
@@ -355,6 +356,10 @@ const DECK_SKILLS: { skill: string; label: string }[] = [
   { skill: "morphy-sync", label: "Morphy Sync" },
 ];
 
+// how long an optimistic "queued" mark survives before the real state must
+// vouch for it — covers the gap until the next 5s poll reflects the queue write
+const DECK_OPTIMISTIC_MS = 8000;
+
 function CommandDeck({
   state,
   hot,
@@ -364,11 +369,43 @@ function CommandDeck({
   hot?: boolean;
   onQueued: (skill: string, ok: boolean) => void;
 }) {
-  const [cooldown, setCooldown] = useState<Record<string, boolean>>({});
+  // ts a button was clicked — optimistic bridge until the polled state shows the
+  // intent queued/running. Real derived state always wins over this.
+  const [firedAt, setFiredAt] = useState<Record<string, number>>({});
+  const [, setTick] = useState(0);
+
+  const runs = state?.runs ?? [];
+  const queue = state?.queue ?? [];
+  // live per-skill state from the runner's in-flight runs + pending queue. Reads
+  // the SAME runs[] (status "running") the core's task callouts key on, so the
+  // deck's RUNNING indicator and the orbiting task cards always agree.
+  const derived = useMemo(
+    () => deriveDeckState(DECK_SKILLS.map((d) => d.skill), runs, queue),
+    [runs, queue]
+  );
+
+  const nowMs = Date.now();
+  const phaseFor = (skill: string): DeckPhase => {
+    const d = derived[skill];
+    if (d?.phase === "running") return "running";
+    if (d?.phase === "queued") return "queued";
+    const f = firedAt[skill];
+    if (f != null && nowMs - f < DECK_OPTIMISTIC_MS) return "queued"; // optimistic
+    return "idle";
+  };
+
+  // a 1s heartbeat while anything is live, so the elapsed clock ticks and the
+  // optimistic mark can age out between the 5s state polls
+  const anyLive = DECK_SKILLS.some((d) => phaseFor(d.skill) !== "idle");
+  useEffect(() => {
+    if (!anyLive) return;
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [anyLive]);
 
   const fire = async (skill: string) => {
-    if (cooldown[skill]) return;
-    setCooldown((c) => ({ ...c, [skill]: true }));
+    if (phaseFor(skill) !== "idle") return; // already queued or running
+    setFiredAt((f) => ({ ...f, [skill]: Date.now() }));
     try {
       const res = await fetch("/api/queue", {
         method: "POST",
@@ -376,10 +413,11 @@ function CommandDeck({
         body: JSON.stringify({ skill }),
       });
       onQueued(skill, res.ok);
+      if (!res.ok) setFiredAt((f) => ({ ...f, [skill]: 0 })); // write failed → drop mark
     } catch {
       onQueued(skill, false);
+      setFiredAt((f) => ({ ...f, [skill]: 0 }));
     }
-    setTimeout(() => setCooldown((c) => ({ ...c, [skill]: false })), 15000);
   };
 
   const r = state?.runner;
@@ -398,18 +436,36 @@ function CommandDeck({
         </div>
       )}
       <div className="deck">
-        {DECK_SKILLS.map((d) => (
-          <button
-            key={d.skill}
-            className={`deck-btn ${cooldown[d.skill] ? "fired" : ""}`}
-            onClick={() => fire(d.skill)}
-            disabled={cooldown[d.skill]}
-          >
-            <span className="deck-dot" />
-            <span className="deck-label">{cooldown[d.skill] ? "QUEUED" : d.label}</span>
-            <span className="deck-arrow">→</span>
-          </button>
-        ))}
+        {DECK_SKILLS.map((d) => {
+          const phase = phaseFor(d.skill);
+          const running = phase === "running";
+          const queued = phase === "queued";
+          const startedAt = derived[d.skill]?.startedAt;
+          const elapsed =
+            running && startedAt
+              ? Math.max(0, Math.floor((nowMs - Date.parse(startedAt)) / 1000))
+              : 0;
+          return (
+            <button
+              key={d.skill}
+              className={`deck-btn ${running ? "running" : queued ? "queued" : ""}`}
+              onClick={() => fire(d.skill)}
+              disabled={running || queued}
+            >
+              {running ? (
+                <span className="deck-spinner" aria-hidden="true" />
+              ) : (
+                <span className="deck-dot" />
+              )}
+              <span className="deck-label">{queued ? "QUEUED" : d.label}</span>
+              {running ? (
+                <span className="deck-elapsed">{fmtClock(elapsed)}</span>
+              ) : (
+                <span className="deck-arrow">→</span>
+              )}
+            </button>
+          );
+        })}
       </div>
       <div className="deck-hint">intents write to system/queue — runner executes</div>
     </section>
