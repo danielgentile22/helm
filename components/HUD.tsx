@@ -6,6 +6,7 @@ import type { VaultState, Metric } from "@/lib/vault";
 import { voice } from "@/lib/voiceClient";
 import { scrubRunSummary, humanizeFailure } from "@/lib/spokenText";
 import { ratingProgress } from "@/lib/vitals";
+import { levelToBars } from "@/lib/audio";
 import { deriveCore, type CoreSignals } from "@/lib/core";
 import { BG_MODES, type BgMode, type CoreMode, type CoreFlare } from "./GraphCore";
 import ReportOverlay from "./ReportOverlay";
@@ -415,14 +416,51 @@ function CommandDeck({
   );
 }
 
+const METER_BARS = 37; // odd → a true center column for the VU peak
+
 const AudioIO = memo(function AudioIO({ mode }: { mode: CoreMode }) {
   const live = mode === "speaking" || mode === "listening";
+  const barsRef = useRef<(HTMLElement | null)[]>([]);
+
+  // drive the bars from real amplitude: TTS playback level while speaking, mic
+  // level while holding to talk; with neither live the level decays to 0 and the
+  // meter rests at a flat idle floor. One rAF loop writes each bar's --h.
+  useEffect(() => {
+    let raf = 0;
+    let smooth = 0;
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      const raw =
+        mode === "speaking"
+          ? voice.getLevel()
+          : mode === "listening"
+            ? voice.getMicLevel()
+            : null;
+      const target = raw ?? 0;
+      // fast attack, soft release — punchy without strobing frame-to-frame
+      smooth += (target - smooth) * (target > smooth ? 0.6 : 0.15);
+      const heights = levelToBars(smooth, barsRef.current.length || METER_BARS);
+      for (let i = 0; i < heights.length; i++) {
+        barsRef.current[i]?.style.setProperty("--h", heights[i].toFixed(3));
+      }
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [mode]);
+
+  const tick = mode === "speaking" ? "TTS.LIVE" : mode === "listening" ? "MIC.LIVE" : "TTS.STANDBY";
   return (
     <section className="block boot-stagger" style={{ animationDelay: "0.42s" }}>
-      <SectionTitle title="Audio I/O" tick={live ? "TTS.LIVE" : "TTS.STANDBY"} />
-      <div className={`wave ${live ? "live" : "idle"} ${mode === "listening" ? "cobalt" : ""}`}>
-        {Array.from({ length: 36 }, (_, i) => (
-          <i key={i} style={{ "--i": i } as React.CSSProperties} />
+      <SectionTitle title="Audio I/O" tick={tick} />
+      <div className={`wave metered ${live ? "live" : "idle"} ${mode === "listening" ? "cobalt" : ""}`}>
+        {Array.from({ length: METER_BARS }, (_, i) => (
+          <i
+            key={i}
+            ref={(el) => {
+              barsRef.current[i] = el;
+            }}
+            style={{ "--i": i } as React.CSSProperties}
+          />
         ))}
       </div>
       <div className="audio-meta">
