@@ -23,8 +23,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className={`${display.variable} ${mono.variable}`}>{children}</body>
+    // suppressHydrationWarning: DarkReader & similar extensions inject attrs on
+    // <html>/<body> before hydration — silence those (descendants still checked)
+    <html lang="en" suppressHydrationWarning>
+      <body className={`${display.variable} ${mono.variable}`} suppressHydrationWarning>
+        {children}
+      </body>
     </html>
   );
 }

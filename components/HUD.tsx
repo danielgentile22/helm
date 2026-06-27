@@ -548,52 +548,6 @@ const AudioIO = memo(function AudioIO({ mode }: { mode: CoreMode }) {
   );
 });
 
-const Priorities = memo(function Priorities({
-  state,
-  hot,
-  onToggle,
-}: {
-  state: VaultState;
-  hot?: boolean;
-  onToggle: (index: number, done: boolean) => void;
-}) {
-  const d = state.daily;
-  const ageDays = d && !d.isToday ? noteAgeDays(d.date) : 0;
-  const veryStale = ageDays > 2;
-  return (
-    <section
-      className={`block boot-stagger ${!d || d.isToday ? "" : "note-stale"} ${hot ? "voice-hot" : ""}`}
-      style={{ animationDelay: "0.18s" }}
-    >
-      <SectionTitle title="Directives" tick="TOP.3" />
-      {d ? (
-        <>
-          {!d.isToday && (
-            <div className={`stale-banner ${veryStale ? "err" : ""}`}>
-              ⚠ note is {ageDays}d old — run /today
-            </div>
-          )}
-          {d.top3.map((p, i) => (
-            <div
-              className={`prio ${p.done ? "done" : ""} ${d.isToday ? "clickable" : ""}`}
-              key={i}
-              role={d.isToday ? "button" : undefined}
-              title={d.isToday ? (p.done ? "mark open" : "mark done") : undefined}
-              onClick={d.isToday ? () => onToggle(i, !p.done) : undefined}
-            >
-              <span className="box">{p.done ? "■" : "□"}</span>
-              <span>{p.text}</span>
-            </div>
-          ))}
-          <div className="prio-date">{d.isToday ? "today" : `carried · ${d.date}`}</div>
-        </>
-      ) : (
-        <div className="prio dim">no daily note found</div>
-      )}
-    </section>
-  );
-});
-
 // recent deliverables — every run that produced a document, newest first.
 // The reveal chip is one-shot; this is the persistent trail.
 const Documents = memo(function Documents({
@@ -614,7 +568,7 @@ const Documents = memo(function Documents({
   }
   if (docs.length === 0) return null;
   return (
-    <section className={`block boot-stagger ${hot ? "voice-hot" : ""}`} style={{ animationDelay: "0.26s" }}>
+    <section className={`block boot-stagger ${hot ? "voice-hot" : ""}`} style={{ animationDelay: "0.46s" }}>
       <SectionTitle title="Documents" tick="INBOX.TRAIL" />
       {docs.map((doc) => (
         <div className="doc-row" key={doc.path} role="button" onClick={() => onOpen(doc.path)}>
@@ -893,7 +847,7 @@ const MODE_KEYS: Record<string, CoreMode> = {
 };
 
 export default function HUD() {
-  const { state, error, refresh } = useVaultState(5000);
+  const { state, error } = useVaultState(5000);
   const [feed, setFeed] = useState<FeedLine[]>([]);
   const [modeOverride, setModeOverride] = useState<CoreMode | null>(null);
   const [bgMode, setBgMode] = useState<BgMode>("grid");
@@ -985,23 +939,6 @@ export default function HUD() {
       pushLine("err", "couldn't load transcript");
     }
   }, [pushLine]);
-
-  const toggleDirective = useCallback(
-    async (index: number, done: boolean) => {
-      try {
-        const res = await fetch("/api/daily", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ index, done }),
-        });
-        if (!res.ok) throw new Error(String(res.status));
-        await refresh();
-      } catch {
-        pushLine("err", "directive update failed");
-      }
-    },
-    [refresh, pushLine]
-  );
 
   // ?demo=callouts — seed the doc callouts on demand (filming + layout checks)
   useEffect(() => {
@@ -1349,16 +1286,6 @@ export default function HUD() {
 
         <div className="hud-left">
           {state && <Vitals state={state} hot={hotPanels.includes("vitals")} />}
-          {state && (
-            <Priorities
-              state={state}
-              hot={hotPanels.includes("priorities")}
-              onToggle={toggleDirective}
-            />
-          )}
-          {state && (
-            <Documents state={state} hot={hotPanels.includes("documents")} onOpen={openReport} />
-          )}
           {state && <Morphy state={state} hot={hotPanels.includes("morphy")} />}
         </div>
 
@@ -1450,6 +1377,9 @@ export default function HUD() {
           />
           {state && <Schedule state={state} hot={hotPanels.includes("schedule")} />}
           <AudioIO mode={mode} />
+          {state && (
+            <Documents state={state} hot={hotPanels.includes("documents")} onOpen={openReport} />
+          )}
           {state && <Wire state={state} onOpen={openReport} />}
         </div>
 
