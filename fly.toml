@@ -1,0 +1,27 @@
+# HELM chat brain on Fly. Tailnet-only: there is NO [http_service]/[[services]]
+# block, so Fly exposes nothing to the public internet — the app (port 3107) is
+# reachable only over Tailscale. Because no service fronts the machine, Fly's
+# autostop never applies: the machine stays up. Keep exactly one running with
+# `fly scale count 1`. See docs/fly-deploy.md.
+app = "helm-chat"
+primary_region = "iad"  # Ashburn — closest to the DMV
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  VAULT_ROOT = "/data/vault"
+  HUD_TZ = "America/New_York"
+  CLAUDE_BIN = "claude"
+  PORT = "3107"
+  TS_HOSTNAME = "helm-chat"
+
+# Persistent disk for the synced vault (+ tailscale/syncthing state). Create it
+# once: `fly volumes create vault_data --size 3 --region iad`.
+[mounts]
+  source = "vault_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"  # a claude turn + next + two daemons; bump if turns OOM
