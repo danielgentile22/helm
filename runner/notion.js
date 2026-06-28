@@ -10,7 +10,8 @@
 const NOTION_VERSION = "2022-06-28";
 const API = "https://api.notion.com/v1";
 
-// The Morphy "Tasks" database, created during the Morphy-workspace build.
+// The Morphy "Tasks" database — in the "Morphy Consulting Space" workspace
+// (Daniel moved the board there 2026-06-27; old private-workspace ID retired).
 export const MORPHY_DB_ID_DEFAULT = "REDACTED-NOTION-DB-ID";
 
 export function notionConfigured(token) {
