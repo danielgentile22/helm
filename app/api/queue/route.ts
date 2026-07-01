@@ -11,7 +11,7 @@ import { ALLOWED_SKILLS, writeIntent } from "@/lib/skills";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  let body: { skill?: string };
+  let body: { skill?: string; args?: Record<string, unknown> };
   try {
     body = await req.json();
   } catch {
@@ -23,8 +23,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `unknown skill: ${skill}` }, { status: 400 });
   }
 
+  // args carry skill input (e.g. morphy-task-add's title). Only accept a plain
+  // object — the deck sends {} for arg-less skills.
+  const args =
+    body.args && typeof body.args === "object" && !Array.isArray(body.args) ? body.args : {};
+
   try {
-    const id = writeIntent(skill, "vault-hud");
+    const id = writeIntent(skill, "vault-hud", args);
     return NextResponse.json({ ok: true, id, skill });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
