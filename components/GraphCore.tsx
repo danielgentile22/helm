@@ -60,6 +60,12 @@ const FEELS: Record<CoreMode, ModeFeel> = {
 
 const ERROR_HUE = 0.015;
 
+// Halo recolor: the hue voyage is constrained to the cyan→indigo band instead
+// of the full spectrum, so the orb keeps its living drift but stays in the
+// system palette (cyan #3DD7E5 ≈ 0.515 → indigo #5B6BFF ≈ 0.65).
+const HUE_CYAN = 0.515;
+const HUE_INDIGO = 0.65;
+
 const CLOUD_R = 1.5;
 const N_NODES = 2200;
 const LINKS_PER_NODE = 2;
@@ -171,7 +177,7 @@ export default function GraphCore({
     mount.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#0a0909");
+    scene.background = new THREE.Color("#0a0b0f"); // Halo canvas
 
     const camera = new THREE.PerspectiveCamera(
       45,
@@ -508,11 +514,14 @@ export default function GraphCore({
       flareEnv += (0 - flareEnv) * Math.min(1, dt * 2.6);
       const flarePulse = flareEnv * flareGain; // brightness/spread amount this frame
 
-      // slow hue voyage (~70s per lap); speech nudges it along, error parks on red
+      // slow hue voyage (~70s per lap); speech nudges it along, error parks on
+      // red. The advancing phase is mapped into the cyan→indigo band so the
+      // drift stays inside Halo's palette (see HUE_CYAN/HUE_INDIGO).
       if (modeRef.current !== "error") {
         hue = (hue + dt * (0.014 * feel.hueRate + level * 0.05)) % 1;
       }
-      const h = modeRef.current === "error" ? ERROR_HUE : hue;
+      const banded = HUE_CYAN + (HUE_INDIGO - HUE_CYAN) * (0.5 + 0.5 * Math.sin(hue * Math.PI * 2));
+      const h = modeRef.current === "error" ? ERROR_HUE : banded;
 
       // chrome follows the voyage — one CSS var drives every HUD accent
       const deg = Math.round(h * 360);
