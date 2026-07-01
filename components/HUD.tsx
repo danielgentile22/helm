@@ -808,6 +808,9 @@ function TopBar({
         <span className={`chip ${r?.alive ? "on" : "dead"}`}>
           runner · {r?.alive ? "alive" : "down"}
         </span>
+        <a className="chip chat-link" href="/chat">
+          chat ↗
+        </a>
       </div>
       <div className="clock-wrap">
         <div className="clock" suppressHydrationWarning>
@@ -846,8 +849,38 @@ const MODE_KEYS: Record<string, CoreMode> = {
   "5": "error",
 };
 
+// Phone = narrow viewport. Drives the stacked phone layout AND the voice
+// cutout: on a phone there's no push-to-talk (no keyboard), no mic capture, and
+// no three.js orb loop.
+const PHONE_MQ = "(max-width: 768px)";
+
+// Live check for effects: accurate on first run (effects run client-side, after
+// mount), so voice.init()/PTT never fire on a phone — unlike the state below,
+// which defaults desktop to match the server prerender and only flips after
+// mount. Using the state to gate voice would race the first render.
+function isPhoneNow() {
+  return typeof window !== "undefined" && window.matchMedia(PHONE_MQ).matches;
+}
+
+// State for rendering (layout, orb/meter mount). Defaults desktop on the server;
+// flips after mount. ponytail: one-frame orb mount on first phone load before it
+// flips — harmless (no network; voice is gated by isPhoneNow), invisible under
+// the phone CSS. Tighten with useSyncExternalStore if it ever bites.
+function useIsPhone() {
+  const [phone, setPhone] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(PHONE_MQ);
+    const on = () => setPhone(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return phone;
+}
+
 export default function HUD() {
   const { state, error } = useVaultState(5000);
+  const isPhone = useIsPhone();
   const [feed, setFeed] = useState<FeedLine[]>([]);
   const [modeOverride, setModeOverride] = useState<CoreMode | null>(null);
   const [bgMode, setBgMode] = useState<BgMode>("grid");
@@ -1001,8 +1034,10 @@ export default function HUD() {
     return () => timers.forEach(clearTimeout);
   }, []);
 
-  // voice link — P1: HELM speaks, no mic
+  // voice link — P1: HELM speaks, no mic. Skipped on phone: no voice server to
+  // reach and no mic/PTT there, so nothing to wire (no events ws either).
   useEffect(() => {
+    if (isPhoneNow()) return;
     voice.init();
     voice.onLog(pushLine);
     voice.onPanels(setHotPanels);
@@ -1011,7 +1046,7 @@ export default function HUD() {
     voice.onOpenDoc((path) => void openReport(path)); // "bring up the html" → overlay now
     voice.onListening(setWakeListening); // P4: hands-free wake window
     return voice.onSpeaking(setVoiceSpeaking);
-  }, [pushLine, openReport, addCallout]);
+  }, [pushLine, openReport, addCallout, isPhone]);
 
   // P3 choreography — highlights arrive with the reply and live for the
   // duration of speech; the grace window covers the response→playback gap
@@ -1022,8 +1057,10 @@ export default function HUD() {
     return () => clearTimeout(id);
   }, [voiceSpeaking, hotPanels]);
 
-  // P2 — push-to-talk: hold Space to record, release to send
+  // P2 — push-to-talk: hold Space to record, release to send. Phone has no
+  // keyboard and voice is off there, so don't bind it.
   useEffect(() => {
+    if (isPhoneNow()) return;
     const down = (e: KeyboardEvent) => {
       if (e.code !== "Space" || e.repeat) return;
       e.preventDefault();
@@ -1043,7 +1080,7 @@ export default function HUD() {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, []);
+  }, [isPhone]);
 
   // demo mode keys: 1 idle / 2 working / 3 listening / 4 speaking / 5 error, 0|Esc auto
   useEffect(() => {
@@ -1274,7 +1311,7 @@ export default function HUD() {
 
   return (
     <main className="stage">
-      <GraphCore mode={mode} bgMode={bgMode} getLevel={voice.getLevel} flare={flare} />
+      {!isPhone && <GraphCore mode={mode} bgMode={bgMode} getLevel={voice.getLevel} flare={flare} />}
 
       <div className="scrim scrim-l" aria-hidden="true" />
       <div className="scrim scrim-r" aria-hidden="true" />
@@ -1376,7 +1413,7 @@ export default function HUD() {
             onQueued={onQueued}
           />
           {state && <Schedule state={state} hot={hotPanels.includes("schedule")} />}
-          <AudioIO mode={mode} />
+          {!isPhone && <AudioIO mode={mode} />}
           {state && (
             <Documents state={state} hot={hotPanels.includes("documents")} onOpen={openReport} />
           )}
@@ -1392,9 +1429,11 @@ export default function HUD() {
           )}
         </div>
 
-        <button className="transcript-btn" onClick={() => void openTranscript()}>
-          Transcript
-        </button>
+        {!isPhone && (
+          <button className="transcript-btn" onClick={() => void openTranscript()}>
+            Transcript
+          </button>
+        )}
       </div>
 
       {report && (
