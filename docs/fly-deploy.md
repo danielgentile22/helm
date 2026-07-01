@@ -104,3 +104,24 @@ That's the whole loop — secrets, volume, and Syncthing pairing persist.
   failing auth, re-run `claude setup-token` on the Mac and
   `fly secrets set CLAUDE_CODE_OAUTH_TOKEN=…`.
 - **Logs:** `fly logs`. **Shell:** `fly ssh console`.
+
+---
+
+## Deployed instance (this machine)
+The live deploy, for reference. None of this is secret — the two secrets
+(`TS_AUTHKEY`, `CLAUDE_CODE_OAUTH_TOKEN`) live only in `fly secrets`.
+
+| | |
+|---|---|
+| Fly app | `helm-chat` (the global `helm-chat` was taken) |
+| Volume | `vault_data` 3 GB @ iad → `/data` |
+| Tailnet host / IP | `helm-chat` / `REDACTED-TAILNET-IP` |
+| Chat URL | `http://helm-chat:3107/chat` |
+| Mac vault | `/Users/user/Projects/Vault` → VM `/data/vault` |
+| Syncthing folder ID | `helm-vault` (must match on both sides) |
+| VM Syncthing device | `REDACTED-DEVICE-ID` (v1.19.2) |
+| Mac Syncthing device | `REDACTED-DEVICE-ID` (v2.1.1) |
+
+When adding the VM as a remote device on the Mac, pin its address to
+`tcp://REDACTED-TAILNET-IP:22000` — a tailnet-only node won't turn up in
+Syncthing's global discovery.
