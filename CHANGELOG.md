@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.1 — 2026-07-01
+
 - Renamed the project to **HELM** and removed the wake word: voice is
   push-to-talk only (hold Space). Hands-free wake is now opt-in via
   `WAKE_MODEL` + `WAKE_WORD=on`, with no model bundled.
