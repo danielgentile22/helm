@@ -71,6 +71,7 @@ export default function ChatPage() {
     <div className="chat">
       <header>
         <span className="title">H.E.L.M. · CHAT</span>
+        <a className="hud-link" href="/">HUD</a>
         <select value={model} onChange={(e) => setModel(e.target.value)} aria-label="model">
           {MODELS.map((m) => (
             <option key={m.id} value={m.id}>
@@ -144,6 +145,7 @@ export default function ChatPage() {
           letter-spacing: 0.12em;
           color: var(--ember);
         }
+        header .hud-link,
         header select,
         header button,
         footer button {
@@ -156,6 +158,13 @@ export default function ChatPage() {
           font-size: 11px;
           letter-spacing: 0.08em;
           cursor: pointer;
+        }
+        header .hud-link {
+          text-decoration: none;
+          color: var(--ember);
+        }
+        header .hud-link:active {
+          color: var(--white-hot);
         }
         header button:active,
         footer button:active {

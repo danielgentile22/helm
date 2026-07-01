@@ -655,6 +655,19 @@ body {
 .chip.dead {
   color: var(--err);
 }
+/* the one interactive chip: jump to /chat. Reads as a tappable pill. */
+.chat-link {
+  color: var(--ember);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px 9px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.chat-link:hover {
+  color: var(--white-hot);
+  border-color: var(--ember);
+}
 
 .mode-chip {
   display: inline-flex;
@@ -1667,4 +1680,45 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* --- phone: one scrollable column of panels, no orb, no voice --------------
+   The orb (GraphCore), audio meter, PTT, and transcript button are not
+   rendered on phone (HUD.tsx / useIsPhone); this collapses the 3-column desk
+   grid into a stacked, tappable readout. */
+@media (max-width: 768px) {
+  .hud {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 14px 14px calc(18px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* orb-anchored center + its branch callouts are desktop-only */
+  .hud-center,
+  .callout,
+  .callout-clear { display: none; }
+  .hud-left,
+  .hud-right { gap: 20px; }
+
+  /* side vignettes assume a centered orb; drop them on the stacked view */
+  .scrim-l,
+  .scrim-r { display: none; }
+
+  /* topbar: wordmark + clock on one row, status chips wrap underneath */
+  .topbar {
+    grid-template-columns: 1fr auto;
+    gap: 10px 16px;
+  }
+  .status-line {
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding-top: 4px;
+  }
+  .wordmark .name { font-size: 24px; letter-spacing: 0.2em; }
+  .wordmark .expansion { display: none; }
+  .chat-link { font-size: 11px; padding: 6px 12px; }  /* bigger tap target */
 }
