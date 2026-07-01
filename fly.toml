@@ -15,6 +15,11 @@ primary_region = "iad"  # Ashburn — closest to the DMV
   CLAUDE_BIN = "claude"
   PORT = "3107"
   TS_HOSTNAME = "helm-chat"
+  # The container runs as root, and newer `claude` refuses
+  # --dangerously-skip-permissions under root unless IS_SANDBOX=1. This VM is a
+  # dedicated, tailnet-only, single-purpose sandbox for /api/chat, so the guard
+  # is the intended escape hatch (same trust boundary the chat route documents).
+  IS_SANDBOX = "1"
 
 # Persistent disk for the synced vault (+ tailscale/syncthing state). Create it
 # once: `fly volumes create vault_data --size 3 --region iad`.
