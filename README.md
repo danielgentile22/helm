@@ -129,7 +129,7 @@ Fully local TTS + STT. One-time setup:
 ```bash
 cd voice-server
 python -m venv .venv
-.venv/bin/pip install kokoro-onnx fastapi uvicorn soundfile faster-whisper onnxruntime
+.venv/bin/pip install kokoro-onnx fastapi uvicorn websockets soundfile faster-whisper onnxruntime
 # NVIDIA GPU: swap plain onnxruntime for onnxruntime-gpu + the matching
 # nvidia-cudnn-cu12 / nvidia-cublas-cu12 / nvidia-cufft-cu12 wheels.
 ```
