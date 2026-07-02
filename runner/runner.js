@@ -71,7 +71,8 @@ if (!VAULT_ROOT) {
 }
 // MUST match HUD_TZ in lib/config.ts — "today" has to mean the same day in
 // both places or daily notes split across two dates near midnight UTC.
-const HUD_TZ = env("HUD_TZ") || "America/Chicago";
+// (test-skill-contract.ts asserts the two defaults are identical.)
+const HUD_TZ = env("HUD_TZ") || "America/New_York";
 const QUEUE_DIR = join(VAULT_ROOT, "system", "queue");
 const RUNS_DIR = join(VAULT_ROOT, "system", "runs");
 const STATUS_FILE = join(VAULT_ROOT, "system", "runner-status.json");
@@ -168,6 +169,34 @@ function ensureDirs() {
   for (const d of [QUEUE_DIR, RUNS_DIR]) {
     if (!existsSync(d)) mkdirSync(d, { recursive: true });
   }
+}
+
+// Nothing else ever cleans system/runs (vault-cleanup explicitly skips
+// system/), so the HUD's 5s poll would stat/parse a forever-growing dir.
+// ponytail: plain delete after 30 days — add an archive/ move if old run
+// transcripts ever turn out to matter.
+const RUN_RETENTION_MS = 30 * 24 * 3600 * 1000;
+
+export function pruneRuns(dir = RUNS_DIR, now = Date.now()) {
+  let pruned = 0;
+  try {
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith(".json") && !f.endsWith(".md")) continue;
+      const p = join(dir, f);
+      try {
+        if (now - statSync(p).mtimeMs > RUN_RETENTION_MS) {
+          unlinkSync(p);
+          pruned++;
+        }
+      } catch {
+        /* vanished mid-scan — ignore */
+      }
+    }
+  } catch {
+    /* dir unreadable — ignore */
+  }
+  if (pruned) log(`pruned ${pruned} run file(s) older than 30 days`);
+  return pruned;
 }
 
 function readJson(path) {
@@ -1214,6 +1243,8 @@ function main() {
 
   ensureDirs();
   sweepOrphanedClaims();
+  pruneRuns();
+  setInterval(pruneRuns, 24 * 3600 * 1000).unref?.();
   log(
     `runner booted (pid ${process.pid}) vault=${VAULT_ROOT} model=${CLAUDE_MODEL} ` +
       `notify=${NOTIFY_CONFIG.enabled ? [...NOTIFY_CONFIG.types].join("+") || "none" : "off"}`

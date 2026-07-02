@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { VAULT_ROOT } from "./config";
+import { atomicWriteFileSync } from "./atomicWrite";
 
 // ---------------------------------------------------------------------------
 // Queue intent contract — shared by /api/queue (deck buttons) and /api/voice
@@ -31,6 +32,8 @@ export function writeIntent(
   const intent = { id, skill, args, ts: new Date().toISOString(), source };
   const queueDir = path.join(VAULT_ROOT, "system", "queue");
   fs.mkdirSync(queueDir, { recursive: true });
-  fs.writeFileSync(path.join(queueDir, `${id}.json`), JSON.stringify(intent, null, 2), "utf-8");
+  // atomic: the runner fs.watch()es this dir and must never see a torn intent
+  // (the temp name fails the runner's UUID_JSON_RE, so it's invisible to it)
+  atomicWriteFileSync(path.join(queueDir, `${id}.json`), JSON.stringify(intent, null, 2));
   return id;
 }

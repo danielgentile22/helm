@@ -10,7 +10,7 @@
 // plan-today prompt path (Atlas/Projects).
 //
 // Run: npx -y tsx scripts/test-runner.ts
-import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -42,6 +42,7 @@ async function run(): Promise<void> {
     writeJson,
     retireClaim,
     pidLooksLikeRunner,
+    pruneRuns,
     morphyCounts,
     morphySnapshotMd,
     slugify,
@@ -198,6 +199,29 @@ async function run(): Promise<void> {
   check(
     snap.includes("## Todo (") && snap.includes("Site survey") && snap.includes("_(HELM)_"),
     "morphySnapshotMd renders sections, task names and the HELM marker"
+  );
+
+  // --- pruneRuns: old run files go, fresh ones and strangers stay --------------
+  const PRUNE_DIR = join(VAULT, "system", "runs-prune");
+  mkdirSync(PRUNE_DIR, { recursive: true });
+  const aged = (name: string, days: number) => {
+    const p = join(PRUNE_DIR, name);
+    writeFileSync(p, "x", "utf8");
+    const t = new Date(Date.now() - days * 24 * 3600 * 1000);
+    utimesSync(p, t, t);
+  };
+  aged("old.json", 40);
+  aged("old.md", 40);
+  aged("fresh.json", 5);
+  aged("stranger.txt", 40); // not a run artifact — never touched
+  check(pruneRuns(PRUNE_DIR) === 2, "pruneRuns deletes exactly the 30-day-old .json/.md pair");
+  check(
+    !existsSync(join(PRUNE_DIR, "old.json")) && !existsSync(join(PRUNE_DIR, "old.md")),
+    "old run json + md are gone"
+  );
+  check(
+    existsSync(join(PRUNE_DIR, "fresh.json")) && existsSync(join(PRUNE_DIR, "stranger.txt")),
+    "fresh runs and non-run files survive"
   );
 
   // --- slugify / todayDate ------------------------------------------------------

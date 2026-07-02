@@ -155,8 +155,7 @@ set `WAKE_WORD=on`.
   rundown. "What's in the queue", "how many subscribers do I have" =
   instant answers. "Run the inbox brief" = dispatch. Anything open-ended =
   background ask, spoken when ready.
-- **Esc** stops speech; clicking a Documents row opens the report overlay;
-  Directives checkboxes are clickable (today's note only).
+- **Esc** stops speech; clicking a Documents row opens the report overlay.
 - **TRANSCRIPT** (bottom-left) shows the voice conversation ring; RESET
   clears it.
 - **Demo modes** (no data needed): `?demo=callouts` seeds doc callout
