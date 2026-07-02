@@ -35,13 +35,19 @@ def at(hours_ago: float) -> str:
     return iso(datetime.fromtimestamp(NOW_EPOCH - hours_ago * HOUR, tz=timezone.utc))
 
 
-# real-shaped transcript lines (subset of the keys Claude Code actually writes)
-def line(uuid: str, hours_ago: float, out: int, type_: str = "assistant") -> dict:
+# real-shaped transcript lines (subset of the keys Claude Code actually writes).
+# msg_id defaults from the uuid so simple fixtures stay one-record-per-line.
+def line(uuid: str, hours_ago: float, out: int, type_: str = "assistant",
+         msg_id: str | None = None) -> dict:
     return {
         "type": type_,
         "uuid": uuid,
         "timestamp": at(hours_ago),
-        "message": {"role": "assistant", "usage": {"input_tokens": 10, "output_tokens": out}},
+        "message": {
+            "id": msg_id or f"msg_{uuid}",
+            "role": "assistant",
+            "usage": {"input_tokens": 10, "output_tokens": out},
+        },
     }
 
 
@@ -73,15 +79,62 @@ check("non-assistant / missing usage parse to None",
 val = ct.rolling_output_tokens(records, NOW_EPOCH)
 check("rolling sum counts only the 5h window", val == 300, got=val, want=300)
 
-# --- dedup: same uuid across two files counted once ----------------------------
-dupe = ct.rolling_output_tokens(
-    [ct.usage_record(line("a", 0.5, 100)), ct.usage_record(line("a", 0.5, 100))], NOW_EPOCH
+# --- dedup: one API response = one line PER CONTENT BLOCK — different uuids,
+# same message.id, identical usage payload. Keying on uuid overcounted ~3x
+# (review id 52); message.id must collapse them to one count. -------------------
+multiblock = ct.rolling_output_tokens(
+    [
+        ct.usage_record(line("u1", 0.5, 399, msg_id="msg_x")),
+        ct.usage_record(line("u2", 0.5, 399, msg_id="msg_x")),
+        ct.usage_record(line("u3", 0.5, 399, msg_id="msg_x")),
+    ],
+    NOW_EPOCH,
 )
-check("duplicate uuid counted once", dupe == 100, got=dupe, want=100)
+check("multi-block response (same message.id, different uuids) counted once",
+      multiblock == 399, got=multiblock, want=399)
+
+# resumed/forked sessions copy lines verbatim across files — same message.id
+# AND same uuid; still exactly once, while distinct responses sum
+mixed = ct.rolling_output_tokens(
+    [
+        ct.usage_record(line("a", 0.5, 100)),
+        ct.usage_record(line("a", 0.5, 100)),  # verbatim cross-file copy
+        ct.usage_record(line("b", 0.4, 50)),   # a different response
+    ],
+    NOW_EPOCH,
+)
+check("cross-file verbatim copy counted once, distinct responses sum",
+      mixed == 150, got=mixed, want=150)
 
 # --- value can legitimately be 0 (nothing in window) ---------------------------
 zero = ct.rolling_output_tokens([ct.usage_record(line("z", 9, 999))], NOW_EPOCH)
 check("all-stale window yields 0", zero == 0, got=zero, want=0)
+
+# --- iter_usage_records: torn UTF-8 mid-append degrades to a skipped line, not a
+# crashed run (review id 54); stale-mtime files are skipped entirely (review 53)
+import json
+import os
+
+with tempfile.TemporaryDirectory() as d:
+    proj = Path(d) / "projects" / "slug"
+    proj.mkdir(parents=True)
+
+    good = json.dumps(line("g", 0.5, 100))
+    # torn multi-byte sequence on a line that passes the '"output_tokens"' prefilter
+    (proj / "live.jsonl").write_bytes(
+        good.encode() + b"\n" + b'{"output_tokens": 1, "x": "\xe2\x28"\n'
+    )
+    recs = list(ct.iter_usage_records(str(proj.parent)))
+    check("torn UTF-8 line skipped, valid line still read",
+          len(recs) == 1 and recs[0][2] == 100, got=recs, want="[('msg_g', ..., 100)]")
+
+    (proj / "old.jsonl").write_text(json.dumps(line("o", 0.5, 500)) + "\n")
+    stale = NOW_EPOCH - 10 * HOUR
+    os.utime(proj / "old.jsonl", (stale, stale))
+    os.utime(proj / "live.jsonl", (NOW_EPOCH, NOW_EPOCH))
+    recs = list(ct.iter_usage_records(str(proj.parent), min_mtime=NOW_EPOCH - 6 * HOUR))
+    check("stale-mtime file skipped by the recency prefilter",
+          len(recs) == 1 and recs[0][2] == 100, got=recs, want="only live.jsonl's record")
 
 # --- row shape + idempotency against a tempfile --------------------------------
 with tempfile.TemporaryDirectory() as d:

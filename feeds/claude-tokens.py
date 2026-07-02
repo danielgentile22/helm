@@ -8,11 +8,12 @@ data and appends one row to the vault's metrics.csv under the metric the
     <hour-bucket-iso>,claude_code,tokens_5h,<value>,ok,
 
 Source of truth: Claude Code writes a JSONL transcript per session under
-~/.claude/projects/<project-slug>/<session-id>.jsonl. Each assistant turn is one
-line carrying message.usage.output_tokens and an ISO `timestamp`. We sum
-output_tokens for every assistant line whose timestamp falls in the last 5 hours,
-de-duplicating by the line `uuid` (resumed/forked sessions copy prior lines
-verbatim, so the same uuid can appear in more than one file — count it once).
+~/.claude/projects/<project-slug>/<session-id>.jsonl. One API response spans
+MULTIPLE assistant lines (one per content block), each with a different line
+`uuid` but the same `message.id` and an identical usage payload — so we sum
+output_tokens over distinct message.ids in the last 5 hours. That also covers
+resumed/forked sessions, which copy prior lines (message.id included) verbatim
+across files: every response counts exactly once.
 
 Idempotent per window: the appended row is stamped to the top of the current
 hour, and we skip the write if a claude_code/tokens_5h row already exists for
@@ -30,27 +31,16 @@ Config (read from ~/.claude/.env, overridable by real env vars):
 """
 import json
 import os
-import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from _metrics import append_metric_row, hour_bucket, load_home_env
+
 WINDOW_S = 5 * 3600  # the "5h" in tokens_5h
+MTIME_SLACK_S = 3600  # clock-skew slack for the file-mtime prefilter
 SOURCE = "claude_code"
 METRIC = "tokens_5h"
-CSV_HEADER = "timestamp,source,metric,value,status,error\n"
-
-
-def load_home_env() -> None:
-    """Mirror the runner/HUD/USCF loader: ~/.claude/.env, real env wins."""
-    f = Path.home() / ".claude" / ".env"
-    try:
-        for line in f.read_text().splitlines():
-            m = re.match(r"^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$", line)
-            if m and m.group(1) not in os.environ:
-                os.environ[m.group(1)] = m.group(2).strip().strip("\"'")
-    except FileNotFoundError:
-        pass
 
 
 # --- compute step (pure; exercised by feeds/test_claude_tokens.py) -------------
@@ -66,44 +56,62 @@ def parse_iso(ts: str) -> float | None:
 
 
 def usage_record(entry: dict) -> tuple[str, float, int] | None:
-    """One transcript line -> (uuid, ts_epoch, output_tokens), or None.
+    """One transcript line -> (dedup key, ts_epoch, output_tokens), or None.
 
     Only assistant turns carrying a numeric output_tokens and a parseable
-    timestamp qualify. uuid falls back to requestId then a synthetic key so a
-    line is never silently dropped, but is also never double-counted.
+    timestamp qualify. The dedup key is message.id FIRST: one API response is
+    written as one line PER CONTENT BLOCK, each with a different line uuid but
+    the same message.id and an identical usage payload — keying on uuid summed
+    every copy (~3x overcount, review id 52). requestId (also shared across a
+    response's lines), uuid, then a synthetic key are fallbacks so a line is
+    never silently dropped.
     """
     if not isinstance(entry, dict) or entry.get("type") != "assistant":
         return None
-    usage = ((entry.get("message") or {}).get("usage")) or {}
+    message = entry.get("message") or {}
+    usage = message.get("usage") or {}
     toks = usage.get("output_tokens")
     if not isinstance(toks, (int, float)) or isinstance(toks, bool):
         return None
     epoch = parse_iso(entry.get("timestamp"))
     if epoch is None:
         return None
-    uid = entry.get("uuid") or entry.get("requestId") or f"{entry.get('timestamp')}:{toks}"
+    uid = (
+        message.get("id")
+        or entry.get("requestId")
+        or entry.get("uuid")
+        or f"{entry.get('timestamp')}:{toks}"
+    )
     return (str(uid), epoch, int(toks))
 
 
 def rolling_output_tokens(records, now: float, window_s: int = WINDOW_S) -> int:
-    """Sum output_tokens over distinct uuids whose timestamp is in
-    [now - window_s, now]. `records` is any iterable of (uuid, ts_epoch, toks)."""
+    """Sum output_tokens over distinct dedup keys (message.id) whose timestamp is
+    in [now - window_s, now]. `records` is any iterable of (key, ts_epoch, toks)."""
     cutoff = now - window_s
-    by_uuid: dict[str, tuple[float, int]] = {}
+    by_key: dict[str, tuple[float, int]] = {}
     for uid, ts, toks in records:
-        by_uuid[uid] = (ts, toks)  # same uuid → identical payload; last wins
-    return sum(toks for ts, toks in by_uuid.values() if cutoff <= ts <= now)
+        by_key[uid] = (ts, toks)  # same message.id → identical payload; last wins
+    return sum(toks for ts, toks in by_key.values() if cutoff <= ts <= now)
 
 
-def iter_usage_records(projects_dir: str):
+def iter_usage_records(projects_dir: str, min_mtime: float | None = None):
     """Yield usage_record tuples from every *.jsonl under projects_dir.
-    Tolerant: unreadable files and malformed lines are skipped, not fatal."""
+    Tolerant: unreadable files and malformed lines are skipped, not fatal
+    (errors="replace" turns a torn multi-byte sequence mid-append into a line
+    json.loads rejects, instead of a UnicodeDecodeError killing the run).
+
+    min_mtime: skip files last written before this epoch — a line's timestamp
+    can never be later than the file's mtime, so files stale relative to the
+    window can't contribute and reading them is pure waste (review id 53)."""
     root = Path(projects_dir)
     if not root.exists():
         return
     for path in root.rglob("*.jsonl"):
         try:
-            with path.open(encoding="utf-8") as fh:
+            if min_mtime is not None and path.stat().st_mtime < min_mtime:
+                continue
+            with path.open(encoding="utf-8", errors="replace") as fh:
                 for line in fh:
                     line = line.strip()
                     # cheap prefilter — most lines (user turns, tool results)
@@ -121,42 +129,7 @@ def iter_usage_records(projects_dir: str):
             continue
 
 
-# --- metrics.csv write (idempotent per source/metric/timestamp) ----------------
-
-def hour_bucket(now_dt: datetime) -> str:
-    """Floor an aware UTC datetime to the top of the hour, as a metrics ISO ts."""
-    return now_dt.astimezone(timezone.utc).replace(
-        minute=0, second=0, microsecond=0
-    ).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def row_exists(csv_path: Path, ts: str, source: str, metric: str) -> bool:
-    try:
-        lines = csv_path.read_text().splitlines()
-    except FileNotFoundError:
-        return False
-    for line in lines[1:]:  # skip header
-        cols = line.split(",")
-        if len(cols) >= 3 and cols[0] == ts and cols[1] == source and cols[2] == metric:
-            return True
-    return False
-
-
-def append_metric_row(
-    csv_path, ts: str, source: str, metric: str, value: int, status: str = "ok"
-) -> bool:
-    """Append one well-formed metrics row, unless (source, metric, ts) already
-    exists. Returns True if written, False on the idempotent no-op."""
-    csv_path = Path(csv_path)
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    if not csv_path.exists():
-        csv_path.write_text(CSV_HEADER)
-    if row_exists(csv_path, ts, source, metric):
-        return False
-    with csv_path.open("a") as fh:
-        fh.write(f"{ts},{source},{metric},{value},{status},\n")
-    return True
-
+# --- metrics.csv write: shared _metrics helpers (hour bucket, idempotent append)
 
 def main() -> int:
     load_home_env()
@@ -173,7 +146,9 @@ def main() -> int:
         return 1
 
     now_dt = datetime.now(timezone.utc)
-    total = rolling_output_tokens(iter_usage_records(projects), now_dt.timestamp())
+    now = now_dt.timestamp()
+    records = iter_usage_records(projects, min_mtime=now - WINDOW_S - MTIME_SLACK_S)
+    total = rolling_output_tokens(records, now)
 
     csv = Path(vault) / "system" / "metrics" / "metrics.csv"
     ts = hour_bucket(now_dt)
