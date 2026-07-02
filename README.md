@@ -152,7 +152,7 @@ set `WAKE_WORD=on`.
 ## Using it
 
 - **Hold Space** — push-to-talk. "Brief me" / "good morning" = the spoken
-  rundown. "What's in the queue", "how many subscribers do I have" =
+  rundown. "What's in the queue", "what's my chess rating" =
   instant answers. "Run the inbox brief" = dispatch. Anything open-ended =
   background ask, spoken when ready.
 - **Esc** stops speech; clicking a Documents row opens the report overlay.
