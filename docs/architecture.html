@@ -231,7 +231,9 @@ footer::before, footer::after { content: ""; height: 1px; background: var(--line
   <h1>HELM</h1>
   <p class="sub">A voice-controlled heads-up display for your own life — <b>local-first</b>, file-backed,
   with a background agent doing the heavy thinking. Everything below runs on your machine;
-  the cloud appears exactly twice, and both times are optional or swappable.</p>
+  the cloud appears exactly twice, and both times are optional or swappable. (This page maps
+  the desktop system — the optional Fly.io deployment that serves the Chat tab from anywhere
+  is documented in <code>docs/fly-deploy.md</code>.)</p>
 </header>
 
 <section class="boot d2">
@@ -245,7 +247,7 @@ footer::before, footer::after { content: ""; height: 1px; background: var(--line
       <div class="nodes">
         <div class="node">
           <h3>BROWSER HUD <span class="port">:3107</span></h3>
-          <ul><li>orb + panels (Next.js client)</li><li>push-to-talk capture</li><li>plays TTS, mouths the audio</li></ul>
+          <ul><li>tabbed shell: orb + per-project panels (Next.js client)</li><li>push-to-talk capture</li><li>plays TTS, mouths the audio</li></ul>
         </div>
         <div class="node">
           <h3>NEXT.JS SERVER <span class="port">:3107</span></h3>
@@ -337,7 +339,7 @@ footer::before, footer::after { content: ""; height: 1px; background: var(--line
       <div class="t">T3</div>
       <h3>Background ask</h3>
       <p>Needs real thinking. Becomes a headless Claude run; the answer is spoken when it lands (30s–2min).</p>
-      <div class="eg">draft a reply to that sponsor email</div>
+      <div class="eg">draft a reply to that recruiter email</div>
     </div>
   </div>
 </section>
@@ -349,7 +351,7 @@ footer::before, footer::after { content: ""; height: 1px; background: var(--line
   <div class="panel"><div class="corner"></div>
     <div class="life">
       <div class="life-step">
-        <div class="do">Ask for it<small>voice (“run the trend scan”) or a Command Deck button</small></div>
+        <div class="do">Ask for it<small>voice (“run the inbox audit”) or a Command Deck button</small></div>
         <div class="artifact"><code>POST /api/voice · /api/queue</code></div>
       </div>
       <div class="life-step">
@@ -361,7 +363,7 @@ footer::before, footer::after { content: ""; height: 1px; background: var(--line
         <div class="artifact"><code>runner-status.json heartbeat</code></div>
       </div>
       <div class="life-step">
-        <div class="do">Headless Claude does the work<small><code>claude -p</code> with the skill's prompt and an explicit model — reads your inbox, scans trends, drafts replies</small></div>
+        <div class="do">Headless Claude does the work<small><code>claude -p</code> with the skill's prompt and an explicit model — reads your inbox, plans your day, writes the weekly review</small></div>
         <div class="artifact"><code>claude -p --model …</code></div>
       </div>
       <div class="life-step">
@@ -404,7 +406,9 @@ footer::before, footer::after { content: ""; height: 1px; background: var(--line
     <div><code>lib/vault.ts</code><span>every file the HUD reads</span></div>
     <div><code>lib/skills.ts</code><span>allowed skills + intent writer</span></div>
     <div><code>lib/voiceMemory.ts</code><span>conversation ring (JSONL)</span></div>
-    <div><code>components/HUD.tsx</code><span>panels, callouts, choreography</span></div>
+    <div><code>components/shell/Shell.tsx</code><span>tabbed shell, callouts, choreography</span></div>
+    <div><code>lib/tabs.ts</code><span>tab registry + skill↔tab map</span></div>
+    <div><code>components/panels/*</code><span>the panels each tab composes</span></div>
     <div><code>components/GraphCore.tsx</code><span>the orb</span></div>
     <div><code>voice-server/server.py</code><span>Kokoro + whisper + wake word</span></div>
     <div><code>app/api/*</code><span>voice, queue, state, report, speak</span></div>

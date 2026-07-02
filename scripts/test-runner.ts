@@ -253,6 +253,25 @@ async function run(): Promise<void> {
   check(slugify("x".repeat(100)).length <= 48, "slugify caps length");
   check(/^\d{4}-\d{2}-\d{2}$/.test(todayDate()), "todayDate is a local YYYY-MM-DD");
 
+  // --- shared ~/.claude/.env parser (issue #44) ----------------------------------
+  // One loader (runner/env.js) now serves runner.js and queue-intent.mjs;
+  // lib/homeEnv.ts is the HUD-side sibling and must accept the same key shapes.
+  const { parseEnvText } = await import("../runner/env.js");
+  const parsed = parseEnvText(
+    ['FOO=bar', 'mixed_Case=ok', '# COMMENT=skipped', 'QUOTED="q v"', 'noequals', 'PAD = spaced '].join("\n")
+  ) as Record<string, string>;
+  check(parsed.FOO === "bar", "parseEnvText reads a plain KEY=value");
+  check(parsed.mixed_Case === "ok", "parseEnvText accepts mixed-case keys");
+  check(!("COMMENT" in parsed) && !("# COMMENT" in parsed), "parseEnvText skips # comments");
+  check(parsed.QUOTED === "q v", "parseEnvText strips wrapping quotes");
+  check(!("noequals" in parsed), "parseEnvText skips lines without =");
+  check(parsed.PAD === "spaced", "parseEnvText trims keys and values");
+  const homeEnvSrc = readFileSync(new URL("../lib/homeEnv.ts", import.meta.url), "utf8");
+  check(
+    homeEnvSrc.includes("[A-Za-z0-9_]"),
+    "lib/homeEnv.ts accepts the same mixed-case keys as runner/env.js (rule kept in sync)"
+  );
+
   rmSync(VAULT, { recursive: true, force: true });
   console.log(
     failed === 0 ? `\nAll runner reliability checks pass.` : `\n${failed} runner check(s) failed.`
