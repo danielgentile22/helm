@@ -2,7 +2,14 @@
 // snapshots into the new toasts the shell should surface. Pure: imports
 // lib/callouts only. Guards that toasts fire on transitions and never repeat.
 // Run: npx -y tsx scripts/test-callouts.ts
-import { deriveCallouts, type CalloutSnapshot, type CalloutRun } from "../lib/callouts";
+import {
+  deriveCallouts,
+  mergeToasts,
+  runsNeedingFeedLine,
+  type CalloutSnapshot,
+  type CalloutRun,
+  type Toast,
+} from "../lib/callouts";
 
 let failed = 0;
 const pass = (msg: string) => console.log(`PASS  ${msg}`);
@@ -96,6 +103,60 @@ const snap = (runs: CalloutRun[], reportRel: string | null = null): CalloutSnaps
 {
   const t = deriveCallouts(snap([r("v", "running")]), snap([r("v", "ok", { skill: "voice-ask", label: "fable 5 news" })]));
   check(t[0].label === "fable 5 news ask", "a voice-ask toast uses its topic label");
+}
+
+// ---------------------------------------------------------------------------
+// mergeToasts — the shell's stack merge honors the "replace started with done
+// in place" contract (review #41: both used to show at once for fast runs)
+// ---------------------------------------------------------------------------
+
+const toast = (id: string, kind: Toast["kind"]): Toast => ({ id, kind, label: "x" });
+
+{
+  const next = mergeToasts([toast("started:a", "started")], [toast("done:a", "done")]);
+  check(
+    next.length === 1 && next[0].id === "done:a",
+    "a done toast replaces its run's started toast in place"
+  );
+}
+{
+  const next = mergeToasts([toast("started:a", "started")], [toast("failed:a", "failed")]);
+  check(next.length === 1 && next[0].id === "failed:a", "a failed toast also replaces the started toast");
+}
+{
+  const next = mergeToasts([toast("started:a", "started")], [toast("done:b", "done")]);
+  check(next.length === 2, "an unrelated run's done toast leaves other started toasts alone");
+}
+{
+  const next = mergeToasts([toast("done:a", "done")], [toast("done:a", "done")]);
+  check(next.length === 1, "duplicate ids never stack");
+}
+
+// ---------------------------------------------------------------------------
+// runsNeedingFeedLine — the feed logs first sight AND the terminal transition
+// (review #37: outcomes used to never reach the persistent feed)
+// ---------------------------------------------------------------------------
+
+{
+  const seen = new Map<string, string>();
+  const first = runsNeedingFeedLine(seen, [{ id: "a", status: "running" }]);
+  check(first.length === 1, "a newly-seen running run gets a feed line");
+  first.forEach((r) => seen.set(r.id, r.status));
+
+  const again = runsNeedingFeedLine(seen, [{ id: "a", status: "running" }]);
+  check(again.length === 0, "a run that stays running doesn't re-log");
+
+  const done = runsNeedingFeedLine(seen, [{ id: "a", status: "ok" }]);
+  check(done.length === 1, "the running → ok transition gets an outcome line");
+  done.forEach((r) => seen.set(r.id, r.status));
+
+  const settled = runsNeedingFeedLine(seen, [{ id: "a", status: "ok" }]);
+  check(settled.length === 0, "a terminal run never re-logs");
+}
+{
+  const seen = new Map<string, string>();
+  const t = runsNeedingFeedLine(seen, [{ id: "b", status: "error" }]);
+  check(t.length === 1, "a run first seen already failed still gets its err line");
 }
 
 console.log(failed === 0 ? `\nAll callout checks pass.` : `\n${failed} callout check(s) failed.`);

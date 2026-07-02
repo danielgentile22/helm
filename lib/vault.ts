@@ -114,6 +114,7 @@ export interface AgendaState {
 export interface VaultState {
   generated_at: string;
   vault_root: string;
+  tz: string; // HUD_TZ — the zone every vault date/time is written in (client clock helpers need it)
   metrics: Metric[];
   runner: RunnerStatus | null;
   daily: DailyNote | null;
@@ -532,6 +533,7 @@ export function readVaultState(): VaultState {
   return {
     generated_at: new Date().toISOString(),
     vault_root: VAULT_ROOT,
+    tz: HUD_TZ,
     metrics: readMetrics(),
     runner: readRunnerStatus(),
     daily: readDailyNote(),

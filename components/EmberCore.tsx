@@ -307,7 +307,15 @@ export default function EmberCore({
     const mount = mountRef.current;
     if (!mount) return;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    // same guard as GraphCore — a refused WebGL context must cost the tile,
+    // not the whole shell
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: false });
+    } catch (e) {
+      console.error("ember core: WebGL unavailable — rendering without the visual", e);
+      return;
+    }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     mount.appendChild(renderer.domElement);
@@ -433,7 +441,8 @@ export default function EmberCore({
 
     // post pipeline — bloom does the glow honestly
     const composer = new EffectComposer(renderer);
-    composer.addPass(new RenderPass(scene, camera));
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
     const bloom = new UnrealBloomPass(
       new THREE.Vector2(mount.clientWidth, mount.clientHeight),
       0.9, // strength
@@ -441,7 +450,8 @@ export default function EmberCore({
       0.0 // threshold — additive particles are dim individually, bright in aggregate
     );
     composer.addPass(bloom);
-    composer.addPass(new OutputPass());
+    const outputPass = new OutputPass();
+    composer.addPass(outputPass);
 
     // mouse parallax
     const target = { x: 0, y: 0 };
@@ -516,8 +526,14 @@ export default function EmberCore({
       window.removeEventListener("resize", onResize);
       for (const g of [nucleusGeo, shellGeo, ringGeo, dustGeo, skelGeo]) g.dispose();
       for (const m of [nucleusMat, shellMat, ringMat, dustMat, skelMat]) m.dispose();
+      // added passes aren't covered by composer.dispose(); the context needs a
+      // forced loss or it lingers until GC (see GraphCore cleanup)
+      renderPass.dispose();
+      bloom.dispose();
+      outputPass.dispose();
       composer.dispose();
       renderer.dispose();
+      renderer.forceContextLoss();
       mount.removeChild(renderer.domElement);
     };
   }, []);

@@ -341,7 +341,12 @@ function createProgram(
   const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertSrc);
   const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragSrc);
 
-  if (!vertexShader || !fragmentShader) return null;
+  if (!vertexShader || !fragmentShader) {
+    // don't strand the one that compiled
+    if (vertexShader) gl.deleteShader(vertexShader);
+    if (fragmentShader) gl.deleteShader(fragmentShader);
+    return null;
+  }
 
   const program = gl.createProgram();
   if (!program) return null;
@@ -349,6 +354,11 @@ function createProgram(
   gl.attachShader(program, vertexShader);
   gl.attachShader(program, fragmentShader);
   gl.linkProgram(program);
+
+  // flag the shaders for deletion now — they stay attached and functional, and
+  // are actually freed with deleteProgram instead of surviving to context loss
+  gl.deleteShader(vertexShader);
+  gl.deleteShader(fragmentShader);
 
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
     console.error("Unable to initialize the shader program: " + gl.getProgramInfoLog(program));
@@ -429,12 +439,30 @@ export function DitheringShader({
     // eased color state — smooth mode transitions
     const curFront = hexToRgba(paramsRef.current.colorFront);
     const curBack = hexToRgba(paramsRef.current.colorBack);
+    // parsed targets cached by hex string — the props change a few times a
+    // minute, so re-running the regex + allocating arrays every frame was the
+    // loop's only per-frame garbage
+    let tgtFront = curFront.slice() as typeof curFront;
+    let tgtBack = curBack.slice() as typeof curBack;
+    let lastFrontHex = paramsRef.current.colorFront;
+    let lastBackHex = paramsRef.current.colorBack;
+
+    // same 30fps cap as GraphCore (24 under reduced motion) — uncapped, this
+    // full-canvas fbm shader renders at 120Hz on ProMotion for identical
+    // perceived ambient motion
+    const reduceMotion =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const frameInterval = 1000 / (reduceMotion ? 24 : 30);
+    let lastFrame = 0;
 
     let t = 0;
     let last = performance.now();
     let level = 0;
     let raf = 0;
     const render = (now: number) => {
+      raf = requestAnimationFrame(render);
+      if (now - lastFrame < frameInterval) return;
+      lastFrame = now;
       const p = paramsRef.current;
       t += (now - last) * 0.001 * p.speed;
       last = now;
@@ -443,8 +471,14 @@ export function DitheringShader({
       const target = p.getLevel ? Math.min(Math.max(p.getLevel(), 0), 1) : 0;
       level += (target - level) * (target > level ? 0.5 : 0.12);
 
-      const tgtFront = hexToRgba(p.colorFront);
-      const tgtBack = hexToRgba(p.colorBack);
+      if (p.colorFront !== lastFrontHex) {
+        lastFrontHex = p.colorFront;
+        tgtFront = hexToRgba(p.colorFront);
+      }
+      if (p.colorBack !== lastBackHex) {
+        lastBackHex = p.colorBack;
+        tgtBack = hexToRgba(p.colorBack);
+      }
       for (let i = 0; i < 4; i++) {
         curFront[i] += (tgtFront[i] - curFront[i]) * 0.06;
         curBack[i] += (tgtBack[i] - curBack[i]) * 0.06;
@@ -461,8 +495,6 @@ export function DitheringShader({
       if (loc.u_pxSize) gl.uniform1f(loc.u_pxSize, p.pxSize * dpr);
       if (loc.u_level) gl.uniform1f(loc.u_level, level);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-      raf = requestAnimationFrame(render);
     };
     raf = requestAnimationFrame(render);
 
@@ -471,6 +503,9 @@ export function DitheringShader({
       ro.disconnect();
       gl.deleteBuffer(positionBuffer);
       gl.deleteProgram(program);
+      // the context itself lives until the detached canvas is GC'd — lose it
+      // now so remounts can't accumulate toward the browser's context cap
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
     };
   }, []);
 

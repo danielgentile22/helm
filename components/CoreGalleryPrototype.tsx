@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import type { CoreMode } from "@/components/GraphCore";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 const GraphCore = dynamic(() => import("@/components/GraphCore"), { ssr: false });
 const DitherCore = dynamic(() => import("@/components/DitherCore"), { ssr: false });
@@ -52,21 +53,27 @@ function ProductionBoard({ mode, setMode }: { mode: CoreMode; setMode: (m: CoreM
       </div>
       <div className="pg-grid">
         <div className="pg-tile">
-          <GraphCore mode={mode} bgMode="depth" />
+          <ErrorBoundary>
+            <GraphCore mode={mode} bgMode="depth" />
+          </ErrorBoundary>
           <div className="pg-tile-label">
             <b>GRAPHCORE</b>
             <span>node cloud · on the HUD now</span>
           </div>
         </div>
         <div className="pg-tile">
-          <DitherCore mode={mode} />
+          <ErrorBoundary>
+            <DitherCore mode={mode} />
+          </ErrorBoundary>
           <div className="pg-tile-label">
             <b>DITHERCORE</b>
             <span>dither sphere · currently orphaned</span>
           </div>
         </div>
         <div className="pg-tile">
-          <EmberCore mode={mode} />
+          <ErrorBoundary>
+            <EmberCore mode={mode} />
+          </ErrorBoundary>
           <div className="pg-tile-label">
             <b>EMBERCORE</b>
             <span>4-layer reactor · currently orphaned</span>
@@ -120,8 +127,16 @@ export default function CoreGalleryPrototype() {
       <style>{PG_CSS}</style>
 
       {board === "production" && <ProductionBoard mode={mode} setMode={setMode} />}
-      {board === "corelab" && <CoreLab />}
-      {board === "orblab" && <OrbLab />}
+      {board === "corelab" && (
+        <ErrorBoundary>
+          <CoreLab />
+        </ErrorBoundary>
+      )}
+      {board === "orblab" && (
+        <ErrorBoundary>
+          <OrbLab />
+        </ErrorBoundary>
+      )}
 
       {/* switcher is dev-only — a stray prototype merge can't ship the bar */}
       {process.env.NODE_ENV !== "production" && (
