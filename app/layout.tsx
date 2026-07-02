@@ -39,8 +39,11 @@ export default function RootLayout({
   return (
     // suppressHydrationWarning: DarkReader & similar extensions inject attrs on
     // <html>/<body> before hydration — silence those (descendants still checked)
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${display.variable} ${mono.variable}`} suppressHydrationWarning>
+    // font variables live on <html>: --font-body/--font-head in globals.css are
+    // declared at :root and resolve var(--font-display) THERE — on <body> the
+    // vars are invisible to :root and every var(--font-body) falls back to Times
+    <html lang="en" className={`${display.variable} ${mono.variable}`} suppressHydrationWarning>
+      <body suppressHydrationWarning>
         <Shell>{children}</Shell>
       </body>
     </html>
