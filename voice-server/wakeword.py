@@ -84,6 +84,9 @@ class WakeListener:
             self.ok = False
             self.error = f"{type(e).__name__}: {e}"
             print(f"wake listener died: {self.error}")
+            # tell connected HUDs hands-free is gone — the one-shot hello at
+            # connect time otherwise asserts "wake word armed" forever
+            self.emit({"type": "hello", "wake": False})
 
     def _capture(self, stream, noise):
         """Record until the speaker goes quiet, then STT and emit."""

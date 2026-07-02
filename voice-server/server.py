@@ -23,8 +23,6 @@ import glob
 import io
 import json
 import os
-import re
-import struct
 import sys
 import threading
 import time
@@ -45,6 +43,7 @@ from faster_whisper import WhisperModel
 from kokoro_onnx import Kokoro
 
 from wakeword import WakeListener, WAKE_MODEL
+from wav_utils import chunks_of, wav_header
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = 3108
@@ -98,12 +97,16 @@ whisper, WHISPER_DEVICE = load_whisper()
 # one whisper model, two callers (/stt route + wake-word thread) — serialize
 whisper_lock = threading.Lock()
 
+# mirror /api/voice's front-door cap — :3108 must bound its own memory too
+MAX_STT_BYTES = 8 * 1024 * 1024
 
-def transcribe_pcm(audio_f32):
-    """float32 mono 16k -> text. Shared by the wake-word capture path."""
+
+def transcribe_locked(audio):
+    """audio: float32 mono 16k array (wake path) or a file-like of
+    webm/opus/wav bytes (/stt) -> text. Serializes on whisper_lock."""
     with whisper_lock:
         segments, _info = whisper.transcribe(
-            audio_f32, beam_size=1, language="en", vad_filter=False,
+            audio, beam_size=1, language="en", vad_filter=False,
             initial_prompt=WHISPER_PROMPT,
         )
         # segments is a lazy generator — consume INSIDE the lock or the
@@ -142,7 +145,7 @@ def emit_event(payload: dict):
     asyncio.run_coroutine_threadsafe(_send(), main_loop)
 
 
-wake = WakeListener(transcribe_pcm, emit_event, threshold=WAKE_THRESHOLD) if WAKE_ENABLED else None
+wake = WakeListener(transcribe_locked, emit_event, threshold=WAKE_THRESHOLD) if WAKE_ENABLED else None
 
 
 @app.websocket("/events")
@@ -169,38 +172,6 @@ async def _startup():
         wake.start()
 
 
-def wav_header(sample_rate: int) -> bytes:
-    """Streaming WAV header with unknown length (0x7FFFFFFF) — browsers
-    play it progressively and stop at end-of-stream."""
-    data_size = 0x7FFFFFFF - 36
-    return struct.pack(
-        "<4sI4s4sIHHIIHH4sI",
-        b"RIFF", 36 + data_size, b"WAVE",
-        b"fmt ", 16, 1, 1, sample_rate, sample_rate * 2, 2, 16,
-        b"data", data_size,
-    )
-
-
-SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+")
-
-
-def chunks_of(text: str):
-    """First sentence ships alone so playback starts ASAP; the rest glue
-    into >=60-char chunks so tiny fragments don't chop the prosody."""
-    parts = [p.strip() for p in SENTENCE_SPLIT.split(text) if p.strip()]
-    if not parts:
-        return [text]
-    out, cur = [parts[0]], ""
-    for p in parts[1:]:
-        cur = f"{cur} {p}".strip()
-        if len(cur) >= 60:
-            out.append(cur)
-            cur = ""
-    if cur:
-        out.append(cur)
-    return out
-
-
 @app.get("/health")
 def health():
     return {
@@ -221,17 +192,19 @@ def health():
 
 @app.post("/stt")
 async def stt(req: Request):
+    cl = req.headers.get("content-length")
+    if cl and cl.isdigit() and int(cl) > MAX_STT_BYTES:
+        return Response(status_code=413, content="clip too large")
     audio = await req.body()
+    if len(audio) > MAX_STT_BYTES:  # chunked upload with no content-length
+        return Response(status_code=413, content="clip too large")
     if len(audio) < 1000:
         return Response(status_code=400, content="clip too short")
     t0 = time.time()
-    # faster-whisper decodes webm/opus/wav via PyAV from a file-like object
-    with whisper_lock:
-        segments, _info = whisper.transcribe(
-            io.BytesIO(audio), beam_size=1, language="en", vad_filter=False,
-            initial_prompt=WHISPER_PROMPT,
-        )
-        text = " ".join(s.text.strip() for s in segments).strip()
+    # faster-whisper decodes webm/opus/wav via PyAV from a file-like object.
+    # CPU decode takes ~1s — run it (and the lock wait, which the wake thread
+    # may hold) off the event loop so /health, /events and /speak stay alive.
+    text = await asyncio.to_thread(transcribe_locked, io.BytesIO(audio))
     return {"text": text, "ms": int((time.time() - t0) * 1000)}
 
 

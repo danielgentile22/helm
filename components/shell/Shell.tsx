@@ -253,11 +253,23 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       setPtt(false);
       void voice.finishCapture();
     };
+    // a keyup lost to Cmd+Tab/Spotlight/a dialog must not leave the mic hot
+    const cancel = () => {
+      setPtt(false);
+      voice.cancelCapture();
+    };
+    const onVis = () => {
+      if (document.hidden) cancel();
+    };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
+    window.addEventListener("blur", cancel);
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", cancel);
+      document.removeEventListener("visibilitychange", onVis);
     };
   }, []);
 
