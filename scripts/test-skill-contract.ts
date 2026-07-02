@@ -10,8 +10,10 @@
 // here spawns nothing and writes nothing. No queue writes, no `claude` spend.
 //
 // Run: npx -y tsx scripts/test-skill-contract.ts
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // runner.js + lib/config both read VAULT_ROOT at module load. Set a throwaway
 // one BEFORE the dynamic imports below so init doesn't throw/exit — the
@@ -77,6 +79,24 @@ async function run(): Promise<void> {
     } else {
       pass(`weekly-review — reports trail (${path}) + prompt`);
     }
+  }
+
+  // 4. Coupling #3 (CLAUDE.md): the hardcoded HUD_TZ default in lib/config.ts
+  //    must equal the one in runner/runner.js. Compare the SOURCE literals,
+  //    not the resolved values — a machine's ~/.claude/.env would mask drift.
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const configDefault = readFileSync(join(root, "lib", "config.ts"), "utf8").match(
+    /export const HUD_TZ = homeEnv\("HUD_TZ"\) \?\? "([^"]+)"/
+  )?.[1];
+  const runnerDefault = readFileSync(join(root, "runner", "runner.js"), "utf8").match(
+    /const HUD_TZ = env\("HUD_TZ"\) \|\| "([^"]+)"/
+  )?.[1];
+  if (!configDefault || !runnerDefault) {
+    fail("HUD_TZ default not found in lib/config.ts or runner/runner.js (pattern drifted — update this test)");
+  } else if (configDefault !== runnerDefault) {
+    fail(`HUD_TZ defaults diverge: lib/config.ts="${configDefault}" vs runner.js="${runnerDefault}" — "today" will split near midnight UTC`);
+  } else {
+    pass(`HUD_TZ defaults match across lib/config.ts and runner.js (${configDefault})`);
   }
 
   const total = ALLOWED_SKILLS.size;

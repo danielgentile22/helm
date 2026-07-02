@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "check:runner": "node --check runner/runner.js && node --check runner/notify.js",
-    "test": "npm run check:runner && tsx scripts/test-security.ts && tsx scripts/test-router.ts && tsx scripts/test-skill-contract.ts && tsx scripts/test-runner.ts && tsx scripts/test-tabs.ts && tsx scripts/test-status.ts && tsx scripts/test-callouts.ts && tsx scripts/test-notify.ts && tsx scripts/test-vitals.ts && tsx scripts/test-core.ts && tsx scripts/test-audio.ts && tsx scripts/test-deck.ts && tsx scripts/test-obsidian.ts && tsx scripts/test-chat.ts && python3 feeds/test_claude_tokens.py && python3 feeds/test_job_applications.py && python3 feeds/test_morphy_github.py"
+    "test": "npm run check:runner && tsx scripts/test-security.ts && tsx scripts/test-router.ts && tsx scripts/test-skill-contract.ts && tsx scripts/test-runner.ts && tsx scripts/test-vault.ts && tsx scripts/test-tabs.ts && tsx scripts/test-status.ts && tsx scripts/test-callouts.ts && tsx scripts/test-notify.ts && tsx scripts/test-vitals.ts && tsx scripts/test-core.ts && tsx scripts/test-audio.ts && tsx scripts/test-deck.ts && tsx scripts/test-obsidian.ts && tsx scripts/test-chat.ts && python3 feeds/test_claude_tokens.py && python3 feeds/test_job_applications.py && python3 feeds/test_morphy_github.py"
   },
   "dependencies": {
     "lucide-react": "^1.22.0",

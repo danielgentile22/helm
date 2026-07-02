@@ -29,8 +29,10 @@ function requireVaultRoot(): string {
 }
 
 /** IANA timezone for "today" — daily notes, schedules, and the runner must
- *  all agree on this or dates flip near midnight UTC. */
-export const HUD_TZ = homeEnv("HUD_TZ") ?? "America/Chicago";
+ *  all agree on this or dates flip near midnight UTC. Default matches the
+ *  machine record (.helm-config.json) so losing the ~/.claude/.env line
+ *  doesn't silently shift every date bucket an hour. */
+export const HUD_TZ = homeEnv("HUD_TZ") ?? "America/New_York";
 
 /** Local voice-server (Kokoro TTS + faster-whisper STT). */
 export const VOICE_SERVER_URL = homeEnv("VOICE_SERVER_URL") ?? "http://127.0.0.1:3108";

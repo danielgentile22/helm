@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { VAULT_ROOT, USER_NAME } from "./config";
+import { atomicWriteFileSync } from "./atomicWrite";
 
 // ---------------------------------------------------------------------------
 // Conversational memory for the voice loop — a file-backed ring of recent
@@ -39,7 +40,8 @@ export function rememberExchange(e: Omit<Exchange, "ts">): void {
     fs.mkdirSync(path.dirname(MEMORY_FILE), { recursive: true });
     const lines = readLines();
     lines.push(JSON.stringify({ ts: new Date().toISOString(), ...e }));
-    fs.writeFileSync(MEMORY_FILE, lines.slice(-MAX_KEEP).join("\n") + "\n", "utf-8");
+    // atomic — a concurrent voice turn reading a truncated ring loses context
+    atomicWriteFileSync(MEMORY_FILE, lines.slice(-MAX_KEEP).join("\n") + "\n");
   } catch {
     /* memory is best-effort — never break the voice loop over it */
   }
@@ -108,7 +110,9 @@ function runningRuns(maxN = 3): string[] {
     const cutoff = Date.now() - RUN_WINDOW_MS;
     return fs
       .readdirSync(RUNS_DIR)
-      .filter((f) => f.endsWith(".json"))
+      // a .sync-conflict- copy frozen at status:"running" (the runner only
+      // ever updates the original) would report a phantom in-progress run
+      .filter((f) => f.endsWith(".json") && !f.includes(".sync-conflict-"))
       .map((f) => {
         try {
           const st = fs.statSync(path.join(RUNS_DIR, f));
@@ -148,7 +152,7 @@ function recentRunResults(maxN = 3): string[] {
     const cutoff = Date.now() - RUN_WINDOW_MS;
     return fs
       .readdirSync(RUNS_DIR)
-      .filter((f) => f.endsWith(".json"))
+      .filter((f) => f.endsWith(".json") && !f.includes(".sync-conflict-"))
       .map((f) => {
         try {
           const st = fs.statSync(path.join(RUNS_DIR, f));

@@ -52,7 +52,6 @@ check(bodyTooLarge(reqWithLength("junk"), 8 * 1024 * 1024), "unparseable content
 check(blockedInChatOnly("/api/queue"), "chat-only blocks /api/queue");
 check(blockedInChatOnly("/api/voice"), "chat-only blocks /api/voice");
 check(blockedInChatOnly("/api/voice/text"), "chat-only blocks /api/voice/text");
-check(blockedInChatOnly("/api/daily"), "chat-only blocks /api/daily");
 check(blockedInChatOnly("/api/report"), "chat-only blocks /api/report");
 check(blockedInChatOnly("/api/chats"), "chat-only blocks /api/chats (no prefix confusion)");
 check(!blockedInChatOnly("/api/chat"), "chat-only allows /api/chat");

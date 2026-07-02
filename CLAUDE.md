@@ -56,7 +56,7 @@ start everything at login.
 
 - **`HELM_API_KEY`** (in `~/.claude/.env`) is the shared secret behind every
   state-changing route (`/api/queue`, `/api/voice`, `/api/voice/text`,
-  `/api/chat`, `/api/daily`, `/api/transcript` DELETE). Requests must send it
+  `/api/chat`, `/api/transcript` DELETE). Requests must send it
   as `X-HELM-KEY`; the HUD's own pages fetch it from `/api/key`
   (lib/helmKey.ts). Server check lives in lib/auth.ts — fail-closed: no key
   configured means 503 on writes. Curl example:
@@ -79,7 +79,8 @@ start everything at login.
   ⟷ the regex in `pendingOffer()` — the spoken offer is parsed back out of
   conversation memory verbatim when the user answers "yes".
 - `HUD_TZ` (lib/config.ts) ⟷ the runner's `HUD_TZ` — both default
-  America/Chicago; change them TOGETHER or "today" splits across two dates.
+  America/New_York (matching .helm-config.json); change them TOGETHER or
+  "today" splits across two dates. test-skill-contract.ts asserts they match.
 - `.boot-stagger` CSS sections must never receive a second `animation` —
   it cancels `boot-in ... forwards` and blanks the panel.
 

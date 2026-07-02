@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { VAULT_ROOT } from "@/lib/config";
+import { atomicWriteFileSync } from "@/lib/atomicWrite";
 import { bodyTooLarge, checkHelmKey } from "@/lib/auth";
 import {
   CHAT_SYSTEM,
@@ -121,14 +122,15 @@ export async function POST(req: Request) {
       "utf8"
     );
 
-    writeFileSync(
+    // atomic — a torn sidecar makes readSidecar() return {} next turn, which
+    // silently forks a new claude session and loses the thread's memory
+    atomicWriteFileSync(
       sidecarPath(threadId),
       JSON.stringify(
         { threadId, sessionId, model, turns: (prior.turns ?? 0) + 1, created: prior.created ?? ts, updated: new Date().toISOString() },
         null,
         2
-      ),
-      "utf8"
+      )
     );
 
     return NextResponse.json({ threadId, reply, sessionId, model, costUsd: parsed.total_cost_usd ?? null, isError: !!parsed.is_error });

@@ -22,7 +22,7 @@ export interface Metric {
   timestamp: string;
   history: MetricPoint[]; // oldest → newest, capped
   delta: number | null; // vs previous reading
-  deltaWeek: number | null; // vs oldest point in history window (~6 days at 6h pulls)
+  deltaWeek: number | null; // vs oldest point in the trailing 7 days (null = <2 points in window)
 }
 
 export interface RunEntry {
@@ -145,6 +145,36 @@ function safeJson<T>(p: string): T | null {
   }
 }
 
+// Syncthing conflict copies (`name.sync-conflict-<stamp>.<ext>`) pass bare
+// extension checks — they double-count runs/queue entries (same id in the
+// JSON body) and lexicographically outsort the real morning report. Every
+// vault dir scan must exclude them.
+function isCleanFile(f: string, ext: string): boolean {
+  return f.endsWith(ext) && !f.includes(".sync-conflict-");
+}
+
+/** newest-first file paths in dir — each file stat'ed exactly once, never
+ *  inside a comparator (the 5s poll walks system/runs with this) */
+function newestFirst(dir: string, ext: string): string[] {
+  return fs
+    .readdirSync(dir)
+    .filter((f) => isCleanFile(f, ext))
+    .map((f) => {
+      const p = path.join(dir, f);
+      return { p, mtime: fs.statSync(p).mtimeMs };
+    })
+    .sort((a, b) => b.mtime - a.mtime)
+    .map((x) => x.p);
+}
+
+/** today's YYYY-MM-DD in HUD_TZ — the ONE HUD-side definition of "today"
+ *  (CLAUDE.md coupling #3; runner.js todayDate() is the documented
+ *  cross-process mirror). toISOString() is UTC and flips to tomorrow in the
+ *  evening for western timezones — wrong for "today". */
+export function todayLocal(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: HUD_TZ }).format(new Date());
+}
+
 // --- metrics.csv ------------------------------------------------------------
 // schema: timestamp,source,metric,value,status,error  (append-only)
 export function readMetrics(): Metric[] {
@@ -170,12 +200,17 @@ export function readMetrics(): Metric[] {
   }
 
   const out: Metric[] = [];
+  const weekCutoff = Date.now() - 7 * 24 * 3600 * 1000;
   for (const { source, metric, points } of byKey.values()) {
     const history = points.slice(-HISTORY_CAP);
     const latest = history[history.length - 1];
     const prev = history.length > 1 ? history[history.length - 2] : null;
-    // weekly delta needs enough window to mean something (≥6 pulls ≈ 1.5 days)
-    const oldest = history.length >= 6 ? history[0] : null;
+    // weekly delta by TIMESTAMP, not index — 24 rows of a daily feed span
+    // ~24 days, and an index-based window mislabeled that delta as "/wk"
+    const weekAgo = history.find((p) => {
+      const t = Date.parse(p.timestamp);
+      return !Number.isNaN(t) && t >= weekCutoff;
+    });
     out.push({
       source,
       metric,
@@ -184,7 +219,7 @@ export function readMetrics(): Metric[] {
       timestamp: latest.timestamp,
       history,
       delta: prev ? latest.value - prev.value : null,
-      deltaWeek: oldest ? latest.value - oldest.value : null,
+      deltaWeek: weekAgo && weekAgo !== latest ? latest.value - weekAgo.value : null,
     });
   }
   return out;
@@ -271,12 +306,7 @@ export function readRecentRuns(limit = 8): RunEntry[] {
   const dir = path.join(VAULT_ROOT, "system", "runs");
   let files: string[];
   try {
-    files = fs
-      .readdirSync(dir)
-      .filter((f) => f.endsWith(".json"))
-      .map((f) => path.join(dir, f))
-      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
-      .slice(0, limit);
+    files = newestFirst(dir, ".json").slice(0, limit);
   } catch {
     return [];
   }
@@ -308,16 +338,20 @@ export function readRecentRuns(limit = 8): RunEntry[] {
 
 // median past runtime per skill — feeds the task callout's progress estimate.
 // Only ok runs count (errors die early and would drag the estimate down).
+// Memoized per process on the runs-dir mtime: the shell's 5s poll otherwise
+// re-reads and re-parses up to 200 run JSONs per tick to recompute a static
+// median. Run writes land via rename (runner writeJson), which bumps the dir
+// mtime and invalidates the cache.
+let etasCache: { dirMtime: number; etas: Record<string, number> } | null = null;
+
 export function readSkillEtas(): Record<string, number> {
   const dir = path.join(VAULT_ROOT, "system", "runs");
   let files: string[];
+  let dirMtime: number;
   try {
-    files = fs
-      .readdirSync(dir)
-      .filter((f) => f.endsWith(".json"))
-      .map((f) => path.join(dir, f))
-      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
-      .slice(0, 200);
+    dirMtime = fs.statSync(dir).mtimeMs;
+    if (etasCache && etasCache.dirMtime === dirMtime) return etasCache.etas;
+    files = newestFirst(dir, ".json").slice(0, 200);
   } catch {
     return {};
   }
@@ -336,6 +370,7 @@ export function readSkillEtas(): Record<string, number> {
     ds.sort((a, b) => a - b);
     out[skill] = ds[Math.floor(ds.length / 2)];
   }
+  etasCache = { dirMtime, etas: out };
   return out;
 }
 
@@ -344,11 +379,7 @@ export function readQueue(): QueueEntry[] {
   const dir = path.join(VAULT_ROOT, "system", "queue");
   let files: string[];
   try {
-    files = fs
-      .readdirSync(dir)
-      .filter((f) => f.endsWith(".json"))
-      .map((f) => path.join(dir, f))
-      .sort((a, b) => fs.statSync(a).mtimeMs - fs.statSync(b).mtimeMs);
+    files = newestFirst(dir, ".json").reverse(); // queue order = oldest first
   } catch {
     return [];
   }
@@ -371,12 +402,7 @@ export function readQueue(): QueueEntry[] {
 // schema — `## Top 3 Priorities` numbered checkboxes + `## Schedule` bullets.
 export function readDailyNote(): DailyNote | null {
   const dir = path.join(VAULT_ROOT, "daily-notes");
-  // local (HUD_TZ) date — toISOString() is UTC and flips to
-  // tomorrow after ~7pm CT, which made evening sessions claim today's
-  // note didn't exist (same fix as runner.js todayDate())
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: HUD_TZ }).format(
-    new Date()
-  );
+  const today = todayLocal();
   let file = path.join(dir, `${today}.md`);
   let isToday = true;
   let date = today;
@@ -385,9 +411,11 @@ export function readDailyNote(): DailyNote | null {
     isToday = false;
     let names: string[];
     try {
+      // cap at today — plan-tomorrow legitimately writes a FUTURE-dated
+      // draft, and "most recent" must never surface tomorrow's schedule
       names = fs
         .readdirSync(dir)
-        .filter((f) => /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
+        .filter((f) => /^\d{4}-\d{2}-\d{2}\.md$/.test(f) && f <= `${today}.md`)
         .sort()
         .reverse();
     } catch {
@@ -426,40 +454,6 @@ export function readDailyNote(): DailyNote | null {
   return { date, isToday, top3, schedule, focus };
 }
 
-// --- daily note write — flip a Top 3 checkbox -----------------------------------
-// Only today's note is writable (stale notes are history). Index = nth
-// checkbox under `## Top 3 Priorities`, matching the parser above.
-export function toggleTop3(index: number, done: boolean): boolean {
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: HUD_TZ }).format(
-    new Date()
-  );
-  const file = path.join(VAULT_ROOT, "daily-notes", `${today}.md`);
-  const raw = safeRead(file);
-  if (!raw) return false;
-
-  const eol = raw.includes("\r\n") ? "\r\n" : "\n";
-  const lines = raw.split(/\r?\n/);
-  let section = "";
-  let seen = -1;
-  for (let i = 0; i < lines.length; i++) {
-    const h = lines[i].match(/^##\s+(.*)/);
-    if (h) {
-      section = h[1].trim();
-      continue;
-    }
-    if (section !== "Top 3 Priorities") continue;
-    const m = lines[i].match(/^(\d+\.\s+)\[( |x)\](\s+.*)/);
-    if (!m) continue;
-    seen++;
-    if (seen === index) {
-      lines[i] = `${m[1]}[${done ? "x" : " "}]${m[3]}`;
-      fs.writeFileSync(file, lines.join(eol), "utf-8");
-      return true;
-    }
-  }
-  return false;
-}
-
 // --- read a vault markdown deliverable (report overlay) ---------------------------
 // Path must stay inside the vault and under the dirs runs write to.
 
@@ -482,12 +476,12 @@ export interface MorningReport {
 export function readMorningReport(max = 4): MorningReport | null {
   try {
     const dir = path.join(VAULT_ROOT, "inbox", "reports", "morning");
-    const prefix = new Intl.DateTimeFormat("en-CA", { timeZone: HUD_TZ }).format(
-      new Date()
-    );
+    const prefix = todayLocal();
+    // isCleanFile: a `.sync-conflict-…md` copy sorts AFTER the real report
+    // ('s' > 'm') and .pop() would deterministically surface the stale copy
     const file = fs
       .readdirSync(dir)
-      .filter((f) => f.startsWith(prefix) && f.endsWith(".md"))
+      .filter((f) => f.startsWith(prefix) && isCleanFile(f, ".md"))
       .sort()
       .pop();
     if (!file) return null;
