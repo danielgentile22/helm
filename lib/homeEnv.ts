@@ -5,6 +5,9 @@ import os from "os";
 // ---------------------------------------------------------------------------
 // ~/.claude/.env loader — the one place keys live (same pattern metrics-pull
 // uses). Loaded once per server process; process.env wins over the file.
+// Sibling: runner/env.js is the runner-side copy (the runner can't import TS)
+// — keep the accepted-key rule in sync or a key works for the runner and is
+// invisible to the HUD.
 // ---------------------------------------------------------------------------
 
 let loaded = false;
@@ -15,7 +18,7 @@ export function loadHomeEnv() {
   const file = path.join(os.homedir(), ".claude", ".env");
   try {
     for (const line of fs.readFileSync(file, "utf-8").split(/\r?\n/)) {
-      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+      const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)\s*$/);
       if (m && !(m[1] in process.env)) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
     }
   } catch {

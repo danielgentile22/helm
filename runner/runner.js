@@ -34,30 +34,18 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { watch } from "node:fs/promises";
 import { queryTasks, createTask, MORPHY_DB_ID_DEFAULT } from "./notion.js";
 import { notify, loadNotifyConfig } from "./notify.js";
+import { loadEnvFile } from "./env.js";
 
 const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
 
+// The one version source is package.json — the heartbeat must never drift
+// from it again (test-skill-contract.ts asserts they match).
+export const PKG_VERSION = JSON.parse(
+  readFileSync(join(RUNNER_DIR, "..", "package.json"), "utf8")
+).version;
+
 // --- Config — env vars first (shell or ~/.claude/.env). VAULT_ROOT is
 // required and has no default; the runner exits if it's unset (see below).
-function loadEnvFile() {
-  const envPath = join(homedir(), ".claude", ".env");
-  if (!existsSync(envPath)) return {};
-  const out = {};
-  try {
-    for (const raw of readFileSync(envPath, "utf8").split(/\r?\n/)) {
-      const line = raw.trim();
-      if (!line || line.startsWith("#") || !line.includes("=")) continue;
-      const idx = line.indexOf("=");
-      const k = line.slice(0, idx).trim();
-      const v = line.slice(idx + 1).trim().replace(/^["']|["']$/g, "");
-      out[k] = v;
-    }
-  } catch {
-    /* ignore */
-  }
-  return out;
-}
-
 const _env = loadEnvFile();
 const env = (k) => process.env[k] || _env[k];
 
@@ -134,7 +122,7 @@ function writeHeartbeat() {
     writeJson(STATUS_FILE, {
       ts: new Date().toISOString(),
       pid: process.pid,
-      version: "1.0.1",
+      version: PKG_VERSION,
       busy: active > 0,
       active,
       max_concurrent: MAX_CONCURRENT,
