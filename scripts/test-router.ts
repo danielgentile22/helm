@@ -1,13 +1,28 @@
 // Rules-engine sweep — dispatch-vs-reference, question hijack, in-flight
-// guard, rundown anchoring. Pure rulesRoute/inFlightGuard against synthetic
-// state: no network, no Haiku spend, nothing written to the real queue.
+// guard, rundown anchoring, offer round-trip. Pure rulesRoute/inFlightGuard
+// against synthetic state: no network, no Haiku spend, nothing written to the
+// real queue. Hermetic: VAULT_ROOT points at an empty tempdir (fresh clones
+// pass, briefing cases can't read the live vault) and HELM_TEST_TIME pins the
+// HUD_TZ clock so time-dependent lanes assert exact output.
 // Run: npx -y tsx scripts/test-router.ts
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { RouteResult } from "../lib/router";
-import type { VaultState } from "../lib/vault";
+import type { Metric, VaultState } from "../lib/vault";
+import type { Exchange } from "../lib/voiceMemory";
 
 process.env.VOICE_NO_WARMUP = "1"; // must be set BEFORE the module loads
+// hermetic vault — set unconditionally so ~/.claude/.env can't leak the real
+// one in (lib/config prefers process.env); the sweep never touches disk state
+process.env.VAULT_ROOT = join(tmpdir(), "helm-router-sweep");
+// deterministic HUD_TZ wall clock — 03:07 so a regression back to the host
+// clock fails the sweep at any civilised hour
+process.env.HELM_TEST_TIME = "03:07";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { rulesRoute, inFlightGuard } = require("../lib/router") as typeof import("../lib/router");
+const { rulesRoute, inFlightGuard, briefingOffer, SKILL_ALIASES } =
+  require("../lib/router") as typeof import("../lib/router");
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { ALLOWED_SKILLS } = require("../lib/skills") as typeof import("../lib/skills");
 
 function state(over: Partial<VaultState> = {}): VaultState {
   return {
@@ -71,6 +86,42 @@ const morphyBoard = state({
   },
 });
 
+// the four metric families the feeds actually write
+const mkMetric = (source: string, name: string, value: number): Metric => ({
+  source,
+  metric: name,
+  value,
+  status: "ok",
+  timestamp: new Date().toISOString(),
+  history: [],
+  delta: null,
+  deltaWeek: null,
+});
+const vitals = state({
+  metrics: [
+    mkMetric("uscf", "rating", 1545),
+    mkMetric("jobs", "applications", 42),
+    mkMetric("jobs", "applied_7d", 3),
+    mkMetric("github", "commits_7d", 12),
+    mkMetric("github", "open_prs", 2),
+    mkMetric("github", "open_issues", 5),
+  ],
+});
+
+// sweep clock is 03:07 — 03:05 is past, 03:30 is the next item
+const scheduled = state({
+  daily: {
+    date: "2026-01-01",
+    isToday: true,
+    top3: [],
+    schedule: [
+      { time: "03:05", item: "early sync" },
+      { time: "03:30", item: "deep work" },
+    ],
+    focus: "ship the router fixes",
+  },
+});
+
 interface Case {
   name: string;
   transcript: string;
@@ -88,6 +139,18 @@ const CASES: Case[] = [
   { name: "short command", transcript: "run the morning report", expect: dispatched("morning-report"), want: "tier 1 morning-report" },
   { name: "short audit", transcript: "run the inbox audit", expect: dispatched("inbox-brief"), want: "tier 1 inbox-brief" },
   { name: "polite alias", transcript: "the inbox brief please", expect: dispatched("inbox-brief"), want: "tier 1 inbox-brief" },
+  { name: "cleanup dispatch", transcript: "clean up the vault", expect: dispatched("vault-cleanup"), want: "tier 1 vault-cleanup" },
+  { name: "plan today dispatch", transcript: "plan today", expect: dispatched("plan-today"), want: "tier 1 plan-today" },
+  { name: "plan tomorrow dispatch", transcript: "plan tomorrow", expect: dispatched("plan-tomorrow"), want: "tier 1 plan-tomorrow" },
+  // whisper adds terminal punctuation — a trailing period must not block dispatch
+  { name: "punctuated command", transcript: "Run the morning report.", expect: dispatched("morning-report"), want: "tier 1 morning-report" },
+  // pinned: a trailing "?" reads as a question — rules defer to the model
+  // engines rather than guess dispatch intent
+  { name: "question-mark alias defers", transcript: "Morning report?", expect: fallsThrough, want: "fallthrough" },
+
+  // --- "queue" as a dispatch verb must reach matchSkill, not the queue lane
+  { name: "queue-verb dispatch", transcript: "queue the inbox brief", expect: dispatched("inbox-brief"), want: "tier 1 inbox-brief" },
+  { name: "queue-verb dispatch 2", transcript: "queue up the morning report", expect: dispatched("morning-report"), want: "tier 1 morning-report" },
 
   // --- analytical question naming a skill must not re-run it
   {
@@ -125,14 +188,77 @@ const CASES: Case[] = [
     want: "fallthrough",
   },
 
-  // --- rundown stays anchored
-  { name: "rundown trigger", transcript: "give me the rundown", expect: (r) => r.tier === 2 && /follow|board|morning|afternoon|evening|midnight/i.test(r.reply), want: "tier 2 briefing" },
+  // --- rundown stays anchored (deterministic: empty vault, 03:07 clock)
+  {
+    name: "rundown trigger",
+    transcript: "give me the rundown",
+    expect: (r) => r.tier === 2 && /midnight oil/i.test(r.reply) && /want me to run the morning report/i.test(r.reply),
+    want: "tier 2 briefing with the morning-report offer",
+  },
   { name: "brief me", transcript: "hey helm brief me", expect: (r) => r.tier === 2, want: "tier 2 briefing" },
 
-  // --- instant tier-2 lanes untouched
+  // --- instant tier-2 lanes: the metrics the feeds ACTUALLY write
   { name: "mic check", transcript: "can you hear me", expect: (r) => r.tier === 2 && r.reply === "Loud and clear.", want: "Loud and clear." },
-  { name: "subs metric", transcript: "how many subscribers do I have", expect: (r) => r.tier === 2, want: "tier 2 vitals answer" },
+  {
+    name: "chess rating",
+    transcript: "what's my chess rating",
+    state: vitals,
+    expect: (r) => r.tier === 2 && /1545/.test(r.reply) && r.panels?.includes("vitals") === true,
+    want: "tier 2 rating answer",
+  },
+  {
+    name: "job applications",
+    transcript: "how many applications this week",
+    state: vitals,
+    expect: (r) => r.tier === 2 && /42 applications total/.test(r.reply) && /3 in the last week/.test(r.reply),
+    want: "tier 2 applications answer",
+  },
+  {
+    name: "morphy repo = github, not the board",
+    transcript: "how's the morphy repo",
+    state: vitals,
+    expect: (r) => r.tier === 2 && /12 commits/.test(r.reply) && r.panels?.includes("vitals") === true,
+    want: "tier 2 github answer",
+  },
+  // the creator-template branches are gone — dead metrics defer to the models
+  {
+    name: "dead template metric falls through",
+    transcript: "how many subscribers do I have",
+    expect: fallsThrough,
+    want: "fallthrough (no youtube feed exists)",
+  },
   { name: "queue", transcript: "what's in the queue", expect: (r) => r.tier === 2, want: "tier 2 queue answer" },
+
+  // --- schedule lane: apostrophes survive the normalizer
+  {
+    name: "what's next (apostrophe)",
+    transcript: "what's next",
+    state: scheduled,
+    expect: (r) => r.tier === 2 && /3:30 AM/.test(r.reply) && /deep work/.test(r.reply),
+    want: "tier 2 'Coming up at 3:30 AM — deep work.'",
+  },
+  {
+    name: "next item in HUD_TZ",
+    transcript: "what's on the schedule",
+    state: scheduled,
+    expect: (r) => r.tier === 2 && /3:30 AM/.test(r.reply),
+    want: "tier 2 next-item from the pinned HUD_TZ clock",
+  },
+
+  // --- focus lane answers asks ABOUT the focus, not any sentence using the verb
+  {
+    name: "focus question",
+    transcript: "what's today's focus",
+    state: scheduled,
+    expect: (r) => r.tier === 2 && /focus is ship the router fixes/i.test(r.reply),
+    want: "tier 2 focus answer",
+  },
+  {
+    name: "focus as a verb must NOT hijack",
+    transcript: "let's focus on the morphy stuff today",
+    expect: (r) => !/focus is/i.test(r.reply) && r.panels?.includes("morphy") === true,
+    want: "morphy lane, not the focus answer",
+  },
 
   // --- in-flight guard on the surviving dispatch path
   {
@@ -183,5 +309,54 @@ for (const c of CASES) {
     `${ok ? "PASS" : "FAIL"}  ${c.name}\n      got: tier ${r.tier}${r.skill ? ` skill=${r.skill}` : ""}${r.fallthrough ? " (fallthrough)" : ""} — "${r.reply.slice(0, 80)}"${ok ? "" : `\n      want: ${c.want}`}`
   );
 }
-console.log(failed === 0 ? `\nAll ${CASES.length} cases pass.` : `\n${failed}/${CASES.length} FAILED`);
+
+// --- offer coupling: briefingOffer wording ⟷ pendingOffer regex ⟷ OFFER_SKILLS
+// (CLAUDE.md load-bearing coupling #2). Both literal offer strings are fed
+// back through the yes/no path with synthetic convo memory — rewording either
+// side turns this red instead of silently degrading every "yes".
+
+function check(name: string, ok: boolean, got: string, want: string): void {
+  if (!ok) failed++;
+  console.log(`${ok ? "PASS" : "FAIL"}  ${name}\n      got: ${got}${ok ? "" : `\n      want: ${want}`}`);
+}
+
+const offerExchange = (helm: string, ageMs = 0): Exchange[] => [
+  { ts: new Date(Date.now() - ageMs).toISOString(), you: "brief me", helm, tier: 2 },
+];
+
+// every SKILL_ALIASES target must be a skill the runner can actually build —
+// the voice path queues tier-1 results without re-validating
+for (const [re, skill] of SKILL_ALIASES) {
+  check(`alias ${re} → allowed skill`, ALLOWED_SKILLS.has(skill), skill, "member of ALLOWED_SKILLS");
+}
+
+process.env.HELM_TEST_TIME = "09:00";
+const morningOffer = briefingOffer(state(), false); // morning, no report yet
+process.env.HELM_TEST_TIME = "17:00";
+const lateOffer = briefingOffer(state(), false); // after 16:00 — inbox audit
+const reportOffer = briefingOffer(state(), true); // report exists — inbox audit
+process.env.HELM_TEST_TIME = "03:07"; // restore the sweep clock
+
+const yes1 = rulesRoute("yes", state(), offerExchange(morningOffer));
+check("yes after morning offer", yes1.tier === 1 && yes1.skill === "morning-report", `tier ${yes1.tier} skill=${yes1.skill}`, "tier 1 morning-report");
+
+const yes2 = rulesRoute("yes please", state(), offerExchange(lateOffer));
+check("yes after late-day offer", yes2.tier === 1 && yes2.skill === "inbox-brief", `tier ${yes2.tier} skill=${yes2.skill}`, "tier 1 inbox-brief");
+
+// composed answers — "Yes, do it." / "No, not right now." must not fall through
+const yes3 = rulesRoute("yes do it", state(), offerExchange(reportOffer));
+check("composed affirm", yes3.tier === 1 && yes3.skill === "inbox-brief", `tier ${yes3.tier} skill=${yes3.skill}`, "tier 1 inbox-brief");
+
+const no1 = rulesRoute("no not right now", state(), offerExchange(morningOffer));
+check("composed decline", no1.tier === 2 && no1.reply === "Standing by.", `tier ${no1.tier} "${no1.reply}"`, 'tier 2 "Standing by."');
+
+const no2 = rulesRoute("no thanks", state(), offerExchange(morningOffer));
+check("plain decline", no2.tier === 2 && no2.reply === "Standing by.", `tier ${no2.tier} "${no2.reply}"`, 'tier 2 "Standing by."');
+
+// a stale offer (>3 min) must not dispatch on a bare "yes"
+const stale = rulesRoute("yes", state(), offerExchange(morningOffer, 4 * 60 * 1000));
+check("stale offer ignored", stale.tier !== 1, `tier ${stale.tier}`, "not tier 1");
+
+const total = CASES.length + SKILL_ALIASES.length + 6;
+console.log(failed === 0 ? `\nAll ${total} cases pass.` : `\n${failed}/${total} FAILED`);
 process.exit(failed ? 1 : 0);

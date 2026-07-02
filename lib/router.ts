@@ -2,7 +2,7 @@ import { homeEnv } from "./homeEnv";
 import { HUD_TZ } from "./config";
 import { ALLOWED_SKILLS } from "./skills";
 import { readMorningReport, readVaultState, type VaultState, type Metric } from "./vault";
-import { recentExchanges } from "./voiceMemory";
+import { recentExchanges, type Exchange } from "./voiceMemory";
 
 // ---------------------------------------------------------------------------
 // route(transcript) → {tier, skill?, reply}. Tier 1 = dispatch a skill to the
@@ -54,7 +54,8 @@ export type PanelId = (typeof PANEL_IDS)[number];
 const HAIKU_MODEL = "claude-haiku-4-5-20251001";
 
 // alias → skill; order matters when aliases could substring-shadow each other
-const SKILL_ALIASES: [RegExp, string][] = [
+// (exported for tests — the sweep asserts every target is in ALLOWED_SKILLS)
+export const SKILL_ALIASES: [RegExp, string][] = [
   [/morning report|am report/, "morning-report"],
   [/inbox/, "inbox-brief"],
   [/clean ?up/, "vault-cleanup"],
@@ -92,11 +93,11 @@ async function pickEngine(
   const pref = (homeEnv("VOICE_ROUTER") || "auto").toLowerCase();
 
   if (pref === "haiku") {
-    const r = await haikuRoute(transcript, state, convo).catch(() => null);
+    const r = await haikuRoute(transcript, state, convo).catch(engineFail("haiku"));
     return r ?? rulesRoute(transcript, state);
   }
   if (pref === "local") {
-    const r = await localRoute(transcript, state, convo).catch(() => null);
+    const r = await localRoute(transcript, state, convo).catch(engineFail("local"));
     return r ?? rulesRoute(transcript, state);
   }
   if (pref === "rules") return rulesRoute(transcript, state);
@@ -105,11 +106,21 @@ async function pickEngine(
   const viaRules = rulesRoute(transcript, state);
   if (!viaRules.fallthrough) return viaRules;
   if (homeEnv("ANTHROPIC_API_KEY")) {
-    const viaHaiku = await haikuRoute(transcript, state, convo).catch(() => null);
+    const viaHaiku = await haikuRoute(transcript, state, convo).catch(engineFail("haiku"));
     if (viaHaiku) return viaHaiku;
   }
-  const viaLocal = await localRoute(transcript, state, convo).catch(() => null);
+  const viaLocal = await localRoute(transcript, state, convo).catch(engineFail("local"));
   return viaLocal ?? viaRules;
+}
+
+// a dead Ollama daemon or a Haiku 4xx must not be invisible — without this
+// line every utterance silently degrades to rules and the only symptom is
+// voice getting dumber (CLAUDE.md's "voice quietly misroutes")
+function engineFail(engine: string): (e: unknown) => null {
+  return (e) => {
+    console.error(`[router] ${engine} engine failed — falling back to rules: ${e}`);
+    return null;
+  };
 }
 
 // --- in-flight guard ----------------------------------------------------------
@@ -174,13 +185,23 @@ const AFFIRM_RE =
   /^(yes|yeah|yep|sure|absolutely|go ahead|do it|let'?s do it|please do|yes please|go for it|sounds good)( please)?,?( helm)?$/;
 const DECLINE_RE =
   /^(no|nope|nah|not (right )?now|not yet|later|maybe later|hold off|skip it)( thanks| thank you)?,?( helm)?$/;
+
+// natural answers compose: "yes, do it" / "no, not right now". Strip ONE
+// leading bare token of the SAME polarity, then the remainder must still
+// match the list — same-polarity only, so "no, do it" never reads as affirm
+function isAffirm(t: string): boolean {
+  return AFFIRM_RE.test(t) || AFFIRM_RE.test(t.replace(/^(?:yes|yeah|yep|sure|ok(?:ay)?)[\s,]+/, ""));
+}
+function isDecline(t: string): boolean {
+  return DECLINE_RE.test(t) || DECLINE_RE.test(t.replace(/^(?:no|nope|nah)[\s,]+/, ""));
+}
+
 const OFFER_SKILLS: Record<string, string> = {
   "morning report": "morning-report",
   "inbox audit": "inbox-brief",
 };
 
-function pendingOffer(): string | null {
-  const last = recentExchanges(1)[0];
+function pendingOffer(last: Exchange | undefined): string | null {
   if (!last || Date.now() - Date.parse(last.ts) > 3 * 60 * 1000) return null;
   const m = last.helm
     .toLowerCase()
@@ -197,15 +218,21 @@ function runnerDownNote(state: VaultState): string | null {
     : "but heads up — the runner daemon looks down, so it'll sit in the queue until that's restarted.";
 }
 
-// exported for tests — route() applies it internally
-export function rulesRoute(transcript: string, state: VaultState): RouteResult {
+// exported for tests — route() applies it internally. `exchanges` is
+// injectable so the sweep can drive the offer round-trip with synthetic
+// convo memory instead of the real vault file.
+export function rulesRoute(
+  transcript: string,
+  state: VaultState,
+  exchanges?: Exchange[]
+): RouteResult {
   const t = transcript.toLowerCase().replace(/[^a-z0-9$:'\s]/g, " ").replace(/\s+/g, " ").trim();
   if (!t) return { tier: 3, reply: "I didn't catch that.", engine: "rules" };
 
   // answer to a standing offer beats everything else
-  if (AFFIRM_RE.test(t) || DECLINE_RE.test(t)) {
-    const offered = pendingOffer();
-    if (offered && AFFIRM_RE.test(t)) {
+  if (isAffirm(t) || isDecline(t)) {
+    const offered = pendingOffer((exchanges ?? recentExchanges(1))[0]);
+    if (offered && isAffirm(t)) {
       return {
         tier: 1,
         skill: offered,
@@ -350,12 +377,6 @@ function spokenNum(v: number): string {
   return String(x);
 }
 
-function spokenMoney(v: number): string {
-  const x = Math.round(v);
-  if (x >= 1000) return `about $${(Math.round(x / 100) * 100).toLocaleString("en-US")}`;
-  return `$${x}`;
-}
-
 function spokenTime(t: string): string {
   const m = t.match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return t;
@@ -374,15 +395,26 @@ function weekDelta(m: Metric): string {
 
 // --- daily briefing ----------------------------------------------------------
 
+// HUD_TZ wall clock — the ONE clock for spoken time answers. Everything it
+// gets compared against (daily-note HH:MM, isToday) is HUD_TZ, so host-local
+// getHours() is wrong the moment the process runs elsewhere (Fly = UTC).
+// HELM_TEST_TIME ("HH:MM", tests only) pins it for deterministic sweeps.
+function localHourMin(): { h: number; m: number } {
+  const test = process.env.HELM_TEST_TIME?.match(/^(\d{1,2}):(\d{2})$/);
+  if (test) return { h: parseInt(test[1], 10), m: parseInt(test[2], 10) };
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: HUD_TZ,
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (type: string) => parseInt(parts.find((p) => p.type === type)?.value ?? "0", 10);
+  // some ICU builds render midnight as "24" under hour12:false
+  return { h: get("hour") % 24, m: get("minute") };
+}
+
 function localHour(): number {
-  return parseInt(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: HUD_TZ,
-      hour: "numeric",
-      hour12: false,
-    }).format(new Date()),
-    10
-  );
+  return localHourMin().h;
 }
 
 // `## Headlines` mining lives in lib/vault.ts (readMorningReport) — shared
@@ -391,8 +423,8 @@ function localHour(): number {
 function nextScheduleItem(state: VaultState): { time: string; item: string } | null {
   const d = state.daily;
   if (!d?.isToday || d.schedule.length === 0) return null;
-  const now = new Date();
-  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const { h, m } = localHourMin();
+  const nowMin = h * 60 + m;
   return (
     d.schedule.find((s) => {
       const m = s.time.match(/^(\d{1,2}):(\d{2})$/);
@@ -432,7 +464,7 @@ function waveTop(h: string): string {
 
 // Morning-kickoff template — the shape, not a script. Every slot fills from
 // live state at ask-time:
-//   audience pulse (all platforms) → ONE wave-top AI headline → today's
+//   job-search pulse + chess rating → ONE wave-top AI headline → today's
 //   mission → "where do you want me to start?"
 // Wave tops only; everything is one follow-up question away. ~55 words.
 function briefing(state: VaultState): {
@@ -447,27 +479,10 @@ function briefing(state: VaultState): {
   const mark = () => parts.join(" ").length + (parts.length > 0 ? 1 : 0);
   const d = state.daily;
 
-  // total audience, summed live across platforms
-  const reachMetrics = [
-    metric(state, "youtube", "subscribers"),
-    metric(state, "instagram", "followers"),
-    metric(state, "tiktok", "followers"),
-  ].filter((m): m is Metric => m !== null && m.status !== "mock");
-  const reach = reachMetrics.reduce((s, m) => s + m.value, 0);
-  const reachDelta = reachMetrics.reduce((s, m) => s + (m.deltaWeek ?? 0), 0);
-
   const h = localHour();
-  const opener =
-    h < 5 ? "Burning the midnight oil." : h < 12 ? "Good morning." : h < 17 ? "Good afternoon." : "Good evening.";
-  if (reach > 0) {
-    parts.push(
-      `${opener} You're sitting at about ${spokenNum(reach)} followers across all platforms${
-        reachDelta > 0 ? ` — up about ${spokenNum(reachDelta)} this week` : ""
-      }.`
-    );
-  } else {
-    parts.push(opener);
-  }
+  parts.push(
+    h < 5 ? "Burning the midnight oil." : h < 12 ? "Good morning." : h < 17 ? "Good afternoon." : "Good evening."
+  );
 
   const report = readMorningReport(2);
   const heads = report?.heads ?? [];
@@ -478,9 +493,15 @@ function briefing(state: VaultState): {
     parts.push(`Big story in AI today: ${waveTop(heads[0])}.`);
   }
 
-  // real revenue only — mock numbers stay off the spoken brief
-  const mrr = metric(state, "stripe", "mrr");
-  if (mrr && mrr.status !== "mock") parts.push(`Revenue's at ${spokenMoney(mrr.value)} monthly.`);
+  // real readings only — mock numbers stay off the spoken brief
+  const apps = metric(state, "jobs", "applied_7d");
+  if (apps && apps.status !== "mock" && apps.value > 0) {
+    parts.push(`${apps.value === 1 ? "One application" : `${apps.value} applications`} out this week.`);
+  }
+  const rating = metric(state, "uscf", "rating");
+  if (rating && rating.status !== "mock") {
+    parts.push(`Chess rating's at ${Math.round(rating.value)}${weekDelta(rating)}.`);
+  }
 
   if (d?.isToday) {
     const open = d.top3.filter((p) => !p.done);
@@ -519,8 +540,10 @@ function briefing(state: VaultState): {
 }
 
 // state-picked closing offer — wording is load-bearing: pendingOffer() parses
-// it back out of convo memory when the user answers "yes"
-function briefingOffer(state: VaultState, hasReport: boolean): string {
+// it back out of convo memory when the user answers "yes". Exported for
+// tests: the sweep feeds both branches' literal output back through the
+// yes/no path so a rewording turns npm test red instead of misrouting voice.
+export function briefingOffer(state: VaultState, hasReport: boolean): string {
   // the offer phrase must stay verbatim-matchable by pendingOffer()'s regex;
   // the open-ended tail rides AFTER it and never reaches the capture group
   const TAIL = ", or do you have anything else in mind?";
@@ -598,8 +621,7 @@ function openDocAnswer(t: string, state: VaultState): StateAnswer | null {
 }
 
 function stateAnswer(t: string, state: VaultState): StateAnswer | null {
-  const doc = openDocAnswer(t, state);
-  if (doc) return doc;
+  // openDocAnswer already ran in rulesRoute — the ONE call site
   if (BRIEFING_RE.test(t)) {
     const b = briefing(state);
     return {
@@ -609,18 +631,6 @@ function stateAnswer(t: string, state: VaultState): StateAnswer | null {
         : ["priorities", "schedule", "objective", "vitals"],
       deliverable: b.deliverable,
       reveals: b.reveals,
-    };
-  }
-  // "m r r" / "m r are" — STT splits or mishears the acronym after the
-  // normalizer strips dots ("M.R.R." → "m r r")
-  if (/mrr|\bm r r\b|\bm r are\b|revenue|recurring|money/.test(t)) {
-    const m = metric(state, "stripe", "mrr");
-    if (!m) return { text: "I don't have an MRR reading yet.", panels: ["objective"] };
-    const pct = Math.round((m.value / 10_000) * 100);
-    const sim = m.status === "mock" ? " Fair warning — that's still a simulated number." : "";
-    return {
-      text: `Revenue's sitting at ${spokenMoney(m.value)} a month — ${pct} percent of the way to ten K.${sim}`,
-      panels: ["objective"],
     };
   }
   if (/runner|daemon/.test(t)) {
@@ -633,41 +643,42 @@ function stateAnswer(t: string, state: VaultState): StateAnswer | null {
       panels: ["diagnostics", "pipeline"],
     };
   }
-  if (/subscriber|subs\b/.test(t)) {
-    const m = metric(state, "youtube", "subscribers");
+  // the four metric families the feeds ACTUALLY write (uscf, jobs, github,
+  // claude_code) — the creator-template branches (youtube/instagram/tiktok/
+  // stripe) answered for sources no feed produces while the real ones fell
+  // through to a paid model round-trip
+  if (/\b(chess|uscf|elo|rating)\b/.test(t)) {
+    const m = metric(state, "uscf", "rating");
     return {
       text: m
-        ? `You're at ${spokenNum(m.value)} YouTube subscribers${weekDelta(m)}.`
-        : "I don't have a subscriber reading.",
+        ? `Your chess rating's at ${Math.round(m.value)}${weekDelta(m)}.`
+        : "I don't have a rating reading yet.",
       panels: ["vitals"],
     };
   }
-  if (/youtube.*views|views.*youtube|28 day/.test(t)) {
-    const m = metric(state, "youtube", "views_28d");
-    return {
-      text: m
-        ? `${spokenNum(m.value)} YouTube views over the last 28 days${weekDelta(m)}.`
-        : "I don't have a views reading.",
-      panels: ["vitals"],
-    };
+  if (/\bapplications?\b|\bapplied\b|job search|job apps?\b/.test(t)) {
+    const total = metric(state, "jobs", "applications");
+    const week = metric(state, "jobs", "applied_7d");
+    if (!total && !week) return { text: "I don't have an applications reading yet.", panels: ["vitals"] };
+    const bits: string[] = [];
+    if (total) bits.push(`${total.value} application${total.value === 1 ? "" : "s"} total`);
+    if (week) bits.push(`${week.value} in the last week`);
+    return { text: `You're at ${listOut(bits)}.`, panels: ["vitals"] };
   }
-  if (/instagram/.test(t)) {
-    const m = metric(state, "instagram", "followers");
-    return {
-      text: m
-        ? `Instagram's at ${spokenNum(m.value)} followers${weekDelta(m)}.`
-        : "I don't have an Instagram reading.",
-      panels: ["vitals"],
-    };
-  }
-  if (/tiktok/.test(t)) {
-    const m = metric(state, "tiktok", "followers");
-    return {
-      text: m
-        ? `TikTok's at ${spokenNum(m.value)} followers${weekDelta(m)}.`
-        : "I don't have a TikTok reading.",
-      panels: ["vitals"],
-    };
+  // before the Morphy-board lane on purpose — "how's the morphy repo" is a
+  // github question, not a board question
+  if (/github|\bcommits?\b|pull request|\brepo\b/.test(t)) {
+    const commits = metric(state, "github", "commits_7d");
+    const prs = metric(state, "github", "open_prs");
+    const issues = metric(state, "github", "open_issues");
+    if (!commits && !prs && !issues) {
+      return { text: "I don't have a repo reading yet.", panels: ["vitals"] };
+    }
+    const bits: string[] = [];
+    if (commits) bits.push(`${commits.value} commit${commits.value === 1 ? "" : "s"} this week`);
+    if (prs) bits.push(`${prs.value} open pull request${prs.value === 1 ? "" : "s"}`);
+    if (issues) bits.push(`${issues.value} open issue${issues.value === 1 ? "" : "s"}`);
+    return { text: `The Morphy repo has ${listOut(bits)}.`, panels: ["vitals"] };
   }
   if (/token|claude usage/.test(t)) {
     const m = metric(state, "claude_code", "tokens_5h");
@@ -678,7 +689,9 @@ function stateAnswer(t: string, state: VaultState): StateAnswer | null {
       panels: ["vitals"],
     };
   }
-  if (/queue/.test(t)) {
+  // question shape required — a bare /queue/ substring hijacked dispatch
+  // commands ("queue the inbox brief") before matchSkill ever saw them
+  if (/\b(what'?s|whats|what is|anything|how many|in) (?:the )?queue\b|^queue$/.test(t)) {
     if (state.queue.length === 0) return { text: "The queue's empty.", panels: ["pipeline"] };
     const names = state.queue.map((q) => q.skill.replace(/-/g, " ")).join(", ");
     return {
@@ -698,7 +711,8 @@ function stateAnswer(t: string, state: VaultState): StateAnswer | null {
       panels: ["priorities"],
     };
   }
-  if (/schedule|next today|what s next|whats next|next up/.test(t)) {
+  // what'?s — the normalizer KEEPS apostrophes; whisper emits "What's next?"
+  if (/schedule|next today|what'?s next|whats next|next up/.test(t)) {
     const d = state.daily;
     if (!d || d.schedule.length === 0) return { text: "Nothing's on the schedule.", panels: ["schedule"] };
     const next = d.isToday ? nextScheduleItem(state) : null;
@@ -711,7 +725,9 @@ function stateAnswer(t: string, state: VaultState): StateAnswer | null {
       panels: ["schedule"],
     };
   }
-  if (/focus/.test(t)) {
+  // asks ABOUT the focus only — a bare /focus/ substring answered "Today's
+  // focus is X" for any sentence using "focus" as a verb
+  if (/\b(what'?s|whats|what is|today'?s) (?:the |my )?focus\b|\bfocus (?:for )?today\b/.test(t)) {
     const d = state.daily;
     return {
       text: d?.focus ? `Today's focus is ${d.focus}.` : "No focus set for today.",
@@ -820,7 +836,7 @@ function routerSystem(state: VaultState, convo: string): string {
 {"tier": 1|2|3, "skill": "<skill-name or omit>", "reply": "<short spoken response, max 2 sentences, plain text>", "panels": ["<dashboard panels the reply references, from: ${PANEL_IDS.join(", ")}>"]}
 
 Tier 1: user wants to RUN one of these skills: ${[...ALLOWED_SKILLS].join(", ")}. Set "skill". Reply = brief ack. ONLY when they want it run or refreshed — asking what's IN a report / what it said / its highlights is tier 2: answer from the recent-runs summaries in the snapshot, do NOT re-run the skill.
-Tier 2: user asks about dashboard state. Answer ONLY from the snapshot below — NEVER invent specifics that aren't in it. If they ask for detail beyond what the snapshot holds (e.g. "which three sponsor emails?" when only a count is listed), that is tier 3: the background session can read the full report. If they ask for the daily briefing / "what's going on today", compose a tight rundown: open directives, next schedule item, focus, MRR.
+Tier 2: user asks about dashboard state. Answer ONLY from the snapshot below — NEVER invent specifics that aren't in it. If they ask for detail beyond what the snapshot holds (e.g. "which three sponsor emails?" when only a count is listed), that is tier 3: the background session can read the full report. If they ask for the daily briefing / "what's going on today", compose a tight rundown: open directives, next schedule item, focus, notable metrics.
 Tier 3: anything needing real reasoning, outside data, or report contents beyond the snapshot summaries. It will be dispatched to a background Claude session automatically. Reply = a brief "working on it" style ack.
 
 Greetings and chitchat ("hey", "what's up", "how are you", "thanks", "can you hear me") are tier 2 — reply conversationally in one or two short sentences, optionally flavored with the snapshot. NEVER send chitchat to tier 3; a background session for a greeting wastes half a minute.
@@ -898,6 +914,9 @@ async function haikuRoute(
       "anthropic-version": "2023-06-01",
       "Content-Type": "application/json",
     },
+    // same budget as the local engine — a black-holed network must degrade
+    // to rules in seconds, not hang the PTT reply for undici's ~300s default
+    signal: AbortSignal.timeout(LOCAL_TIMEOUT_MS),
     body: JSON.stringify({
       model: HAIKU_MODEL,
       max_tokens: 300,

@@ -21,6 +21,9 @@ export function notionConfigured(token) {
 async function notionFetch(token, route, init = {}) {
   const res = await fetch(`${API}${route}`, {
     ...init,
+    // a hung TCP connection must not pin a runner slot for undici's ~300s
+    // default — fail the sync and let the next cycle retry
+    signal: AbortSignal.timeout(30_000),
     headers: {
       Authorization: `Bearer ${token}`,
       "Notion-Version": NOTION_VERSION,
