@@ -18,6 +18,7 @@ function state(over: Partial<VaultState> = {}): VaultState {
   return {
     generated_at: "2026-07-01T12:00:00Z",
     vault_root: "/tmp/vault",
+    tz: "America/New_York",
     metrics: [],
     runner: null,
     daily: null,

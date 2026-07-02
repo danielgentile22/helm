@@ -86,3 +86,36 @@ export function deriveCallouts(prev: CalloutSnapshot | null, cur: CalloutSnapsho
 
   return out;
 }
+
+/** The run id a toast belongs to — ids are `<kind>:<run id>`. */
+function toastRunId(t: Toast): string {
+  return t.id.slice(t.id.indexOf(":") + 1);
+}
+
+/**
+ * Merge freshly-derived toasts into the live stack. Dedupes by id AND drops a
+ * run's lingering "started" toast when its "done"/"failed" toast arrives — the
+ * in-place replacement the deriveCallouts contract promises, so a fast run
+ * never shows running + done side by side.
+ */
+export function mergeToasts<T extends Toast>(cur: T[], fresh: T[]): T[] {
+  const terminalRuns = new Set(
+    fresh.filter((t) => t.kind === "done" || t.kind === "failed").map(toastRunId)
+  );
+  const kept = cur.filter((t) => !(t.kind === "started" && terminalRuns.has(toastRunId(t))));
+  const ids = new Set(kept.map((t) => t.id));
+  return [...kept, ...fresh.filter((t) => !ids.has(t.id))];
+}
+
+/**
+ * Runs that need a new feed line this poll: newly-seen ids AND already-seen
+ * runs whose status changed (running → ok/error), so the persistent feed
+ * records outcomes, not just starts. Caller records the returned runs'
+ * statuses in `lastStatus` after rendering the lines.
+ */
+export function runsNeedingFeedLine<R extends { id: string; status: string }>(
+  lastStatus: Map<string, string>,
+  runs: R[]
+): R[] {
+  return runs.filter((r) => lastStatus.get(r.id) !== r.status);
+}

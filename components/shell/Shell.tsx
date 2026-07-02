@@ -7,7 +7,7 @@ import { helmKey } from "@/lib/helmKey";
 import { scrubRunSummary, humanizeFailure } from "@/lib/spokenText";
 import { deriveCore, type CoreSignals, type CoreMode } from "@/lib/core";
 import { deriveStatus } from "@/lib/status";
-import { deriveCallouts, type CalloutSnapshot } from "@/lib/callouts";
+import { deriveCallouts, mergeToasts, runsNeedingFeedLine, type CalloutSnapshot } from "@/lib/callouts";
 import { BG_MODES, type BgMode, type CoreFlare } from "@/components/GraphCore";
 import ReportOverlay from "@/components/ReportOverlay";
 import type { VaultState } from "@/lib/vault";
@@ -28,8 +28,13 @@ function isPhoneNow() {
   return typeof window !== "undefined" && window.matchMedia(PHONE_MQ).matches;
 }
 
-function useIsPhone() {
-  const [phone, setPhone] = useState(false);
+// Tri-state: null until the media query resolves post-hydration. SSR/first
+// paint renders the lightweight desktop chrome (matching the prerender), but
+// heavy desktop-only subtrees gate on `isPhone === false` so a phone load
+// never mounts them — mounting the Orb even for one tick fires the whole
+// three.js chunk download.
+function useIsPhone(): boolean | null {
+  const [phone, setPhone] = useState<boolean | null>(null);
   useEffect(() => {
     const mq = window.matchMedia(PHONE_MQ);
     const on = () => setPhone(mq.matches);
@@ -43,14 +48,21 @@ function useIsPhone() {
 function useVaultState(intervalMs = 5000) {
   const [state, setState] = useState<VaultState | null>(null);
   const [error, setError] = useState(false);
+  // out-of-order guard — a poll that stalls past the next tick must not land
+  // late and step state backwards (edge-detected toasts/speech assume
+  // monotonic snapshots)
+  const seqRef = useRef(0);
   const pull = useCallback(async () => {
+    const seq = ++seqRef.current;
     try {
       const res = await fetch("/api/state", { cache: "no-store" });
       if (!res.ok) throw new Error(String(res.status));
-      setState(await res.json());
+      const next = (await res.json()) as VaultState;
+      if (seq !== seqRef.current) return; // a newer poll already resolved
+      setState(next);
       setError(false);
     } catch {
-      setError(true);
+      if (seq === seqRef.current) setError(true);
     }
   }, []);
   useEffect(() => {
@@ -158,7 +170,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const { state, error, refresh } = useVaultState(5000);
   const isPhone = useIsPhone();
   const status = deriveStatus(
-    state ?? { generated_at: "", vault_root: "", metrics: [], runner: null, daily: null, runs: [], queue: [], morning: null, morphy: null, agenda: null, etas: {} }
+    state ?? { generated_at: "", vault_root: "", tz: "", metrics: [], runner: null, daily: null, runs: [], queue: [], morning: null, morphy: null, agenda: null, etas: {} }
   );
 
   const [feed, setFeed] = useState<FeedLine[]>([]);
@@ -244,7 +256,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     const down = (e: KeyboardEvent) => {
       if (e.code !== "Space" || e.repeat) return;
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return; // typing, not talking
+      // typing or activating a control, not talking — Space must keep its
+      // native meaning on every focusable form control, not just text fields
+      if (t && (t.closest("input,textarea,select,button") || t.isContentEditable)) return;
       e.preventDefault();
       void voice.startCapture().then((ok) => ok && setPtt(true));
     };
@@ -287,14 +301,16 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [pushLine]);
 
-  // real runs flow into the feed
-  const seenRunsRef = useRef<Set<string>>(new Set());
+  // real runs flow into the feed — first sight ("running") AND the terminal
+  // transition, so outcomes/failures land in the persistent log, not just the
+  // 7s toast
+  const seenRunsRef = useRef<Map<string, string>>(new Map());
   useEffect(() => {
     if (!state) return;
-    const fresh = state.runs.filter((r) => !seenRunsRef.current.has(r.id));
+    const fresh = runsNeedingFeedLine(seenRunsRef.current, state.runs);
     if (fresh.length === 0) return;
     [...fresh].reverse().forEach((r) => {
-      seenRunsRef.current.add(r.id);
+      seenRunsRef.current.set(r.id, r.status);
       const cls = r.status === "ok" ? "ok" : r.status === "running" ? "sys" : "err";
       const dur = r.duration_s !== null ? ` · ${fmtDur(r.duration_s)}` : "";
       const text = `run/${r.label ?? r.skill} — ${r.summary || r.status}${dur}`;
@@ -338,11 +354,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     const fresh = deriveCallouts(prevSnapRef.current, cur);
     prevSnapRef.current = cur;
     if (fresh.length === 0) return;
-    setToasts((cur) => {
-      const ids = new Set(cur.map((t) => t.id));
-      const add = fresh.filter((t) => !ids.has(t.id)).map((t) => ({ ...t, exp: Date.now() + 7000 }));
-      return [...cur, ...add];
-    });
+    setToasts((cur) => mergeToasts(cur, fresh.map((t) => ({ ...t, exp: Date.now() + 7000 }))));
   }, [state]);
 
   // prune expired toasts
@@ -459,10 +471,12 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   onClick: () => {
                     void helmKey()
                       .then((k) => fetch("/api/transcript", { method: "DELETE", headers: { "X-HELM-KEY": k } }))
-                      .then(() => {
+                      .then((res) => {
+                        if (!res.ok) throw new Error(String(res.status));
                         setReport(null);
                         pushLine("sys", "voice transcript cleared");
-                      });
+                      })
+                      .catch(() => pushLine("err", "transcript reset FAILED"));
                   },
                 }
               : undefined

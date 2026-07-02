@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useShell } from "@/components/shell/ShellContext";
+import { zonedYMD, zonedMinutes } from "@/lib/tz";
 import { noteAgeDays, SectionTitle } from "./util";
 
 function useClock() {
@@ -25,9 +26,11 @@ export default function Schedule() {
   const d = state?.daily;
   const a = state?.agenda;
 
-  // agenda cache counts as "today's" only when its date is the local day
-  const todayLocal = now ? new Intl.DateTimeFormat("en-CA").format(now) : null;
-  const useAgenda = !!(a && a.ok && a.events.length > 0 && todayLocal && a.date === todayLocal);
+  // agenda rows are written in HUD_TZ, so "today" and "now" must be computed
+  // in HUD_TZ too — the browser's own zone drifts when the phone travels
+  const tz = state?.tz;
+  const todayHud = now ? zonedYMD(now, tz) : null;
+  const useAgenda = !!(a && a.ok && a.events.length > 0 && todayHud && a.date === todayHud);
 
   const items0: { time: string; item: string }[] = useAgenda
     ? a!.events.map((e) => ({ time: e.time, item: e.item }))
@@ -35,7 +38,7 @@ export default function Schedule() {
   if (items0.length === 0) return null;
 
   const live = useAgenda || (d?.isToday ?? false);
-  const nowMin = now && live ? now.getHours() * 60 + now.getMinutes() : -1;
+  const nowMin = now && live ? zonedMinutes(now, tz) : -1;
   const items = items0.map((s) => ({ ...s, min: parseHHMM(s.time) }));
   let currentIdx = -1;
   if (nowMin >= 0) {

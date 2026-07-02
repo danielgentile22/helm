@@ -25,6 +25,9 @@ export default function ChatPage() {
   const [busy, setBusy] = useState(false);
   const [threadId, setThreadId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  // bumped by newThread — an in-flight send from a previous generation drops
+  // its reply instead of leaking it (and its threadId) into the fresh thread
+  const genRef = useRef(0);
 
   useEffect(() => {
     setThreadId(localStorage.getItem("helm.chat.thread"));
@@ -34,14 +37,17 @@ export default function ChatPage() {
   }, [messages, busy]);
 
   function newThread() {
+    genRef.current++;
     localStorage.removeItem("helm.chat.thread");
     setThreadId(null);
     setMessages([]);
+    setBusy(false);
   }
 
   async function send() {
     const text = input.trim();
     if (!text || busy) return;
+    const gen = genRef.current;
     setInput("");
     setMessages((m) => [...m, { role: "you", text }]);
     setBusy(true);
@@ -52,6 +58,7 @@ export default function ChatPage() {
         body: JSON.stringify({ threadId, message: text, model }),
       });
       const data = await res.json();
+      if (gen !== genRef.current) return; // New was clicked mid-flight — this reply belongs to the abandoned thread
       if (!res.ok) {
         setMessages((m) => [...m, { role: "helm", text: `⚠ ${data.error ?? res.statusText}` }]);
       } else {
@@ -62,9 +69,9 @@ export default function ChatPage() {
         setMessages((m) => [...m, { role: "helm", text: data.reply }]);
       }
     } catch (e) {
-      setMessages((m) => [...m, { role: "helm", text: `⚠ ${String(e)}` }]);
+      if (gen === genRef.current) setMessages((m) => [...m, { role: "helm", text: `⚠ ${String(e)}` }]);
     } finally {
-      setBusy(false);
+      if (gen === genRef.current) setBusy(false);
     }
   }
 

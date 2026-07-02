@@ -131,7 +131,8 @@ function glowTexture(): THREE.Texture {
   const size = 256;
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return new THREE.CanvasTexture(canvas); // blank glow beats a crash (canvas memory pressure)
   const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
   g.addColorStop(0, "rgba(255,255,255,1)");
   g.addColorStop(0.25, "rgba(255,255,255,0.4)");
@@ -140,6 +141,97 @@ function glowTexture(): THREE.Texture {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
   return new THREE.CanvasTexture(canvas);
+}
+
+// Node cloud + wander params + O(n²) nearest-neighbor edges, built once at
+// module scope and reused across mounts. In the v2 tabbed shell GraphCore
+// remounts on every return to Today; the ~5M-distance-check edge pass is pure
+// waste per-mount (the output is decorative and statistically identical), and
+// it used to block the main thread right at tab-switch commit. Only the `live`
+// Float32Array and the GPU buffers stay per-mount.
+interface GraphData {
+  base: Float32Array;
+  freq: Float32Array;
+  phase: Float32Array;
+  amp: Float32Array;
+  seeds: Float32Array;
+  edgePairs: number[];
+}
+let graphData: GraphData | null = null;
+
+function getGraphData(): GraphData {
+  if (graphData) return graphData;
+
+  // nodes: center-dense volumetric cloud
+  const base = new Float32Array(N_NODES * 3);
+  for (let i = 0; i < N_NODES; i++) {
+    const cosT = Math.random() * 2 - 1;
+    const sinT = Math.sqrt(1 - cosT * cosT);
+    const phi = Math.random() * Math.PI * 2;
+    const r = Math.pow(Math.random(), 0.45) * CLOUD_R;
+    base[i * 3] = sinT * Math.cos(phi) * r;
+    base[i * 3 + 1] = cosT * r;
+    base[i * 3 + 2] = sinT * Math.sin(phi) * r;
+  }
+  // per-node wander params
+  const freq = new Float32Array(N_NODES * 3);
+  const phase = new Float32Array(N_NODES * 3);
+  const amp = new Float32Array(N_NODES);
+  for (let i = 0; i < N_NODES; i++) {
+    for (let k = 0; k < 3; k++) {
+      freq[i * 3 + k] = 0.3 + Math.random() * 0.55;
+      phase[i * 3 + k] = Math.random() * Math.PI * 2;
+    }
+    amp[i] = 0.04 + Math.random() * 0.05;
+  }
+  const seeds = new Float32Array(N_NODES);
+  for (let i = 0; i < N_NODES; i++) seeds[i] = Math.random();
+
+  // edges: each node linked to its nearest neighbors — O(n²) once per page
+  // load (~5M dist checks); edges then follow the drift.
+  const edgePairs: number[] = [];
+  {
+    const seen = new Set<string>();
+    const bestIdx = new Array<number>(LINKS_PER_NODE);
+    const bestD = new Array<number>(LINKS_PER_NODE);
+    for (let i = 0; i < N_NODES; i++) {
+      bestIdx.fill(-1);
+      bestD.fill(Infinity);
+      const ix = base[i * 3];
+      const iy = base[i * 3 + 1];
+      const iz = base[i * 3 + 2];
+      for (let j = 0; j < N_NODES; j++) {
+        if (j === i) continue;
+        const dx = base[j * 3] - ix;
+        const dy = base[j * 3 + 1] - iy;
+        const dz = base[j * 3 + 2] - iz;
+        const d = dx * dx + dy * dy + dz * dz;
+        for (let k = 0; k < LINKS_PER_NODE; k++) {
+          if (d < bestD[k]) {
+            for (let m = LINKS_PER_NODE - 1; m > k; m--) {
+              bestD[m] = bestD[m - 1];
+              bestIdx[m] = bestIdx[m - 1];
+            }
+            bestD[k] = d;
+            bestIdx[k] = j;
+            break;
+          }
+        }
+      }
+      for (let k = 0; k < LINKS_PER_NODE; k++) {
+        const j = bestIdx[k];
+        if (j < 0) continue;
+        const key = i < j ? `${i}:${j}` : `${j}:${i}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          edgePairs.push(i, j);
+        }
+      }
+    }
+  }
+
+  graphData = { base, freq, phase, amp, seeds, edgePairs };
+  return graphData;
 }
 
 export default function GraphCore({
@@ -169,7 +261,17 @@ export default function GraphCore({
     const mount = mountRef.current;
     if (!mount) return;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    // WebGL can legitimately be unavailable (GPU-process reset on a
+    // long-running tab, context cap, blocklist) and the constructor throws
+    // synchronously — degrade to no orb (the phone layout ships that way)
+    // instead of crashing the shell. Mirrors dithering-shader's guard.
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: false });
+    } catch (e) {
+      console.error("orb: WebGL unavailable — rendering without the visual", e);
+      return;
+    }
     // cap DPR hard: bloom is fillrate-bound, so 1.35 on a Retina panel saves
     // ~40% GPU vs 1.75 with little visible softening under the glow
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.35));
@@ -191,36 +293,13 @@ export default function GraphCore({
     cloud.position.y = 0.32; // sit slightly above screen center, clear of the MRR block
     scene.add(cloud);
 
-    // --- nodes: center-dense volumetric cloud --------------------------------
-    const base = new Float32Array(N_NODES * 3);
-    for (let i = 0; i < N_NODES; i++) {
-      const cosT = Math.random() * 2 - 1;
-      const sinT = Math.sqrt(1 - cosT * cosT);
-      const phi = Math.random() * Math.PI * 2;
-      const r = Math.pow(Math.random(), 0.45) * CLOUD_R;
-      base[i * 3] = sinT * Math.cos(phi) * r;
-      base[i * 3 + 1] = cosT * r;
-      base[i * 3 + 2] = sinT * Math.sin(phi) * r;
-    }
-    // per-node wander params
-    const freq = new Float32Array(N_NODES * 3);
-    const phase = new Float32Array(N_NODES * 3);
-    const amp = new Float32Array(N_NODES);
-    for (let i = 0; i < N_NODES; i++) {
-      for (let k = 0; k < 3; k++) {
-        freq[i * 3 + k] = 0.3 + Math.random() * 0.55;
-        phase[i * 3 + k] = Math.random() * Math.PI * 2;
-      }
-      amp[i] = 0.04 + Math.random() * 0.05;
-    }
+    const { base, freq, phase, amp, seeds, edgePairs } = getGraphData();
 
     const live = new Float32Array(base); // drifted positions, updated per frame
     const nodeGeo = new THREE.BufferGeometry();
     const posAttr = new THREE.BufferAttribute(live, 3);
     posAttr.setUsage(THREE.DynamicDrawUsage);
     nodeGeo.setAttribute("position", posAttr);
-    const seeds = new Float32Array(N_NODES);
-    for (let i = 0; i < N_NODES; i++) seeds[i] = Math.random();
     nodeGeo.setAttribute("aSeed", new THREE.BufferAttribute(seeds, 1));
 
     const nodeMat = new THREE.ShaderMaterial({
@@ -240,48 +319,6 @@ export default function GraphCore({
     });
     cloud.add(new THREE.Points(nodeGeo, nodeMat));
 
-    // --- edges: each node linked to its nearest neighbors --------------------
-    // O(n²) once at init (~5M dist checks, fine); edges then follow the drift.
-    const edgePairs: number[] = [];
-    {
-      const seen = new Set<string>();
-      const bestIdx = new Array<number>(LINKS_PER_NODE);
-      const bestD = new Array<number>(LINKS_PER_NODE);
-      for (let i = 0; i < N_NODES; i++) {
-        bestIdx.fill(-1);
-        bestD.fill(Infinity);
-        const ix = base[i * 3];
-        const iy = base[i * 3 + 1];
-        const iz = base[i * 3 + 2];
-        for (let j = 0; j < N_NODES; j++) {
-          if (j === i) continue;
-          const dx = base[j * 3] - ix;
-          const dy = base[j * 3 + 1] - iy;
-          const dz = base[j * 3 + 2] - iz;
-          const d = dx * dx + dy * dy + dz * dz;
-          for (let k = 0; k < LINKS_PER_NODE; k++) {
-            if (d < bestD[k]) {
-              for (let m = LINKS_PER_NODE - 1; m > k; m--) {
-                bestD[m] = bestD[m - 1];
-                bestIdx[m] = bestIdx[m - 1];
-              }
-              bestD[k] = d;
-              bestIdx[k] = j;
-              break;
-            }
-          }
-        }
-        for (let k = 0; k < LINKS_PER_NODE; k++) {
-          const j = bestIdx[k];
-          if (j < 0) continue;
-          const key = i < j ? `${i}:${j}` : `${j}:${i}`;
-          if (!seen.has(key)) {
-            seen.add(key);
-            edgePairs.push(i, j);
-          }
-        }
-      }
-    }
     const E = edgePairs.length / 2;
     const edgePos = new Float32Array(E * 6);
     const edgeGeo = new THREE.BufferGeometry();
@@ -429,7 +466,8 @@ export default function GraphCore({
 
     // --- post: bloom ----------------------------------------------------------
     const composer = new EffectComposer(renderer);
-    composer.addPass(new RenderPass(scene, camera));
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
     const bloom = new UnrealBloomPass(
       new THREE.Vector2(mount.clientWidth, mount.clientHeight),
       0.45,
@@ -437,7 +475,8 @@ export default function GraphCore({
       0.2
     );
     composer.addPass(bloom);
-    composer.addPass(new OutputPass());
+    const outputPass = new OutputPass();
+    composer.addPass(outputPass);
 
     // --- interaction -----------------------------------------------------------
     const target = { x: 0, y: 0 };
@@ -621,8 +660,18 @@ export default function GraphCore({
       gridMat.dispose();
       nebula.geometry.dispose();
       nebMat.dispose();
+      // composer.dispose() only frees its own render targets — added passes
+      // must be disposed explicitly or the bloom mip chain (~11 render
+      // targets) leaks per remount
+      renderPass.dispose();
+      bloom.dispose();
+      outputPass.dispose();
       composer.dispose();
       renderer.dispose();
+      // dispose() frees GL objects but the context lives until the detached
+      // canvas is GC'd — force-lose it so tab flipping can't hit the browser's
+      // live-context cap and blank the visible orb
+      renderer.forceContextLoss();
       mount.removeChild(renderer.domElement);
     };
   }, []);

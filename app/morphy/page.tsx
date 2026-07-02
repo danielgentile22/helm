@@ -185,7 +185,7 @@ export default function MorphyPage() {
         )}
 
         <div className="tab-grid" style={{ gap: 16 }}>
-          {!isPhone && <Deck skills={deckSkillsForTab("morphy").filter((d) => d.skill === "morphy-sync")} title="Board Actions" />}
+          {isPhone === false && <Deck skills={deckSkillsForTab("morphy")} title="Board Actions" />}
           <TaskAdd />
         </div>
       </div>
