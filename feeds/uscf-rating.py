@@ -4,7 +4,11 @@
 Reads the current Regular rating from the (undocumented but stable) US Chess
 ratings API and appends one row to the vault's metrics.csv:
 
-    <iso-timestamp>,uscf,rating,<value>,ok,
+    <day-bucket-iso>,uscf,rating,<value>,ok,
+
+Idempotent per day, same as the other feeds: the row is stamped to the top of
+the current UTC day and skipped if a (uscf, rating, day) row already exists —
+so a manual re-run or a `launchctl kickstart` never duplicates a row.
 
   GET https://ratings-api.uschess.org/api/v1/members/{id}
   → {"ratings":[{"rating":1545,"ratingSystem":"R","floor":1300,...}, ...], ...}
@@ -23,38 +27,29 @@ Config (read from ~/.claude/.env, overridable by real env vars):
 """
 import json
 import os
-import re
 import sys
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from _metrics import append_metric_row, day_bucket, load_home_env
+
 API_BASE = "https://ratings-api.uschess.org/api/v1"
 # Cloudflare fronts the API: identify honestly, never a default library UA.
 USER_AGENT = "helm-uscf-feed/1.0 (+https://github.com/danielgentile22)"
 TIMEOUT = 30.0
+SOURCE = "uscf"
+METRIC = "rating"
 
 
-def load_home_env() -> None:
-    """Mirror the runner/HUD loader: ~/.claude/.env, real env wins."""
-    f = Path.home() / ".claude" / ".env"
-    try:
-        for line in f.read_text().splitlines():
-            m = re.match(r"^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$", line)
-            if m and m.group(1) not in os.environ:
-                os.environ[m.group(1)] = m.group(2).strip().strip("\"'")
-    except FileNotFoundError:
-        pass
-
-
-def fetch_regular_rating(member_id: str) -> int:
-    """Return the member's Regular (ratingSystem 'R') rating as an int."""
+def fetch_member(member_id: str) -> dict:
+    """GET the member's ratings document from the USCF API."""
     url = f"{API_BASE}/members/{member_id}"
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            data = json.load(resp)
+            return json.load(resp)
     except urllib.error.HTTPError as e:
         if e.code == 404:
             raise RuntimeError(f"USCF has no member {member_id!r} (404)") from e
@@ -62,6 +57,10 @@ def fetch_regular_rating(member_id: str) -> int:
     except (urllib.error.URLError, TimeoutError) as e:
         raise RuntimeError(f"USCF API unreachable: {e}") from e
 
+
+def regular_rating(data: dict) -> int:
+    """The Regular (ratingSystem 'R') rating out of an API response document.
+    Pure parse step (no network); exercised by feeds/test_uscf_rating.py."""
     for r in data.get("ratings", []):
         if r.get("ratingSystem") == "R":
             if "rating" not in r:
@@ -83,19 +82,16 @@ def main() -> int:
         return 2
 
     try:
-        rating = fetch_regular_rating(member_id)
+        rating = regular_rating(fetch_member(member_id))
     except Exception as e:  # noqa: BLE001 — log and bail without writing a row
         print(f"uscf feed failed: {e}", file=sys.stderr)
         return 1
 
     csv = Path(vault) / "system" / "metrics" / "metrics.csv"
-    csv.parent.mkdir(parents=True, exist_ok=True)
-    if not csv.exists():
-        csv.write_text("timestamp,source,metric,value,status,error\n")
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    with csv.open("a") as fh:
-        fh.write(f"{ts},uscf,rating,{rating},ok,\n")
-    print(f"appended uscf rating {rating} at {ts}")
+    ts = day_bucket(datetime.now(timezone.utc))
+    wrote = append_metric_row(csv, ts, SOURCE, METRIC, rating)
+    verb = "appended" if wrote else "skipped (idempotent)"
+    print(f"{verb} {SOURCE}/{METRIC}={rating} at {ts}")
     return 0
 
 
