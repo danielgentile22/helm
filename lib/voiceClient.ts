@@ -5,7 +5,7 @@
 // envelope GraphCore mouths. Autoplay policy: nothing plays until the first
 // user gesture — utterances queue and drain on unlock.
 // P2: PTT — startCapture()/finishCapture() record mic audio (MediaRecorder),
-// POST the clip to /api/voice (Scribe STT → router → maybe queue write),
+// POST the clip to /api/voice (local whisper STT → router → maybe queue write),
 // then speak the reply. Holding Space IS a gesture, so PTT also unlocks.
 // ---------------------------------------------------------------------------
 

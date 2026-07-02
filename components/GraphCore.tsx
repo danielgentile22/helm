@@ -15,7 +15,7 @@ import type { CoreMode, CoreEvent } from "@/lib/core";
 // constant slow rotation + per-node wander, speech pulses brightness across
 // the whole cloud (no center flash), UnrealBloom for the glow.
 // Voice source: real AnalyserNode RMS via the getLevel prop when audio is
-// playing; falls back to the synthetic envelope (demo key 4, no audio).
+// playing; falls back to the synthetic envelope when no audio is playing.
 // ---------------------------------------------------------------------------
 
 export type { CoreMode } from "@/lib/core";

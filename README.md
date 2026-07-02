@@ -27,9 +27,11 @@ data. Two more pieces make it real:
 **Day-to-day**: open `claude` in this folder and say **"spin up HELM"** —
 it starts whatever isn't running (voice server, runner, HUD) detached, so
 everything survives closing the terminal. To make it automatic at login,
-the launchd agents under `~/Library/LaunchAgents/com.helm.*` handle it on
-this machine (HUD, runner, voice, the USCF rating feed, the hourly
-Claude-token feed, and the daily job-application feed).
+the `com.helm.*` launchd agents under `~/Library/LaunchAgents/` handle it
+on this machine — the authoritative inventory (services, feed schedules,
+and scheduled skills like the Sunday 17:00 weekly-review) lives in
+`.helm-config.json` (`launchdAgents`), and the canonical plists are
+versioned in `scripts/` with install commands in their comments.
 
 ## How it works
 
@@ -64,8 +66,7 @@ VAULT_ROOT/                       (required — set via env, no default)
 │   ├── queue/                    intents written by HUD, claimed by runner
 │   ├── runs/                     run records + logs (*.json, *.md)
 │   ├── metrics/
-│   │   ├── metrics.csv           timestamp,source,metric,value,status,error
-│   │   └── latest-video.json     newest upload stats (optional)
+│   │   └── metrics.csv           timestamp,source,metric,value,status,error
 │   ├── schemas/daily-note.md     frozen daily-note contract
 │   └── runner-status.json        runner heartbeat (written by runner)
 ├── daily-notes/YYYY-MM-DD.md     priorities, schedule, focus
@@ -104,7 +105,7 @@ in the repo root instead (they're inlined into the client at build).
 | `VAULT_ROOT` | vault folder | **required** (no default) |
 | `CLAUDE_PROJECTS_DIR` | transcript root the token feed scans | `~/.claude/projects` |
 | `JOBS_DIR` | folder holding `applications.jsonl` (job feed) | `$VAULT_ROOT/jobs` |
-| `HUD_TZ` | IANA timezone for "today" (HUD + runner) | `America/Chicago` |
+| `HUD_TZ` | IANA timezone for "today" (HUD + runner) | `America/New_York` |
 | `HUD_USER_NAME` | how voice notes refer to you | `User` |
 | `AGENTIC_OS_MODEL` | model for background `claude -p` runs | `claude-opus-4-8` |
 | `ANTHROPIC_API_KEY` | enables Haiku intent routing (~$0.002/ask) | unset (optional) |
@@ -151,22 +152,26 @@ set `WAKE_WORD=on`.
 
 ## Using it
 
-- **Hold Space** — push-to-talk. "Brief me" / "good morning" = the spoken
-  rundown. "What's in the queue", "what's my chess rating" =
+- **Tabs** — the shell is organized by project: Today / Morphy / Job
+  Search / Chess / Chat. Each tab carries its own panels and deck
+  buttons; on a phone the tabs become a bottom tab bar.
+- **Hold Space** — push-to-talk (desktop). "Brief me" / "good morning" =
+  the spoken rundown. "What's in the queue", "what's my chess rating" =
   instant answers. "Run the inbox brief" = dispatch. Anything open-ended =
   background ask, spoken when ready.
-- **Esc** stops speech; clicking a Documents row opens the report overlay.
-- **TRANSCRIPT** (bottom-left) shows the voice conversation ring; RESET
-  clears it.
-- **Demo modes** (no data needed): `?demo=callouts` seeds doc callout
-  cards, `?demo=taskwork` plays the full task-callout lifecycle. Keys 1–5
-  force core modes, B cycles backgrounds.
+- **Esc** closes an open overlay, else stops speech; clicking a Documents
+  row opens the report overlay.
+- **Chat tab** — typed conversation with the same router/brain; the voice
+  transcript is a Documents row (open it to read, "reset transcript ×" to
+  clear). For chat from your phone anywhere, see `docs/fly-deploy.md`.
 
 ## Security
 
-This is a localhost app with **no authentication by design** — the API can
-queue real work and read vault markdown. Never bind it to `0.0.0.0`, never
-port-forward 3107/3108, never run it on a shared machine you don't trust.
+The HUD binds **127.0.0.1 only**, and every state-changing route requires
+the `HELM_API_KEY` shared secret (from `~/.claude/.env`) sent as
+`X-HELM-KEY` — no key configured means writes fail closed (503). It still
+assumes a trusted machine: never bind it to `0.0.0.0`, never port-forward
+3107/3108 — `/api/queue` feeds the runner's headless Claude.
 
 ## Platform notes
 
@@ -178,6 +183,9 @@ systemd).
 
 ## Quality gates
 
-After any `lib/` change: `npm test` (16-case router sweep, no API spend) +
-`npx tsc --noEmit`. After any `runner/runner.js` edit, `node --check
-runner/runner.js` — the runner fails silently on syntax errors.
+After any `lib/` change: `npm test` + `npx tsc --noEmit`. The test chain
+runs the runner syntax check, the TS suites (router sweep, skill/tab
+contract, security, feeds glue, chat), then the Python voice-server and
+feed suites — it needs `python3` on PATH and spends no API tokens. After
+any `runner/runner.js` edit, `node --check runner/runner.js` — the runner
+fails silently on syntax errors.
