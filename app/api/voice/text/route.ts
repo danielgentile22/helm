@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { bodyTooLarge, checkHelmKey } from "@/lib/auth";
 import { dispatchTranscript } from "@/lib/voiceDispatch";
 
 // ---------------------------------------------------------------------------
@@ -10,6 +11,12 @@ import { dispatchTranscript } from "@/lib/voiceDispatch";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const key = checkHelmKey(req.headers.get("x-helm-key"));
+  if (!key.ok) return NextResponse.json({ error: key.error }, { status: key.status });
+  if (bodyTooLarge(req, 16 * 1024)) {
+    return NextResponse.json({ error: "transcript too long" }, { status: 413 });
+  }
+
   let transcript = "";
   try {
     const body = (await req.json()) as { transcript?: unknown };
@@ -27,6 +34,7 @@ export async function POST(req: Request) {
   try {
     return NextResponse.json(await dispatchTranscript(transcript, "voice-wake"));
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 502 });
+    console.error("[/api/voice/text]", e); // detail stays server-side
+    return NextResponse.json({ error: "internal error" }, { status: 502 });
   }
 }

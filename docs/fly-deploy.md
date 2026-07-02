@@ -36,8 +36,14 @@ fly apps create helm-chat
 fly volumes create vault_data --size 3 --region iad   # persistent /data
 fly secrets set \
   TS_AUTHKEY='tskey-auth-…' \
-  CLAUDE_CODE_OAUTH_TOKEN='…from step 1…'
+  CLAUDE_CODE_OAUTH_TOKEN='…from step 1…' \
+  HELM_API_KEY='…the value from ~/.claude/.env on the Mac…'
 ```
+`HELM_API_KEY` is the shared secret every state-changing route requires as an
+`X-HELM-KEY` header (see CLAUDE.md → Security perimeter). The chat page fetches
+it from `/api/key` and sends it automatically — but without the secret set,
+`/api/chat` answers 503 to everything.
+
 `fly.toml` already sets the non-secret env (`VAULT_ROOT=/data/vault`,
 `HUD_TZ=America/New_York`, `CLAUDE_BIN=claude`, `PORT=3107`, `TS_HOSTNAME=helm-chat`).
 No `NOTION_TOKEN` — Morphy is read-only, answered from the synced
@@ -67,6 +73,16 @@ reachable only via the tailnet (no public port):
 
 Verify: a note edited in Obsidian appears under `/data/vault` on the VM, and a
 chat that writes a note shows up in Obsidian on the Mac.
+
+**What deliberately does NOT sync:** `system/queue/` and `system/runs/`. The
+Mac runner executes `system/queue/*.json` with `--dangerously-skip-permissions`,
+so a VM-authored intent must never reach it — a prompt-injected chat turn could
+otherwise enqueue arbitrary agentic work on the Mac. Both sides carry a
+`.stignore` (the VM's is written by `entrypoint.sh` on every boot; the Mac's
+lives at the vault root — the Mac copy is the one that holds if the VM is ever
+compromised). The image also sets `CHAT_ONLY=1`, which 404s every API route
+except `/api/chat` + `/api/key` (middleware.ts), so the VM exposes no
+queue/voice write surface to the tailnet in the first place.
 
 ### 6. Smoke test
 ```bash

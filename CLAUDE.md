@@ -27,7 +27,8 @@ commands below are the fallback.
    (stale > 2 min = down). Down → kickstart `com.helm.runner`, or
    `node runner/runner.js` detached.
 3. HUD: probe `http://localhost:3107`. Down → kickstart `com.helm.hud`, or
-   `npx next build && npx next start -p 3107` detached.
+   `npx next build && npx next start -p 3107 -H 127.0.0.1` detached
+   (loopback-only on purpose — see Security perimeter).
    IMPORTANT: launch DETACHED — a plain background shell command dies when
    this Claude session closes.
 4. Tell the user: open `http://localhost:3107`, hold Space to talk. Remind
@@ -50,6 +51,24 @@ start everything at login.
   README has the short version.
 - Quality gates: `npm test` (router sweep, no API spend) and
   `npx tsc --noEmit`. Run both after touching `lib/`.
+
+## Security perimeter (issue #36 — don't quietly widen it)
+
+- **`HELM_API_KEY`** (in `~/.claude/.env`) is the shared secret behind every
+  state-changing route (`/api/queue`, `/api/voice`, `/api/voice/text`,
+  `/api/chat`, `/api/daily`, `/api/transcript` DELETE). Requests must send it
+  as `X-HELM-KEY`; the HUD's own pages fetch it from `/api/key`
+  (lib/helmKey.ts). Server check lives in lib/auth.ts — fail-closed: no key
+  configured means 503 on writes. Curl example:
+  `curl -X POST localhost:3107/api/queue -H "X-HELM-KEY: $(sed -n 's/^HELM_API_KEY=//p' ~/.claude/.env)" …`
+- The Mac HUD binds **127.0.0.1 only** (`-H 127.0.0.1` in com.helm.hud.plist
+  and the manual command above). Never bind 0.0.0.0 — /api/queue feeds the
+  runner's `claude -p --dangerously-skip-permissions`.
+- The vault's `.stignore` (Mac vault root + written by entrypoint.sh on the
+  Fly VM) keeps `system/queue/` and `system/runs/` OUT of Syncthing — synced
+  peers must never be able to enqueue runner work. Don't delete it.
+- The Fly image sets `CHAT_ONLY=1`: middleware.ts 404s every API route except
+  `/api/chat` + `/api/key`.
 
 ## Load-bearing couplings (break one and voice quietly misroutes)
 

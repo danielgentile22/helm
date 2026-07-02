@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { bodyTooLarge, checkHelmKey } from "@/lib/auth";
 import { transcribe } from "@/lib/stt";
 import { dispatchTranscript } from "@/lib/voiceDispatch";
 import { VoiceConfigError } from "@/lib/tts";
@@ -15,6 +16,12 @@ export const dynamic = "force-dynamic";
 const MAX_BYTES = 8 * 1024 * 1024; // ~8MB ≈ well over a minute of opus
 
 export async function POST(req: Request) {
+  const key = checkHelmKey(req.headers.get("x-helm-key"));
+  if (!key.ok) return NextResponse.json({ error: key.error }, { status: key.status });
+  if (bodyTooLarge(req, MAX_BYTES)) {
+    return NextResponse.json({ error: "clip too long" }, { status: 413 });
+  }
+
   let audio: Buffer;
   try {
     audio = Buffer.from(await req.arrayBuffer());
@@ -45,6 +52,7 @@ export async function POST(req: Request) {
     if (e instanceof VoiceConfigError) {
       return NextResponse.json({ ok: false, error: e.message }, { status: 503 });
     }
-    return NextResponse.json({ error: String(e) }, { status: 502 });
+    console.error("[/api/voice]", e); // detail stays server-side
+    return NextResponse.json({ error: "internal error" }, { status: 502 });
   }
 }

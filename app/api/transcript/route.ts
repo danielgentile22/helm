@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { checkHelmKey } from "@/lib/auth";
 import { allExchanges, clearMemory } from "@/lib/voiceMemory";
 
 // GET /api/transcript — the voice conversation so far, composed as markdown
@@ -34,7 +35,9 @@ export async function GET() {
 
 // DELETE /api/transcript — wipe the conversation ring (also resets the
 // router's short-term memory and any pending offer follow-through)
-export async function DELETE() {
+export async function DELETE(req: Request) {
+  const key = checkHelmKey(req.headers.get("x-helm-key"));
+  if (!key.ok) return NextResponse.json({ error: key.error }, { status: key.status });
   clearMemory();
   return NextResponse.json({ ok: true });
 }

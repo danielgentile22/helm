@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { checkHelmKey } from "@/lib/auth";
 import { toggleTop3 } from "@/lib/vault";
 
 // POST /api/daily {index, done} — flip a Top 3 checkbox in TODAY's note.
@@ -7,6 +8,9 @@ import { toggleTop3 } from "@/lib/vault";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const key = checkHelmKey(req.headers.get("x-helm-key"));
+  if (!key.ok) return NextResponse.json({ error: key.error }, { status: key.status });
+
   let body: { index?: unknown; done?: unknown };
   try {
     body = await req.json();
