@@ -51,7 +51,7 @@ if (!skill) {
   process.exit(2);
 }
 
-const VAULT_ROOT = env("VAULT_ROOT") || env("AGENTIC_OS_VAULT");
+const VAULT_ROOT = env("VAULT_ROOT");
 if (!VAULT_ROOT) {
   console.error("[queue-intent] VAULT_ROOT is not set — cannot find the queue. " +
     "Set it in the environment or ~/.claude/.env.");

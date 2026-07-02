@@ -123,10 +123,12 @@ function osaString(s) {
 /**
  * Thin emitter — posts a native banner via `osascript`. macOS only; elsewhere
  * or on any spawn failure it no-ops and returns false. Fire-and-forget: the
- * child is unref'd so it never holds the runner open, and its errors (e.g.
- * osascript missing) are swallowed.
+ * child is unref'd so it never holds the runner open, and a failure never
+ * breaks the run — but it DOES leave one line via the optional logger, so a
+ * persistently broken osascript (missing binary, revoked notification
+ * permission) is traceable in runner.log instead of silently eating alerts.
  */
-export function emitNotification(note) {
+export function emitNotification(note, log) {
   if (!note || !note.title) return false;
   if (platform() !== "darwin") return false;
   const script =
@@ -134,17 +136,21 @@ export function emitNotification(note) {
     `with title ${osaString(note.title)}`;
   try {
     const proc = spawn("osascript", ["-e", script], { stdio: "ignore" });
-    proc.on("error", () => {}); // ENOENT etc. — degrade quietly
+    proc.on("error", (err) => log?.(`notify: osascript failed: ${err.message}`));
+    proc.on("close", (code) => {
+      if (code !== 0) log?.(`notify: osascript exited ${code} — banner dropped`);
+    });
     proc.unref?.();
     return true;
-  } catch {
+  } catch (e) {
+    log?.(`notify: spawn failed: ${e.message}`);
     return false;
   }
 }
 
 /** Decide, then emit if there's anything to say. Returns the note, or null. */
-export function notify(event, config) {
+export function notify(event, config, log) {
   const note = decideNotification(event, config);
-  if (note) emitNotification(note);
+  if (note) emitNotification(note, log);
   return note;
 }
