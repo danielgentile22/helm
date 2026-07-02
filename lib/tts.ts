@@ -46,7 +46,12 @@ export async function speak(text: string): Promise<SpeechStream> {
   text = normalizeForSpeech(text); // "$4,200" → "four thousand dollars"
 
   if (await kokoroUp()) {
-    const res = await fetch(`${KOKORO_URL}/speak?text=${encodeURIComponent(text)}`);
+    // a wedged voice-server that still passed the cached health probe must
+    // error out, not hold /api/speak open forever (CPU Kokoro streams first
+    // bytes well under this)
+    const res = await fetch(`${KOKORO_URL}/speak?text=${encodeURIComponent(text)}`, {
+      signal: AbortSignal.timeout(20_000),
+    });
     if (res.ok && res.body) {
       return { stream: res.body, mime: "audio/wav", engine: "kokoro" };
     }
