@@ -36,29 +36,17 @@ Config (read from ~/.claude/.env, overridable by real env vars):
 """
 import json
 import os
-import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+from _metrics import append_metric_row, day_bucket, load_home_env
 
 WINDOW_S = 7 * 86400  # the "7d" in applied_7d
 SOURCE = "jobs"
 METRIC_TOTAL = "applications"
 METRIC_WEEK = "applied_7d"
 STORE_FILE = "applications.jsonl"
-CSV_HEADER = "timestamp,source,metric,value,status,error\n"
-
-
-def load_home_env() -> None:
-    """Mirror the runner/HUD/USCF loader: ~/.claude/.env, real env wins."""
-    f = Path.home() / ".claude" / ".env"
-    try:
-        for line in f.read_text().splitlines():
-            m = re.match(r"^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$", line)
-            if m and m.group(1) not in os.environ:
-                os.environ[m.group(1)] = m.group(2).strip().strip("\"'")
-    except FileNotFoundError:
-        pass
 
 
 # --- compute step (pure; exercised by feeds/test_job_applications.py) ----------
@@ -110,9 +98,11 @@ def job_stats(records, now: float, window_s: int = WINDOW_S) -> tuple[int, int]:
 
 def iter_application_records(store_path: Path):
     """Yield application_record dicts from the JSONL store. Tolerant: a missing
-    file yields nothing, and malformed lines are skipped rather than fatal."""
+    file yields nothing, and malformed lines are skipped rather than fatal —
+    errors="replace" keeps a stray non-UTF-8 byte in this hand-editable file a
+    one-line skip instead of a UnicodeDecodeError killing both metrics."""
     try:
-        lines = store_path.read_text(encoding="utf-8").splitlines()
+        lines = store_path.read_text(encoding="utf-8", errors="replace").splitlines()
     except (FileNotFoundError, OSError):
         return
     for line in lines:
@@ -128,42 +118,7 @@ def iter_application_records(store_path: Path):
             yield rec
 
 
-# --- metrics.csv write (idempotent per source/metric/timestamp) ----------------
-
-def day_bucket(now_dt: datetime) -> str:
-    """Floor an aware UTC datetime to the top of the day, as a metrics ISO ts."""
-    return now_dt.astimezone(timezone.utc).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    ).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def row_exists(csv_path: Path, ts: str, source: str, metric: str) -> bool:
-    try:
-        lines = csv_path.read_text().splitlines()
-    except FileNotFoundError:
-        return False
-    for line in lines[1:]:  # skip header
-        cols = line.split(",")
-        if len(cols) >= 3 and cols[0] == ts and cols[1] == source and cols[2] == metric:
-            return True
-    return False
-
-
-def append_metric_row(
-    csv_path, ts: str, source: str, metric: str, value: int, status: str = "ok"
-) -> bool:
-    """Append one well-formed metrics row, unless (source, metric, ts) already
-    exists. Returns True if written, False on the idempotent no-op."""
-    csv_path = Path(csv_path)
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    if not csv_path.exists():
-        csv_path.write_text(CSV_HEADER)
-    if row_exists(csv_path, ts, source, metric):
-        return False
-    with csv_path.open("a") as fh:
-        fh.write(f"{ts},{source},{metric},{value},{status},\n")
-    return True
-
+# --- metrics.csv write: shared _metrics helpers (day bucket, idempotent append)
 
 def main() -> int:
     load_home_env()
