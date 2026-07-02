@@ -82,9 +82,11 @@ process.env.VAULT_ROOT = vault;
 mkdirSync(join(vault, "inbox"), { recursive: true });
 mkdirSync(join(vault, "system", "runs"), { recursive: true });
 mkdirSync(join(vault, "daily-notes"), { recursive: true });
+mkdirSync(join(vault, "Atlas", "Areas"), { recursive: true });
 writeFileSync(join(vault, "inbox", "ok.md"), "hello", "utf8");
 writeFileSync(join(vault, "system", "runs", "run.md"), "run", "utf8");
 writeFileSync(join(vault, "daily-notes", "secret.md"), "SECRET", "utf8");
+writeFileSync(join(vault, "Atlas", "Areas", "note.md"), "atlas", "utf8");
 
 // async wrapper (not top-level await): tsx compiles this script as CJS
 void (async () => {
@@ -96,6 +98,8 @@ void (async () => {
   eq(readVaultMarkdown("system/runs/../../daily-notes/secret.md"), null, "system/runs/../../ traversal blocked");
   eq(readVaultMarkdown("inbox\\..\\daily-notes\\secret.md"), null, "backslash traversal blocked");
   eq(readVaultMarkdown("daily-notes/secret.md"), null, "non-allowlisted dir stays unreadable");
+  eq(readVaultMarkdown("Atlas/Areas/note.md"), "atlas", "Atlas/ notes readable (issue #43 tab panels)");
+  eq(readVaultMarkdown("Atlas/../daily-notes/secret.md"), null, "Atlas/../ traversal blocked");
   eq(readVaultMarkdown("../outside.md"), null, "escape above the vault stays blocked");
   eq(readVaultMarkdown("inbox/ok.txt"), null, "non-.md stays blocked");
   check(resolveReadable("inbox/../inbox/ok.md") === null, "even inside-allowlist paths with .. are rejected");

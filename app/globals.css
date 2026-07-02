@@ -1015,6 +1015,9 @@ button {
 .report-body a { color: var(--color-info); }
 .report-body code { font-family: var(--font-mono), monospace; font-size: 12px; color: var(--color-primary-hover); }
 .report-body hr { border: none; border-top: 1px solid var(--color-border); margin: 14px 0; }
+/* Atlas note inside a tab panel — reuse report-body typography, drop the
+   overlay padding, scroll long notes inside the card */
+.atlas-note { padding: 0; max-height: 420px; font-size: 13px; }
 
 /* =============================================================
    Phone

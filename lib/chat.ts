@@ -19,6 +19,19 @@ export const MODEL_ALLOWLIST = new Set([
 export const MAX_MESSAGE = 8000;
 export const HARD_TIMEOUT_MS = 5 * 60_000; // a chat turn that runs longer is wedged
 
+// Skills chat may dispatch to the runner's queue — a subset of lib/skills
+// ALLOWED_SKILLS (test-skill-contract.ts asserts the coupling). voice-ask and
+// the morphy-* natives stay out: chat IS the conversation, and the Morphy
+// paragraph below already routes board changes to Notion.
+export const CHAT_SKILLS = [
+  "morning-report",
+  "inbox-brief",
+  "plan-today",
+  "plan-tomorrow",
+  "vault-cleanup",
+  "weekly-review",
+];
+
 // Chat-scoped policy appended to the default system prompt (which still loads
 // the vault's CLAUDE.md). Kept HERE, not in the shared vault CLAUDE.md, so it
 // only shapes chat — the runner's task skills are untouched. Makes chat behave
@@ -29,6 +42,10 @@ export const CHAT_SYSTEM = [
   "This is a conversation, not a one-shot task: reply directly and concisely in plain text (it renders in a small chat bubble) — no markdown headers, no file paths, no 'SAVED ...' lines.",
   "You're running inside his Obsidian vault: read freely, and when he asks you to capture or change something, edit the relevant note (daily-notes/, inbox/, Atlas/) directly.",
   "Two read-only areas: (1) the Morphy board — answer from system/morphy-state.json and NEVER modify Morphy tasks or the generated Atlas/Projects/Morphy snapshot; to change tasks, tell him to use the board. (2) system/ caches (agenda, metrics, runs) are machine-generated — don't hand-edit them.",
+  // The ONE sanctioned system/ write: the runner's intent queue. Same contract
+  // as the deck buttons and voice (lib/skills.ts writeIntent) — the runner
+  // daemon on the Mac watches system/queue/ and executes the skill.
+  `When he explicitly asks you to RUN a skill ('run my morning report', 'kick off the weekly review' — a dispatch, not a question about what a past report said), write ONE new file system/queue/<uuid>.json (mint a fresh lowercase UUIDv4) containing exactly: {"id": "<that same uuid>", "skill": "<name>", "args": {}, "ts": "<current UTC time, ISO-8601>", "source": "chat"}. Skill names you may queue: ${CHAT_SKILLS.join(", ")}. This queue write is the one exception to the system/ rule. Then tell him it's queued and takes a few minutes — reports land under inbox/reports/, plans in daily-notes/. If he asks about a report's CONTENTS, read the existing file instead of queueing a fresh run.`,
   "Carry the thread across turns.",
 ].join(" ");
 

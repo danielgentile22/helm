@@ -99,6 +99,41 @@ async function run(): Promise<void> {
     pass(`HUD_TZ defaults match across lib/config.ts and runner.js (${configDefault})`);
   }
 
+  // 5. Scheduled plists (issue #43): every scripts/com.helm.*.plist that calls
+  //    queue-intent.mjs must queue a skill the runner accepts — a typo'd skill
+  //    name is a schedule that silently dead-letters every day.
+  const { readdirSync } = await import("node:fs");
+  const scriptsDir = join(root, "scripts");
+  const plists = readdirSync(scriptsDir).filter((f) => f.endsWith(".plist"));
+  if (plists.length < 3) fail(`expected the weekly/morning/plan plists in scripts/, found ${plists.length}`);
+  for (const f of plists) {
+    const xml = readFileSync(join(scriptsDir, f), "utf8");
+    if (!xml.includes("queue-intent.mjs")) continue;
+    // ProgramArguments: [node, queue-intent.mjs, <skill>, <source>]
+    const m = xml.match(/queue-intent\.mjs<\/string>\s*<string>([^<]+)<\/string>/);
+    if (!m) {
+      fail(`${f} — calls queue-intent.mjs but no skill argument found`);
+    } else if (!ALLOWED_SKILLS.has(m[1])) {
+      fail(`${f} — queues "${m[1]}", which is not in ALLOWED_SKILLS (dead schedule)`);
+    } else {
+      pass(`${f} — queues ${m[1]} (allowed)`);
+    }
+  }
+
+  // 6. Chat dispatch (issue #43): every skill CHAT_SYSTEM offers must be one
+  //    the runner accepts — same drift guard as the deck/voice couplings.
+  const { CHAT_SKILLS, CHAT_SYSTEM } = await import("../lib/chat");
+  for (const skill of CHAT_SKILLS) {
+    if (!ALLOWED_SKILLS.has(skill)) fail(`chat offers "${skill}" but it is not in ALLOWED_SKILLS`);
+    else if (!CHAT_SYSTEM.includes(skill)) fail(`CHAT_SKILLS lists "${skill}" but CHAT_SYSTEM never names it`);
+    else pass(`chat can queue ${skill}`);
+  }
+  if (!CHAT_SYSTEM.includes("system/queue/")) {
+    fail("CHAT_SYSTEM no longer teaches the system/queue intent contract");
+  } else {
+    pass("CHAT_SYSTEM carries the queue-intent contract");
+  }
+
   const total = ALLOWED_SKILLS.size;
   console.log(
     failed === 0
