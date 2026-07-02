@@ -63,6 +63,9 @@ class VoiceClient {
   private currentStop: (() => void) | null = null;
   private chunks: BlobPart[] = [];
   private captureStart = 0;
+  // bumped by finishCapture/cancelCapture — a startCapture still awaiting
+  // getUserMedia sees the mismatch and never starts an unstoppable recorder
+  private captureGen = 0;
   private wakeWs: WebSocket | null = null;
   private wakeWasUp = false;
   private listeningCb: ListeningListener = () => {};
@@ -74,8 +77,11 @@ class VoiceClient {
     if (this.inited || typeof window === "undefined") return;
     this.inited = true;
 
-    const unlock = () => {
+    const unlock = (e: Event) => {
       if (this.unlocked) return;
+      // Escape fires keydown but grants no user activation (spec-excluded) —
+      // spending the one-time latch on it would mute the session
+      if ((e as KeyboardEvent).key === "Escape") return;
       this.unlocked = true;
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("keydown", unlock);
@@ -143,6 +149,8 @@ class VoiceClient {
       return;
     }
     if (e.type === "hello") {
+      // hello proves :3108 is back — un-latch a 503 from a transient outage
+      this.disabled = false;
       this.log(
         "ok",
         e.wake ? "wake word armed" : "voice link up — push-to-talk"
@@ -290,46 +298,92 @@ class VoiceClient {
   /** begin PTT recording; resolves false if mic unavailable or voice offline */
   async startCapture(): Promise<boolean> {
     if (this.disabled) {
-      this.log("err", "voice offline — can't listen without the TTS key");
-      return false;
+      // re-probe instead of refusing — the 503 may have been a transient
+      // voice-server outage (slow CPU warmup, launchd restart)
+      const back = await fetch("/api/speak", { cache: "no-store" })
+        .then((r) => r.ok)
+        .catch(() => false);
+      if (!back) {
+        this.log("err", "voice offline — voice-server on :3108 is down");
+        return false;
+      }
+      this.disabled = false;
     }
     if (this.recorder) return true; // already capturing
     this.stop(); // barge-in: opening the mic shuts HELM up
+    const gen = ++this.captureGen;
     try {
-      // keep the stream alive between captures — re-acquiring adds ~200ms
+      // keep the stream alive between captures — re-acquiring adds ~200ms.
+      // A dead track (mic unplugged, input switched) invalidates the cache.
+      if (this.micStream && !this.micStream.active) {
+        this.micStream = null;
+        this.micSource = null;
+      }
       if (!this.micStream) {
         this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        for (const t of this.micStream.getTracks()) {
+          t.onended = () => {
+            this.micStream = null;
+            this.micSource = null;
+          };
+        }
       }
-    } catch {
-      this.log("err", "microphone access denied");
+      // Space already released while getUserMedia was showing the permission
+      // prompt — starting a recorder now would leave the mic hot forever
+      if (gen !== this.captureGen) return false;
+      // tap the mic into its own analyser for the live meter — never connected to
+      // destination (no monitoring, no feedback). The clip still records as before;
+      // this only reads the level locally. Built once, reused across captures.
+      this.ensureGraph();
+      if (this.ctx && this.micStream && !this.micSource) {
+        this.micAnalyser = this.ctx.createAnalyser();
+        this.micAnalyser.fftSize = 1024;
+        this.micAnalyser.smoothingTimeConstant = 0.4;
+        this.micData = new Uint8Array(this.micAnalyser.fftSize);
+        this.micSource = this.ctx.createMediaStreamSource(this.micStream);
+        this.micSource.connect(this.micAnalyser);
+      }
+      // local array — a cancelled recorder's late dataavailable can't
+      // pollute the next capture's chunks
+      const chunks: BlobPart[] = [];
+      this.chunks = chunks;
+      this.recorder = new MediaRecorder(this.micStream);
+      this.recorder.addEventListener("dataavailable", (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      });
+      this.recorder.start();
+    } catch (e) {
+      this.log(
+        "err",
+        (e as DOMException)?.name === "NotAllowedError" ? "microphone access denied" : "microphone unavailable"
+      );
       return false;
     }
-    // tap the mic into its own analyser for the live meter — never connected to
-    // destination (no monitoring, no feedback). The clip still records as before;
-    // this only reads the level locally. Built once, reused across captures.
-    this.ensureGraph();
-    if (this.ctx && this.micStream && !this.micSource) {
-      this.micAnalyser = this.ctx.createAnalyser();
-      this.micAnalyser.fftSize = 1024;
-      this.micAnalyser.smoothingTimeConstant = 0.4;
-      this.micData = new Uint8Array(this.micAnalyser.fftSize);
-      this.micSource = this.ctx.createMediaStreamSource(this.micStream);
-      this.micSource.connect(this.micAnalyser);
-    }
-    this.chunks = [];
-    this.recorder = new MediaRecorder(this.micStream);
-    this.recorder.addEventListener("dataavailable", (e) => {
-      if (e.data.size > 0) this.chunks.push(e.data);
-    });
-    this.recorder.start();
     this.captureStart = performance.now();
     return true;
+  }
+
+  /** abort an in-flight capture without shipping the clip (window blur,
+   *  focus-stealing dialogs — the keyup will never arrive) */
+  cancelCapture(): void {
+    this.captureGen++; // also cancels a start still inside getUserMedia
+    const rec = this.recorder;
+    this.recorder = null;
+    this.chunks = [];
+    if (rec) {
+      try {
+        rec.stop();
+      } catch {}
+    }
   }
 
   /** stop recording, ship the clip through STT → router, speak the reply */
   async finishCapture(): Promise<void> {
     const rec = this.recorder;
-    if (!rec) return;
+    if (!rec) {
+      this.captureGen++; // release beat getUserMedia — cancel the pending start
+      return;
+    }
     this.recorder = null;
     const heldMs = performance.now() - this.captureStart;
     await new Promise<void>((res) => {
@@ -439,6 +493,9 @@ class VoiceClient {
     if (this.playing || this.queue.length === 0 || this.disabled) return;
     const utt = this.queue.shift()!;
     this.ensureGraph();
+    // a context left suspended (missed/spent activation, Safari after sleep)
+    // self-heals here — by now sticky activation usually exists
+    this.ctx?.resume().catch(() => {});
     this.setSpeaking(true);
     try {
       await this.playOne(utt);
@@ -473,6 +530,9 @@ class VoiceClient {
       this.currentStop = () => {
         audio.pause();
         audio.removeAttribute("src");
+        // load() actually aborts the fetch — without it Kokoro keeps
+        // synthesizing the rest of the utterance on CPU
+        audio.load();
         done(false);
       };
       // sequenced callouts start counting when sound actually starts
