@@ -45,7 +45,8 @@ const SUFFIX: Record<string, string> = {
 // screen; the voice speaks in wave-tops.
 function spokenRound(n: number): string {
   if (n < 1_000) return numWords(n);
-  if (n < 1_000_000) return `${Math.round(n / 1_000)} thousand`; // 4,200 → "4 thousand"
+  // 999,500+ belongs to the million branch or it reads "1000 thousand"
+  if (n < 999_500) return `${Math.round(n / 1_000)} thousand`; // 4,200 → "4 thousand"
   return `${Math.round(n / 100_000) / 10} million`; // 1,437,000 → "1.4 million"
 }
 
@@ -58,8 +59,10 @@ export function normalizeForSpeech(text: string): string {
     return `${decimalWords(num)} ${scale} dollars`;
   });
 
-  // $4,200 / $4200.50 / $1 → "four thousand dollars" (rounded, cents dropped)
-  t = t.replace(/\$\s?(\d{1,3}(?:,\d{3})*|\d+)(?:\.\d+)?/g, (_, num: string) => {
+  // $4,200 / $4200.50 / $1 → "four thousand dollars" (rounded, cents dropped).
+  // Comma branch requires a real comma and (?!\d) blocks a 3-digit partial
+  // match — otherwise "$4200" reads as "$420" + a stray "0".
+  t = t.replace(/\$\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?!\d)/g, (_, num: string) => {
     const n = parseInt(num.replace(/,/g, ""), 10);
     return `${spokenRound(n)} ${n === 1 ? "dollar" : "dollars"}`;
   });
