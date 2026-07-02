@@ -20,7 +20,10 @@ export interface ShellValue {
   error: boolean;
   refresh: () => void;
   status: Status;
-  isPhone: boolean;
+  /** null until the breakpoint resolves post-hydration — gate heavy
+   *  desktop-only subtrees (orb, deck, audio meter) on `isPhone === false`
+   *  so a phone's first paint never mounts (or downloads) them. */
+  isPhone: boolean | null;
 
   // core / voice — drives the Today orb, the audio meter, and the shell chip
   mode: CoreMode;

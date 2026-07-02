@@ -28,6 +28,7 @@ function state(over: Partial<VaultState> = {}): VaultState {
   return {
     generated_at: new Date().toISOString(),
     vault_root: "",
+    tz: "America/New_York",
     metrics: [],
     runner: {
       ts: "",
