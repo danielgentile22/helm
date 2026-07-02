@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  Morning-report schedule. Fires daily at 07:00 local time, dropping a
+  `morning-report` intent into the runner's queue (it does NOT run claude itself —
+  the always-alive com.helm.runner picks the intent up and executes the skill).
+
+  Install:  cp scripts/com.helm.morning.plist ~/Library/LaunchAgents/
+            launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.helm.morning.plist
+  Run now:  launchctl kickstart -k gui/$(id -u)/com.helm.morning
+
+  No RunAtLoad on purpose — a login should not fire an expensive research run.
+  The runner's DEDUPE_SKILLS already rejects a second morning-report while one
+  is in flight, so a manual deck press on top of the schedule is harmless.
+-->
+<dict>
+    <key>Label</key>
+    <string>com.helm.morning</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/node</string>
+        <string>/Users/user/Projects/helm/scripts/queue-intent.mjs</string>
+        <string>morning-report</string>
+        <string>schedule:morning</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/user/Projects/helm</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>7</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/user/Projects/helm/logs/morning.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/user/Projects/helm/logs/morning.log</string>
+</dict>
+</plist>

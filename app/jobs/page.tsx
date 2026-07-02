@@ -2,11 +2,13 @@
 
 // Job search — a read-only dashboard. No skills yet (they come later when one
 // is defined); this tab makes the SWE-search directive visible and invites
-// building those skills. Application counts as Halo stat tiles.
+// building those skills. Application counts as Halo stat tiles, plus the
+// curated Atlas note where Daniel actually tracks the search (issue #43).
 import { useShell } from "@/components/shell/ShellContext";
 import { statTileProps } from "@/lib/vitals";
 import type { Metric } from "@/lib/vault";
 import StatTile from "@/components/StatTile";
+import AtlasNote from "@/components/panels/AtlasNote";
 import { fmtAge } from "@/components/panels/util";
 
 function findMetric(metrics: Metric[], source: string, metric: string): Metric | null {
@@ -51,6 +53,8 @@ export default function JobsPage() {
           <div className="tab-sub">No job metrics yet — the feed populates jobs:applications / jobs:applied_7d.</div>
         </section>
       )}
+
+      <AtlasNote path="Atlas/Areas/Career - Applications & Roles.md" title="Applications & Roles" />
     </div>
   );
 }

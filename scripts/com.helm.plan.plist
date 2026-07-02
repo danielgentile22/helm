@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  Plan-today schedule. Fires daily at 07:15 local time — 15 min after
+  com.helm.morning so the fresh morning report exists when the planner reads
+  the vault. Drops a `plan-today` intent into the runner's queue; the
+  always-alive com.helm.runner executes it. plan-today MERGES into an existing
+  daily note (fills empty Top-3 slots, replaces ## Schedule), so a note Daniel
+  already started is never overwritten.
+
+  Install:  cp scripts/com.helm.plan.plist ~/Library/LaunchAgents/
+            launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.helm.plan.plist
+  Run now:  launchctl kickstart -k gui/$(id -u)/com.helm.plan
+
+  No RunAtLoad on purpose — a login should not fire a claude run.
+-->
+<dict>
+    <key>Label</key>
+    <string>com.helm.plan</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/node</string>
+        <string>/Users/user/Projects/helm/scripts/queue-intent.mjs</string>
+        <string>plan-today</string>
+        <string>schedule:plan</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/user/Projects/helm</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>7</integer>
+        <key>Minute</key>
+        <integer>15</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/user/Projects/helm/logs/plan.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/user/Projects/helm/logs/plan.log</string>
+</dict>
+</plist>

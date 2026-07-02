@@ -48,6 +48,8 @@ async function run(): Promise<void> {
     slugify,
     todayDate,
     buildPrompt,
+    retryIntent,
+    STALL_TIMEOUT_MS,
   } = await import("../runner/runner.js");
 
   // --- isIntentFile: conflict copies and strays never enter the queue --------
@@ -162,6 +164,27 @@ async function run(): Promise<void> {
   check(
     pidLooksLikeRunner(process.pid) === false,
     "a live process that is not runner.js does not pass the pidfile check"
+  );
+
+  // --- stall retry (issue #43): one requeue, ever ------------------------------
+  const original = { id: "orig", skill: "weekly-review", args: { model: "claude-opus-4-8" }, ts: "T0", source: "schedule:weekly" };
+  const retry = retryIntent(original);
+  check(
+    retry !== null && retry.retry === 1 && retry.skill === "weekly-review" && retry.args.model === "claude-opus-4-8",
+    "a stalled first run earns a retry intent carrying the same skill + args"
+  );
+  check(retry !== null && retry.id !== original.id && /^[0-9a-f-]{36}$/.test(retry.id), "the retry gets a fresh UUID (old id's run record blocks replays)");
+  check(retryIntent(retry!) === null, "a retried intent never earns a second retry (no loops)");
+  check(
+    STALL_TIMEOUT_MS < 20 * 60_000 && STALL_TIMEOUT_MS >= 4 * 60_000,
+    "stall timeout sits between healthy-run duration (2-3m) and the hard timeout"
+  );
+
+  // --- weekly-review prompt reads Daniel's curated Atlas notes (issue #43) -----
+  const weekly = buildPrompt({ id: "x", skill: "weekly-review", args: {} }, "inbox/reports/weekly/x.md");
+  check(
+    weekly !== null && weekly.includes("Atlas/Decisions/") && weekly.includes("Chess - Tournament Log.md"),
+    "weekly-review gathers evidence from Atlas/Decisions and the directive Areas notes"
   );
 
   // --- plan-today prompt scans the real project-notes folder ------------------
