@@ -15,31 +15,11 @@
  * then ~/.claude/.env — the same precedence the runner uses.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
-
-// Mirror runner.js's env resolution: process.env first, then ~/.claude/.env.
-function loadEnvFile() {
-  const envPath = join(homedir(), ".claude", ".env");
-  if (!existsSync(envPath)) return {};
-  const out = {};
-  try {
-    for (const raw of readFileSync(envPath, "utf8").split(/\r?\n/)) {
-      const line = raw.trim();
-      if (!line || line.startsWith("#") || !line.includes("=")) continue;
-      const idx = line.indexOf("=");
-      out[line.slice(0, idx).trim()] = line
-        .slice(idx + 1)
-        .trim()
-        .replace(/^["']|["']$/g, "");
-    }
-  } catch {
-    /* ignore */
-  }
-  return out;
-}
+// Same env resolution as the runner: process.env first, then ~/.claude/.env.
+import { loadEnvFile } from "../runner/env.js";
 
 const _env = loadEnvFile();
 const env = (k) => process.env[k] || _env[k];

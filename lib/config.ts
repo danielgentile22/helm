@@ -4,7 +4,8 @@ import { homeEnv } from "./homeEnv";
 // Personal-machine config — ALL of it, in one place. Every value reads an env
 // var (process.env first, then ~/.claude/.env). Most fall back to a default
 // that works on a fresh clone; VAULT_ROOT is the exception — it's required and
-// has no default (see below). ONBOARD.md walks through each one.
+// has no default (see below). The README's Configuration table walks through
+// each one.
 // Client components can't import this (server-only via homeEnv/fs); the two
 // client-side values use NEXT_PUBLIC_ vars — see lib/voiceClient.ts and
 // components/ReportOverlay.tsx.

@@ -134,6 +134,51 @@ async function run(): Promise<void> {
     pass("CHAT_SYSTEM carries the queue-intent contract");
   }
 
+  // 7. Machine record (issue #44): .helm-config.json is authoritative by
+  //    CLAUDE.md instruction, so its skills array and launchdAgents list must
+  //    match ALLOWED_SKILLS and the versioned scripts/*.plist inventory.
+  //    The file is gitignored (machine-local) — skip on a fresh clone.
+  const { existsSync } = await import("node:fs");
+  const cfgPath = join(root, ".helm-config.json");
+  if (!existsSync(cfgPath)) {
+    pass(".helm-config.json absent (fresh clone) — machine-record checks skipped");
+  } else {
+    const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
+    const cfgSkills = new Set<string>(cfg.skills ?? []);
+    const missing = [...ALLOWED_SKILLS].filter((s) => !cfgSkills.has(s));
+    const extra = [...cfgSkills].filter((s) => !ALLOWED_SKILLS.has(s));
+    if (missing.length || extra.length) {
+      fail(`.helm-config.json skills drifted — missing: [${missing}] extra: [${extra}]`);
+    } else {
+      pass(`.helm-config.json skills match ALLOWED_SKILLS (${cfgSkills.size})`);
+    }
+    const cfgAgents = new Set<string>(cfg.launchdAgents ?? []);
+    const plistAgents = new Set(plists.map((f) => f.replace(/\.plist$/, "")));
+    const unversioned = [...cfgAgents].filter((a) => !plistAgents.has(a));
+    const unrecorded = [...plistAgents].filter((a) => !cfgAgents.has(a));
+    if (unversioned.length || unrecorded.length) {
+      fail(`launchd inventory drifted — in config but not scripts/: [${unversioned}]; in scripts/ but not config: [${unrecorded}]`);
+    } else {
+      pass(`launchdAgents match scripts/*.plist (${cfgAgents.size} agents)`);
+    }
+  }
+
+  // 8. Version (issue #44): package.json is the one version source. The
+  //    heartbeat must read PKG_VERSION (never a hardcoded literal) and the
+  //    CHANGELOG must have an entry for the current version.
+  const runnerSrc = readFileSync(join(root, "runner", "runner.js"), "utf8");
+  const pkgVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+  if (!runnerSrc.includes("version: PKG_VERSION")) {
+    fail("runner heartbeat no longer uses PKG_VERSION — hardcoded version literals drift");
+  } else {
+    pass(`runner heartbeat reports package.json version (${pkgVersion})`);
+  }
+  if (!readFileSync(join(root, "CHANGELOG.md"), "utf8").includes(`## ${pkgVersion} `)) {
+    fail(`CHANGELOG.md has no entry for package.json version ${pkgVersion}`);
+  } else {
+    pass(`CHANGELOG.md has an entry for ${pkgVersion}`);
+  }
+
   const total = ALLOWED_SKILLS.size;
   console.log(
     failed === 0

@@ -35,9 +35,11 @@ commands below are the fallback.
    them the first audio needs one click/keypress in the tab (browser
    autoplay policy).
 
-The four launchd agents (`com.helm.hud`, `com.helm.runner`,
-`com.helm.voice`, `com.helm.uscf`) live in `~/Library/LaunchAgents/` and
-start everything at login.
+The `com.helm.*` launchd agents live in `~/Library/LaunchAgents/` and
+start everything at login — the authoritative inventory (services, feed
+schedules, and scheduled skills like the Sunday 17:00 weekly-review) is
+the `launchdAgents` list in `.helm-config.json`; canonical plists are
+versioned in `scripts/`.
 
 ## Project facts
 
@@ -49,7 +51,9 @@ start everything at login.
 - All state lives as plain files under the vault (`VAULT_ROOT`). No
   database. The architecture one-pager is `docs/architecture.html`; the
   README has the short version.
-- Quality gates: `npm test` (router sweep, no API spend) and
+- Quality gates: `npm test` (runner syntax check + TS suites — router
+  sweep, skill/tab contract, security, feeds, chat — plus python3
+  voice-server/feed suites; needs `python3` on PATH; no API spend) and
   `npx tsc --noEmit`. Run both after touching `lib/`.
 
 ## Security perimeter (issue #36 — don't quietly widen it)
@@ -73,16 +77,15 @@ start everything at login.
 ## Load-bearing couplings (break one and voice quietly misroutes)
 
 - `ALLOWED_SKILLS` in `lib/skills.ts` ⟷ `buildPrompt()` cases in
-  `runner/runner.js` ⟷ `DECK_SKILLS` in `components/HUD.tsx` — all three
-  must list the same skills.
+  `runner/runner.js` ⟷ `DECK_SKILLS` + `SKILL_TAB` in `lib/tabs.ts` — all
+  three must list the same skills (union guarded by scripts/test-tabs.ts
+  and scripts/test-skill-contract.ts).
 - Offer wording in `briefingOffer()` (lib/router.ts) ⟷ `OFFER_SKILLS` keys
   ⟷ the regex in `pendingOffer()` — the spoken offer is parsed back out of
   conversation memory verbatim when the user answers "yes".
 - `HUD_TZ` (lib/config.ts) ⟷ the runner's `HUD_TZ` — both default
   America/New_York (matching .helm-config.json); change them TOGETHER or
   "today" splits across two dates. test-skill-contract.ts asserts they match.
-- `.boot-stagger` CSS sections must never receive a second `animation` —
-  it cancels `boot-in ... forwards` and blanks the panel.
 
 ## Editing gotchas
 

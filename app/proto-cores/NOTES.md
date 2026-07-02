@@ -24,6 +24,10 @@ already implemented in the repo, switchable from a floating bottom bar:
 centerpiece — no swap needed, it's already wired in `components/HUD.tsx`
 (import ~line 11, render ~line 1105).
 
+> **Post-v2 note (2026-07):** `components/HUD.tsx` was deleted in the
+> tabbed-shell merge (PR #35). GraphCore is now mounted via
+> `components/shell/Shell.tsx` → `components/panels/Orb.tsx`.
+
 Per Daniel: **do NOT delete the other cores/labs.** Keep `DitherCore`,
 `EmberCore`, `CoreLab` (`/lab`), `OrbLab` (`/orb`), and
 `components/ui/dithering-shader.tsx` — he may want them later. So #4 in the

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Docs & repo hygiene (issue #44): machine record (`.helm-config.json`)
+  now lists all 9 skills and is the authoritative launchd inventory, with
+  every installed plist versioned in `scripts/`; CLAUDE.md / README /
+  `docs/architecture.html` updated to the post-v2 tabbed shell (dead
+  `components/HUD.tsx` pointers, demo modes, `.boot-stagger`, stale agent
+  counts removed); one shared `~/.claude/.env` parser for the runner and
+  queue scripts (`runner/env.js`), key rule aligned with `lib/homeEnv.ts`;
+  version single-sourced from package.json (heartbeat reads it, `VERSION`
+  file removed); `public/how-it-works.html` moved to `docs/` as a marked
+  historical snapshot; untracked `morphy-hud.png` (1.2 MB).
+
 ## 1.0.1 — 2026-07-01
 
 - Renamed the project to **HELM** and removed the wake word: voice is
