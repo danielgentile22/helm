@@ -52,6 +52,8 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from _metrics import append_metric_row, day_bucket, load_home_env
+
 API_BASE = "https://api.github.com"
 USER_AGENT = "helm-morphy-feed/1.0 (+https://github.com/danielgentile22)"
 TIMEOUT = 30.0
@@ -63,19 +65,6 @@ SOURCE = "github"
 METRIC_COMMITS = "commits_7d"
 METRIC_PRS = "open_prs"
 METRIC_ISSUES = "open_issues"
-CSV_HEADER = "timestamp,source,metric,value,status,error\n"
-
-
-def load_home_env() -> None:
-    """Mirror the runner/HUD/feeds loader: ~/.claude/.env, real env wins."""
-    f = Path.home() / ".claude" / ".env"
-    try:
-        for line in f.read_text().splitlines():
-            m = re.match(r"^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$", line)
-            if m and m.group(1) not in os.environ:
-                os.environ[m.group(1)] = m.group(2).strip().strip("\"'")
-    except FileNotFoundError:
-        pass
 
 
 # --- compute step (pure; exercised by feeds/test_morphy_github.py) -------------
@@ -200,6 +189,13 @@ def fetch_list(path: str, token: str, params: str = "") -> list:
         items.extend(data)
         if len(data) < PER_PAGE:
             break
+    else:
+        # MAX_PAGES exhausted with a full final page: the count is capped, not
+        # complete — say so instead of letting truncation masquerade as data.
+        print(
+            f"warning: {path} truncated at {MAX_PAGES * PER_PAGE} items (MAX_PAGES)",
+            file=sys.stderr,
+        )
     return items
 
 
@@ -215,42 +211,7 @@ def fetch_repo_activity(repo: str, token: str, now: float,
     return github_stats(commits, pulls, issues, now, window_s)
 
 
-# --- metrics.csv write (idempotent per source/metric/day) ----------------------
-
-def day_bucket(now_dt: datetime) -> str:
-    """Floor an aware UTC datetime to the top of the day, as a metrics ISO ts."""
-    return now_dt.astimezone(timezone.utc).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    ).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def row_exists(csv_path: Path, ts: str, source: str, metric: str) -> bool:
-    try:
-        lines = csv_path.read_text().splitlines()
-    except FileNotFoundError:
-        return False
-    for line in lines[1:]:  # skip header
-        cols = line.split(",")
-        if len(cols) >= 3 and cols[0] == ts and cols[1] == source and cols[2] == metric:
-            return True
-    return False
-
-
-def append_metric_row(
-    csv_path, ts: str, source: str, metric: str, value: int, status: str = "ok"
-) -> bool:
-    """Append one well-formed metrics row, unless (source, metric, ts) already
-    exists. Returns True if written, False on the idempotent no-op."""
-    csv_path = Path(csv_path)
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    if not csv_path.exists():
-        csv_path.write_text(CSV_HEADER)
-    if row_exists(csv_path, ts, source, metric):
-        return False
-    with csv_path.open("a") as fh:
-        fh.write(f"{ts},{source},{metric},{value},{status},\n")
-    return True
-
+# --- metrics.csv write: shared _metrics helpers (day bucket, idempotent append)
 
 def main() -> int:
     load_home_env()

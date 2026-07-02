@@ -118,6 +118,17 @@ with tempfile.TemporaryDirectory() as d:
     st, sw = ja.job_stats(ja.iter_application_records(store), NOW_EPOCH)
     check("store read: 3 valid records, 2 this week", (st, sw) == (3, 2), got=(st, sw), want=(3, 2))
 
+    # a stray non-UTF-8 byte in this hand-editable file is a one-line skip,
+    # not a UnicodeDecodeError killing both metrics (review id 54)
+    torn = Path(d) / "jobs" / "torn.jsonl"
+    torn.write_bytes(
+        json.dumps(app("Acme", "Backend", days_ago(1))).encode()
+        + b"\n" + b'{"company": "Bad\xff", "role": "SWE"\n'
+    )
+    tt, tw = ja.job_stats(ja.iter_application_records(torn), NOW_EPOCH)
+    check("non-UTF-8 byte skips the bad line, keeps the rest",
+          (tt, tw) == (1, 1), got=(tt, tw), want=(1, 1))
+
     csv = Path(d) / "system" / "metrics" / "metrics.csv"
     ts = ja.day_bucket(NOW)  # 2026-06-19T00:00:00Z
 
