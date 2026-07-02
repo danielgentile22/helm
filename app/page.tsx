@@ -28,9 +28,12 @@ export default function TodayPage() {
   // auto-calibrating cap: 100% = the biggest 5h window ever recorded
   const tokenPeak = tokens ? Math.max(...tokens.history.map((h) => h.value), tokens.value) : null;
 
+  // isPhone === false (not !isPhone): during the pre-hydration null tick a
+  // phone must not mount the heavy desktop subtree — the Orb alone pulls the
+  // whole three.js chunk the moment it mounts
   return (
     <div className="tab-page today">
-      {!isPhone && <Orb />}
+      {isPhone === false && <Orb />}
 
       <div className="today-hero">
         <div className="tab-head">
@@ -39,7 +42,7 @@ export default function TodayPage() {
         </div>
       </div>
 
-      {!isPhone && <Deck skills={deckSkillsForTab("today")} title="Daily Deck" />}
+      {isPhone === false && <Deck skills={deckSkillsForTab("today")} title="Daily Deck" />}
 
       <div className="tab-grid grid-3">
         <Schedule />
@@ -56,8 +59,8 @@ export default function TodayPage() {
             stale={fmtAge(tokens.timestamp).stale}
           />
         )}
-        {!isPhone && <Feed />}
-        {!isPhone && <AudioMeter />}
+        {isPhone === false && <Feed />}
+        {isPhone === false && <AudioMeter />}
       </div>
     </div>
   );

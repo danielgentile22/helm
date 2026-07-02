@@ -384,9 +384,8 @@ button {
 .tab-grid { display: grid; gap: 16px; }
 .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-@media (max-width: 900px) { .grid-3, .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 640px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
 
 /* panel = a Halo card */
 .panel {
@@ -401,19 +400,15 @@ button {
   transition: border-color var(--motion-base) var(--easing);
 }
 .panel:hover { border-color: var(--color-border-strong); }
-.panel.span-2 { grid-column: span 2; }
-@media (max-width: 640px) { .panel.span-2 { grid-column: span 1; } }
 
 /* panel / section heading — Halo eyebrow */
-.sec-title,
-.panel-head {
+.sec-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
-.sec-title > span:first-child,
-.panel-title {
+.sec-title > span:first-child {
   font-family: var(--font-head);
   font-size: 12px;
   font-weight: 600;
@@ -423,8 +418,7 @@ button {
 }
 .sec-link { color: var(--color-text-secondary); font: inherit; text-transform: uppercase; letter-spacing: 0.08em; font-size: 12px; font-weight: 600; }
 .sec-link:hover { color: var(--color-text-primary); }
-.tick,
-.panel-tick {
+.tick {
   font-family: var(--font-mono), monospace;
   font-size: 10px;
   letter-spacing: 0.05em;
@@ -815,6 +809,169 @@ button {
   inset: 0;
   pointer-events: none;
   background: radial-gradient(ellipse 80% 70% at 50% 42%, transparent 52%, rgba(10, 11, 15, 0.82) 100%);
+}
+/* GraphCore's own edge falloff (rendered inside .graph-core on bg modes) */
+.bg-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 75% 70% at 50% 44%, transparent 55%, rgba(10, 11, 15, 0.7) 100%);
+}
+
+/* =============================================================
+   Core fault panel (app/error.tsx) — crash containment fallback
+   ============================================================= */
+
+.core-fault {
+  min-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+.core-fault-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+.core-fault-detail {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  max-width: 480px;
+  text-align: center;
+}
+
+/* =============================================================
+   Kept lab / prototype surfaces (restored from v1, Halo tokens)
+   /lab + /orb galleries, EmberCore + DitherCore mounts
+   ============================================================= */
+
+/* full-viewport fixed — the labs' shared canvas is sized to the window and
+   scissor rects come from getBoundingClientRect, so the layout must be
+   viewport-aligned; head/grid sit below the 60px shell bar */
+.lab {
+  position: fixed;
+  inset: 0;
+  background: var(--color-background);
+}
+
+.lab-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.lab-head {
+  position: absolute;
+  top: 60px;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  padding: 18px 28px 14px;
+}
+
+.lab-title {
+  font-family: var(--font-head);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  color: var(--color-text-primary);
+}
+
+.lab-sub {
+  font-size: 8px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.lab-grid {
+  position: absolute;
+  inset: 118px 16px 16px;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: 1fr 1fr;
+  gap: 10px;
+}
+
+.lab-tile {
+  position: relative;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  transition: border-color 0.2s ease;
+}
+
+.lab-tile:hover {
+  border-color: var(--color-border-strong);
+}
+
+.lab-tile.is-solo {
+  position: fixed;
+  inset: 118px 16px 16px;
+  z-index: 4;
+  cursor: zoom-out;
+  border-color: var(--color-border-strong);
+}
+
+/* solo culling depends on this — the labs skip tiles whose rect collapses */
+.lab-tile.is-hidden {
+  display: none;
+}
+
+.lab-label {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  pointer-events: none;
+}
+
+.lab-label .idx {
+  font-family: var(--font-head);
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--color-primary-hover);
+}
+
+.lab-label .nm {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  color: var(--color-text-primary);
+}
+
+.lab-label .bl {
+  font-size: 7.5px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+
+/* ember core — fills its mount (a proto-cores tile) */
+.ember-core {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+/* dither core — square (shader has no aspect correction), centered */
+.dither-core {
+  position: absolute;
+  top: 45%;
+  left: 50%;
+  width: min(74vh, 46vw);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  z-index: 1;
 }
 
 /* =============================================================

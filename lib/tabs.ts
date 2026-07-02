@@ -54,7 +54,8 @@ export const DECK_SKILLS: { skill: string; label: string }[] = [
   { skill: "vault-cleanup", label: "Vault Clean" },
   { skill: "weekly-review", label: "Weekly Rev" },
   { skill: "morphy-sync", label: "Morphy Sync" },
-  { skill: "morphy-task-add", label: "Task Add" },
+  // morphy-task-add has no deck button — the TaskAdd panel is its UI (same
+  // reasoning as voice-ask above). It stays in SKILL_TAB for the union test.
 ];
 
 /** The tab a skill belongs to, or null if the skill isn't mapped. */

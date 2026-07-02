@@ -82,7 +82,8 @@ function glowTexture(): THREE.Texture {
   const size = 128;
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return new THREE.CanvasTexture(canvas); // blank glow beats a crash
   const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
   g.addColorStop(0, "rgba(255,255,255,0.9)");
   g.addColorStop(0.35, "rgba(255,255,255,0.25)");
@@ -1103,7 +1104,14 @@ export default function CoreLab() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    // same guard as GraphCore — a refused WebGL context must not crash the app
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    } catch (e) {
+      console.error("core lab: WebGL unavailable", e);
+      return;
+    }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.setSize(window.innerWidth, window.innerHeight, false);
     renderer.setClearColor(new THREE.Color(BG));
@@ -1157,11 +1165,18 @@ export default function CoreLab() {
           const obj = o as THREE.Mesh;
           if (obj.geometry) obj.geometry.dispose();
           const m = obj.material as THREE.Material | THREE.Material[] | undefined;
-          if (Array.isArray(m)) m.forEach((x) => x.dispose());
-          else if (m) m.dispose();
+          for (const x of Array.isArray(m) ? m : m ? [m] : []) {
+            // Material.dispose() doesn't touch its textures — the glowTexture
+            // CanvasTextures (annulus/embers/prominence/orbital sprites) leak
+            // per unmount without this
+            const map = (x as THREE.Material & { map?: THREE.Texture | null }).map;
+            if (map) map.dispose();
+            x.dispose();
+          }
         });
       }
       renderer.dispose();
+      renderer.forceContextLoss();
     };
   }, []);
 

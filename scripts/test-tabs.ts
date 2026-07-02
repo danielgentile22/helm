@@ -60,9 +60,14 @@ check(
   "Today owns the daily deck (morning-report)"
 );
 check(
-  deckSkillsForTab("morphy").map((d) => d.skill).sort().join(",") === "morphy-sync,morphy-task-add",
-  "Morphy owns Sync + Task Add"
+  deckSkillsForTab("morphy").map((d) => d.skill).join(",") === "morphy-sync",
+  "Morphy's deck is Sync only (Task Add is the TaskAdd panel, not a button)"
 );
+check(
+  !DECK_SKILLS.some((d) => d.skill === "morphy-task-add"),
+  "morphy-task-add has no deck button (its UI is the TaskAdd panel)"
+);
+check(tabForSkill("morphy-task-add") === "morphy", "morphy-task-add still maps to Morphy for the union");
 check(deckSkillsForTab("jobs").length === 0, "Job Search ships with no deck skills");
 check(deckSkillsForTab("chess").length === 0, "Chess ships with no deck skills");
 // voice-ask is allowed + mapped, but has no button
