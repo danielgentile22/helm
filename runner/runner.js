@@ -15,7 +15,7 @@
  * first line of the claude reply is read aloud by the voice layer.
  */
 
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -24,6 +24,8 @@ import {
   writeFileSync,
   unlinkSync,
   appendFileSync,
+  renameSync,
+  statSync,
 } from "node:fs";
 import { join, basename, dirname } from "node:path";
 import { homedir, platform } from "node:os";
@@ -58,7 +60,7 @@ function loadEnvFile() {
 const _env = loadEnvFile();
 const env = (k) => process.env[k] || _env[k];
 
-const VAULT_ROOT = env("VAULT_ROOT") || env("AGENTIC_OS_VAULT");
+const VAULT_ROOT = env("VAULT_ROOT");
 if (!VAULT_ROOT) {
   console.error(
     "[runner] VAULT_ROOT is not set. HELM has no vault to read or write. Set " +
@@ -127,30 +129,33 @@ const NOTIFY_CONFIG = loadNotifyConfig(env);
 
 function writeHeartbeat() {
   try {
-    writeFileSync(
-      STATUS_FILE,
-      JSON.stringify(
-        {
-          ts: new Date().toISOString(),
-          pid: process.pid,
-          version: "1.0.1",
-          busy: active > 0,
-          active,
-          max_concurrent: MAX_CONCURRENT,
-          pending: pending.length,
-          in_flight: [...inFlight],
-        },
-        null,
-        2
-      ) + "\n"
-    );
+    writeJson(STATUS_FILE, {
+      ts: new Date().toISOString(),
+      pid: process.pid,
+      version: "1.0.1",
+      busy: active > 0,
+      active,
+      max_concurrent: MAX_CONCURRENT,
+      pending: pending.length,
+      in_flight: [...inFlight],
+    });
   } catch {
     /* ignore */
   }
 }
 
+// ponytail: single .1 rollover at 5 MB, no numbered archive chain
+const LOG_MAX_BYTES = 5 * 1024 * 1024;
+
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}\n`;
+  try {
+    if (existsSync(RUNNER_LOG) && statSync(RUNNER_LOG).size > LOG_MAX_BYTES) {
+      renameSync(RUNNER_LOG, `${RUNNER_LOG}.1`);
+    }
+  } catch {
+    /* ignore */
+  }
   try {
     appendFileSync(RUNNER_LOG, line, "utf8");
   } catch {
@@ -169,11 +174,15 @@ function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-function writeJson(path, obj) {
-  writeFileSync(path, JSON.stringify(obj, null, 2) + "\n", "utf8");
+// Write-to-temp-then-rename: rename is atomic on APFS, so the HUD (and the
+// Syncthing replica) can never read a half-written state file.
+export function writeJson(path, obj) {
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, JSON.stringify(obj, null, 2) + "\n", "utf8");
+  renameSync(tmp, path);
 }
 
-function slugify(s, max = 48) {
+export function slugify(s, max = 48) {
   return (s || "")
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, "")
@@ -182,7 +191,7 @@ function slugify(s, max = 48) {
     .slice(0, max) || "untitled";
 }
 
-function todayDate() {
+export function todayDate() {
   // Local (HUD_TZ) YYYY-MM-DD. toISOString() returns UTC, which flips to
   // tomorrow's date in the evening for western timezones — wrong for "today".
   return new Intl.DateTimeFormat("en-CA", { timeZone: HUD_TZ }).format(new Date());
@@ -244,7 +253,7 @@ export function buildPrompt(intent, deliverable) {
 
   switch (skill) {
     case "plan-today":
-      return `${AUTONOMOUS_PREFIX}\n\nTask: plan today's daily note at exactly ${deliverable}.\n\nSteps:\n1. Read the last 3 daily notes under daily-notes/ for incomplete Top 3 priorities and reflections (carryover candidates).\n2. If a Google Calendar MCP connector is available, pull today's events (timeZone=${HUD_TZ}, sorted by start time). If not, skip the schedule.\n3. Scan projects/*.md (if the folder exists) for active or due items.\n4. Pick the 3 highest-leverage priorities: carryover from yesterday beats new, due-today beats someday.\n5. Write the daily note following the schema at system/schemas/daily-note.md — exact section order. If the note already exists, MERGE: fill only empty Top 3 slots and replace ## Schedule; never overwrite user-set text.\n\nEnd your reply with: SAVED ${deliverable}`;
+      return `${AUTONOMOUS_PREFIX}\n\nTask: plan today's daily note at exactly ${deliverable}.\n\nSteps:\n1. Read the last 3 daily notes under daily-notes/ for incomplete Top 3 priorities and reflections (carryover candidates).\n2. If a Google Calendar MCP connector is available, pull today's events (timeZone=${HUD_TZ}, sorted by start time). If not, skip the schedule.\n3. Scan Atlas/Projects/*.md (if the folder exists) for active or due items.\n4. Pick the 3 highest-leverage priorities: carryover from yesterday beats new, due-today beats someday.\n5. Write the daily note following the schema at system/schemas/daily-note.md — exact section order. If the note already exists, MERGE: fill only empty Top 3 slots and replace ## Schedule; never overwrite user-set text.\n\nEnd your reply with: SAVED ${deliverable}`;
     case "plan-tomorrow":
       return `${AUTONOMOUS_PREFIX}\n\nTask: draft tomorrow's daily note at exactly ${deliverable}.\n\nSteps:\n1. Read today's daily note for unfinished Top 3 priorities (carryover).\n2. If a Google Calendar MCP connector is available, pull tomorrow's events (timeZone=${HUD_TZ}).\n3. Suggest 3 priorities for tomorrow.\n4. Write the note following the schema at system/schemas/daily-note.md.\n\nEnd your reply with: SAVED ${deliverable}`;
     case "morning-report":
@@ -293,9 +302,20 @@ const inFlight = new Set(); // intent.skill values currently running
 const pending = []; // queue filenames awaiting a slot
 const processing = new Set(); // queue filenames currently being processed
 
+// Intent files are always named `${crypto.randomUUID()}.json` (lib/skills.ts
+// writeIntent, scripts/queue-intent.mjs). Anchoring the scan to that shape
+// keeps Syncthing conflict copies (`<uuid>.sync-conflict-…json` — still ends
+// in .json!) from re-executing a side-effectful skill as a fresh intent.
+const UUID_JSON_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/i;
+
+export function isIntentFile(name) {
+  return UUID_JSON_RE.test(String(name || ""));
+}
+
 function enqueueNew() {
   if (!existsSync(QUEUE_DIR)) return;
-  const files = readdirSync(QUEUE_DIR).filter((f) => f.endsWith(".json"));
+  const files = readdirSync(QUEUE_DIR).filter(isIntentFile);
   for (const f of files) {
     // processing guard — the queue file stays on disk until processOne
     // unlinks it at the end of the run; without this every poll re-adds
@@ -313,21 +333,138 @@ function peekSkill(fileName) {
   }
 }
 
-function pickNext() {
-  const serialBusy = [...inFlight].some((s) => SERIAL_SKILLS.has(s));
-  for (let i = 0; i < pending.length; i++) {
-    const skill = peekSkill(pending[i]);
-    if (!skill) continue; // unreadable yet (write race) — try later
-    if (DEDUPE_SKILLS.has(skill) && inFlight.has(skill)) continue;
+// A file can be unreadable because its write hasn't flushed yet (tolerate) or
+// because it's permanently poison — torn JSON, missing `skill` (dead-letter).
+// After POISON_SKIPS ticks we hand it to processOne anyway, whose bad-json /
+// unknown-skill paths write an error run record and unlink it.
+const POISON_SKIPS = 10;
+const skipCounts = new Map();
+
+export function pickNext(pend = pending, flight = inFlight) {
+  const serialBusy = [...flight].some((s) => SERIAL_SKILLS.has(s));
+  for (let i = 0; i < pend.length; i++) {
+    const skill = peekSkill(pend[i]);
+    if (!skill) {
+      const n = (skipCounts.get(pend[i]) || 0) + 1;
+      skipCounts.set(pend[i], n);
+      if (n <= POISON_SKIPS) continue; // unreadable yet (write race) — try later
+      skipCounts.delete(pend[i]);
+      return i; // poison — let processOne dead-letter it
+    }
+    skipCounts.delete(pend[i]);
+    if (DEDUPE_SKILLS.has(skill) && flight.has(skill)) continue;
     if (SERIAL_SKILLS.has(skill) && serialBusy) continue;
     return i;
   }
   return -1;
 }
 
+// The spoken summary comes from stdout ONLY — stderr diagnostics (node
+// warnings, MCP noise) must never end up in the TTS line.
+export function summaryFromOutput(stdoutText) {
+  const lines = String(stdoutText || "").trim().split(/\r?\n/);
+  return (
+    lines.find((l) => l.trim().length > 0 && !/^warning:/i.test(l)) ||
+    lines.find((l) => l.trim().length > 0) ||
+    "(no output)"
+  );
+}
+
+// Exit code 0 alone doesn't make a run "ok" — the promised deliverable has to
+// actually be on disk, or the success banner points at a 404.
+export function runOutcome(code, deliverable) {
+  if (code === 0 && deliverable && !existsSync(join(VAULT_ROOT, deliverable))) {
+    return { status: "error", missing: true };
+  }
+  return { status: code === 0 ? "ok" : "error", missing: false };
+}
+
+// Rewrite the run .md's `status: running` frontmatter on completion so the
+// note is a self-consistent record (Dataview etc. read frontmatter, not the
+// footer). Non-global /m replace → only the first (frontmatter) occurrence.
+export function finalizeRunMd(md, status, tsCompleted) {
+  return String(md).replace(
+    /^status: running$/m,
+    `status: ${status}\nts_completed: ${tsCompleted}`
+  );
+}
+
+// Kill the child's whole process group (spawned detached → it leads one), so
+// grandchildren (MCP servers, shell tools) die too and can't hold the stdio
+// pipes open or keep mutating the vault after a timeout.
+function killTree(proc, signal) {
+  try {
+    process.kill(-proc.pid, signal);
+  } catch {
+    try {
+      proc.kill(signal);
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
+// Retire a claimed queue file into an error run record — used by the boot
+// sweep (runner died mid-run) and by loop() when processOne itself crashes.
+export function retireClaim(fileName, summary) {
+  const p = join(QUEUE_DIR, `${fileName}.claimed`);
+  if (!existsSync(p)) return;
+  let intent = null;
+  try {
+    intent = readJson(p);
+  } catch {
+    /* unreadable — retire it anyway */
+  }
+  const runId = intent?.id || basename(fileName, ".json");
+  const ts = new Date().toISOString();
+  try {
+    writeJson(join(RUNS_DIR, `${runId}.json`), {
+      id: runId,
+      skill: intent?.skill || "(unknown)",
+      args: intent?.args || {},
+      ts_queued: intent?.ts || ts,
+      ts_started: ts,
+      ts_completed: ts,
+      status: "error",
+      exit_code: -4,
+      summary: summary.slice(0, 200),
+      md_path: `system/runs/${runId}.md`,
+      log_path: `system/runs/${runId}.md`,
+      deliverable_path: null,
+    });
+  } catch {
+    /* ignore — the unlink below still stops the replay */
+  }
+  try {
+    unlinkSync(p);
+  } catch {
+    /* ignore */
+  }
+  log(`${runId}: retired claimed intent — ${summary}`);
+}
+
+// On boot, sweep claims left by a runner that died mid-run. Re-running them
+// would duplicate external side effects (Notion rows, Gmail drafts), so they
+// become visible error records instead.
+function sweepOrphanedClaims() {
+  if (!existsSync(QUEUE_DIR)) return;
+  for (const f of readdirSync(QUEUE_DIR)) {
+    if (!f.endsWith(".json.claimed")) continue;
+    retireClaim(f.slice(0, -".claimed".length), "orphaned by a runner restart mid-run — re-queue manually if still wanted");
+  }
+}
+
 async function processOne(fileName) {
   const queuePath = join(QUEUE_DIR, fileName);
-  if (!existsSync(queuePath)) return;
+  // Claim on disk FIRST — rename is atomic, so a crash or `launchctl
+  // kickstart -k` mid-run leaves a .claimed file the boot sweep retires,
+  // never a live intent that silently re-executes its side effects.
+  const claimedPath = `${queuePath}.claimed`;
+  try {
+    renameSync(queuePath, claimedPath);
+  } catch {
+    return; // vanished or already claimed — nothing to do
+  }
 
   let intent;
   let lastErr = null;
@@ -335,7 +472,7 @@ async function processOne(fileName) {
   // hasn't flushed content yet.
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      intent = readJson(queuePath);
+      intent = readJson(claimedPath);
       lastErr = null;
       break;
     } catch (e) {
@@ -362,7 +499,7 @@ async function processOne(fileName) {
     });
     log(`${runId}: bad json — wrote error run record: ${lastErr?.message}`);
     try {
-      unlinkSync(queuePath);
+      unlinkSync(claimedPath);
     } catch {
       /* ignore */
     }
@@ -371,9 +508,26 @@ async function processOne(fileName) {
 
   const runId = intent.id || basename(fileName, ".json");
 
+  // Second layer against replayed intents (conflict copies share the same
+  // intent.id): an id that already completed must never run again.
+  try {
+    const prior = readJson(join(RUNS_DIR, `${runId}.json`));
+    if (prior && prior.ts_completed) {
+      log(`${runId}: already completed ${prior.ts_completed} — dropping duplicate queue file`);
+      try {
+        unlinkSync(claimedPath);
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+  } catch {
+    /* no prior record — proceed */
+  }
+
   // Native skills (Morphy ↔ Notion) run in-process via REST — no `claude -p`.
   if (NATIVE_SKILLS.has(intent.skill)) {
-    await processNative({ ...intent, id: runId }, runId, queuePath);
+    await processNative({ ...intent, id: runId }, runId, claimedPath);
     return;
   }
 
@@ -406,7 +560,7 @@ async function processOne(fileName) {
     status.ts_completed = new Date().toISOString();
     writeJson(runJsonPath, status);
     try {
-      unlinkSync(queuePath);
+      unlinkSync(claimedPath);
     } catch {
       /* ignore */
     }
@@ -442,7 +596,7 @@ args: ${argsJson}
     "utf8"
   );
 
-  const out = [];
+  const out = []; // stdout only — the spoken summary is derived from this
   await new Promise((resolve) => {
     // --dangerously-skip-permissions: headless `claude -p` runs non-interactive,
     // so the default permission mode DENIES file writes (the deliverable never
@@ -459,6 +613,7 @@ args: ${argsJson}
         windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
         cwd: VAULT_ROOT,
+        detached: !IS_WINDOWS, // own process group → killTree reaches grandchildren
       }
     );
 
@@ -470,8 +625,9 @@ args: ${argsJson}
         /* ignore */
       }
     });
+    // stderr still lands in the run .md, but stays out of `out` so CLI
+    // diagnostics can never become the spoken summary.
     proc.stderr.on("data", (chunk) => {
-      out.push(chunk.toString());
       try {
         appendFileSync(runMdPath, chunk);
       } catch {
@@ -480,60 +636,81 @@ args: ${argsJson}
     });
 
     const HARD_TIMEOUT_MIN = LONG_SKILLS.has(intent.skill) ? 20 : 10;
+    let drainTimer = null;
     const timer = setTimeout(() => {
-      try {
-        proc.kill();
-      } catch {
-        /* ignore */
-      }
       out.push(`\n[runner: hard timeout ${HARD_TIMEOUT_MIN}m — killed]\n`);
+      killTree(proc, "SIGTERM");
+      // ponytail: fixed 10 s grace, then SIGKILL — no configurable escalation.
+      // Never cancelled: SIGTERM-ignoring grandchildren must die even if the
+      // run settles first (killTree on a dead group is a no-op).
+      setTimeout(() => killTree(proc, "SIGKILL"), 10_000);
     }, 1000 * 60 * HARD_TIMEOUT_MIN);
 
-    proc.on("close", (code) => {
+    // Everything below MUST settle the promise exactly once, whatever throws —
+    // an unsettled promise here permanently leaks a concurrency slot and (for
+    // DEDUPE skills) blocks that skill until a manual restart.
+    let settled = false;
+    const finalize = (code, spawnErrMsg) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      const tsCompleted = new Date().toISOString();
-      const joined = out.join("").trim();
-      const lines = joined.split(/\r?\n/);
-      const firstLine =
-        lines.find(
-          (l) =>
-            l.trim().length > 0 &&
-            !l.startsWith("Warning:") &&
-            !l.startsWith("warning:")
-        ) ||
-        lines.find((l) => l.trim().length > 0) ||
-        "(no output)";
-      status.status = code === 0 ? "ok" : "error";
-      status.exit_code = code ?? -1;
-      status.ts_completed = tsCompleted;
-      status.summary = firstLine.slice(0, 200);
-      writeJson(runJsonPath, status);
+      clearTimeout(drainTimer);
       try {
-        appendFileSync(
-          runMdPath,
-          `\n\`\`\`\n\n---\n*exit code=${code} · status=${status.status} · completed ${tsCompleted}*\n`
-        );
-      } catch {
-        /* ignore */
+        const tsCompleted = new Date().toISOString();
+        status.exit_code = spawnErrMsg ? -2 : code ?? -1;
+        status.ts_completed = tsCompleted;
+        if (spawnErrMsg) {
+          status.status = "error";
+          status.summary = spawnErrMsg.slice(0, 200);
+        } else {
+          const outcome = runOutcome(code, deliverable);
+          status.status = outcome.status;
+          status.summary = outcome.missing
+            ? `exited ok but deliverable missing: ${deliverable}`.slice(0, 200)
+            : summaryFromOutput(out.join("")).slice(0, 200);
+        }
+        try {
+          writeJson(runJsonPath, status);
+        } catch (e) {
+          log(`${runId}: run record write failed: ${e.message}`);
+        }
+        try {
+          const md = readFileSync(runMdPath, "utf8");
+          writeFileSync(
+            runMdPath,
+            finalizeRunMd(md, status.status, tsCompleted) +
+              `\n\`\`\`\n\n---\n*exit code=${code ?? "none"} · status=${status.status} · completed ${tsCompleted}*\n`,
+            "utf8"
+          );
+        } catch {
+          /* ignore */
+        }
+        log(`${runId}: completed exit=${code} status=${status.status}`);
+      } catch (e) {
+        try {
+          log(`${runId}: finalize failed: ${e.message}`);
+        } catch {
+          /* ignore */
+        }
+      } finally {
+        resolve();
       }
-      log(`${runId}: completed exit=${code} status=${status.status}`);
-      resolve();
-    });
+    };
 
+    proc.on("close", (code) => finalize(code));
+    // 'close' waits for the stdio pipes to drain — a grandchild that inherited
+    // them can hold it open after the child died. 'exit' + a short drain
+    // window guarantees the run settles either way.
+    proc.on("exit", (code) => {
+      drainTimer = setTimeout(() => finalize(code), 5000);
+    });
     proc.on("error", (err) => {
-      clearTimeout(timer);
-      status.status = "error";
-      status.exit_code = -2;
-      status.ts_completed = new Date().toISOString();
-      status.summary = `spawn error: ${err.message}`.slice(0, 200);
-      writeJson(runJsonPath, status);
       try {
-        appendFileSync(runMdPath, `\n\`\`\`\n\n[runner spawn error] ${err.message}\n`);
+        appendFileSync(runMdPath, `\n[runner spawn error] ${err.message}\n`);
       } catch {
         /* ignore */
       }
-      log(`${runId}: spawn error ${err.message}`);
-      resolve();
+      finalize(null, `spawn error: ${err.message}`);
     });
   });
 
@@ -543,12 +720,14 @@ args: ${argsJson}
     if (status.status === "ok" && deliverable) {
       notify(
         { type: "run-complete", skill: intent.skill, summary: status.summary, deliverable },
-        NOTIFY_CONFIG
+        NOTIFY_CONFIG,
+        log
       );
     } else if (status.status === "error") {
       notify(
         { type: "run-failed", skill: intent.skill, summary: status.summary },
-        NOTIFY_CONFIG
+        NOTIFY_CONFIG,
+        log
       );
     }
   } catch (e) {
@@ -556,7 +735,7 @@ args: ${argsJson}
   }
 
   try {
-    unlinkSync(queuePath);
+    unlinkSync(claimedPath);
   } catch {
     /* ignore */
   }
@@ -575,7 +754,7 @@ const STATUS_KEYS = {
   done: "done",
 };
 
-function morphyCounts(tasks) {
+export function morphyCounts(tasks) {
   const counts = { idea: 0, todo: 0, in_progress: 0, blocked: 0, done: 0 };
   const open_by_assignee = { Daniel: 0, Michael: 0, Both: 0, Unassigned: 0 };
   for (const t of tasks) {
@@ -592,7 +771,7 @@ function morphyCounts(tasks) {
   return { counts, open_by_assignee, open_total, ideas_awaiting: counts.idea };
 }
 
-function morphySnapshotMd(tasks, ts) {
+export function morphySnapshotMd(tasks, ts) {
   const order = ["Todo", "In progress", "Blocked", "Idea", "Done"];
   const byStatus = {};
   for (const t of tasks) (byStatus[t.status] ||= []).push(t);
@@ -711,7 +890,7 @@ async function morphySync(reason = "scheduled") {
   // user-initiated syncs (after-add / on-demand), where Daniel made the change.
   if (reason === "scheduled" && (delta.added.length || delta.closed.length)) {
     try {
-      notify({ type: "morphy-delta", added: delta.added, closed: delta.closed }, NOTIFY_CONFIG);
+      notify({ type: "morphy-delta", added: delta.added, closed: delta.closed }, NOTIFY_CONFIG, log);
     } catch (e) {
       log(`morphy-sync notify failed: ${e.message}`);
     }
@@ -768,7 +947,13 @@ async function agendaSync(reason = "scheduled") {
       proc = spawn(
         CLAUDE_BIN,
         ["-p", prompt, "--model", CLAUDE_MODEL, "--dangerously-skip-permissions"],
-        { shell: false, windowsHide: true, stdio: ["ignore", "ignore", "pipe"], cwd: VAULT_ROOT }
+        {
+          shell: false,
+          windowsHide: true,
+          stdio: ["ignore", "ignore", "pipe"],
+          cwd: VAULT_ROOT,
+          detached: !IS_WINDOWS,
+        }
       );
     } catch (e) {
       log(`agenda-sync spawn failed: ${e.message}`);
@@ -776,11 +961,8 @@ async function agendaSync(reason = "scheduled") {
       return;
     }
     const timer = setTimeout(() => {
-      try {
-        proc.kill();
-      } catch {
-        /* ignore */
-      }
+      killTree(proc, "SIGTERM");
+      setTimeout(() => killTree(proc, "SIGKILL"), 10_000).unref?.();
       finish(-2);
     }, AGENDA_SYNC_TIMEOUT_MS);
     let err = "";
@@ -868,10 +1050,12 @@ async function processNative(intent, runId, queuePath) {
         priority: a.priority || "Med",
         notes: a.notes,
       });
+      // createTask succeeded → the task EXISTS on the board. A flaky after-add
+      // cache refresh must not report failure (it invites a duplicate retry on
+      // the shared board); the 30-min scheduled sync catches the cache up.
       const st = await morphySync("after-add");
-      ok = st.ok !== false;
       const who = a.assignee && a.assignee !== "Unassigned" ? ` (${a.assignee})` : "";
-      summary = `Added Morphy task: ${title}${who}.`;
+      summary = `Added Morphy task: ${title}${who}.${st.ok === false ? " Board cache refresh pending." : ""}`;
     } else {
       // morphy-sync
       const st = await morphySync("on-demand");
@@ -912,27 +1096,38 @@ async function processNative(intent, runId, queuePath) {
 
 async function loop() {
   while (true) {
-    enqueueNew();
-    // Greedy fill — grab runnable intents until the concurrency cap.
-    let progress = true;
-    while (progress && active < MAX_CONCURRENT && pending.length > 0) {
-      const idx = pickNext();
-      if (idx < 0) {
-        progress = false;
-        break;
+    // One transient FS error must cost one tick, not the scheduler — an
+    // uncaught throw here rejects loop()'s promise and kills intent
+    // processing forever while the heartbeat keeps reporting healthy.
+    try {
+      enqueueNew();
+      // Greedy fill — grab runnable intents until the concurrency cap.
+      let progress = true;
+      while (progress && active < MAX_CONCURRENT && pending.length > 0) {
+        const idx = pickNext();
+        if (idx < 0) {
+          progress = false;
+          break;
+        }
+        const next = pending.splice(idx, 1)[0];
+        const skill = peekSkill(next);
+        active++;
+        if (skill) inFlight.add(skill);
+        processing.add(next);
+        processOne(next)
+          .catch((e) => {
+            log(`processOne crashed: ${e.message}`);
+            // the claim would otherwise sit until the next boot sweep
+            retireClaim(next, `processOne crashed: ${e.message}`);
+          })
+          .finally(() => {
+            active--;
+            if (skill) inFlight.delete(skill);
+            processing.delete(next);
+          });
       }
-      const next = pending.splice(idx, 1)[0];
-      const skill = peekSkill(next);
-      active++;
-      if (skill) inFlight.add(skill);
-      processing.add(next);
-      processOne(next)
-        .catch((e) => log(`processOne crashed: ${e.message}`))
-        .finally(() => {
-          active--;
-          if (skill) inFlight.delete(skill);
-          processing.delete(next);
-        });
+    } catch (e) {
+      log(`loop tick failed: ${e.message} — retrying next tick`);
     }
     await new Promise((r) => setTimeout(r, 1500));
   }
@@ -942,7 +1137,7 @@ async function watchLoop() {
   try {
     const watcher = watch(QUEUE_DIR, { persistent: true });
     for await (const ev of watcher) {
-      if (ev.filename && ev.filename.endsWith(".json")) {
+      if (ev.filename && isIntentFile(ev.filename)) {
         enqueueNew();
       }
     }
@@ -967,6 +1162,21 @@ function pidAlive(pid) {
   }
 }
 
+// A recycled pid (stale pidfile surviving power loss + reboot) can pass the
+// bare liveness probe while belonging to some unrelated login process — which
+// would make every launchd respawn defer and exit, forever. Only defer to a
+// process that actually looks like a runner.
+export function pidLooksLikeRunner(pid) {
+  try {
+    const cmd = execFileSync("ps", ["-o", "command=", "-p", String(pid)], {
+      encoding: "utf8",
+    });
+    return cmd.includes("runner.js");
+  } catch {
+    return false; // ps failed or no such process — treat the pidfile as stale
+  }
+}
+
 // Boot the daemon. Pulled into a function and gated behind the entrypoint check
 // below so the module can be IMPORTED (by the skill-contract test) without
 // acquiring the lock, writing the heartbeat, or starting any loops/spawns.
@@ -974,7 +1184,12 @@ function main() {
   if (existsSync(PIDFILE)) {
     try {
       const otherPid = parseInt(readFileSync(PIDFILE, "utf8").trim(), 10);
-      if (Number.isInteger(otherPid) && otherPid !== process.pid && pidAlive(otherPid)) {
+      if (
+        Number.isInteger(otherPid) &&
+        otherPid !== process.pid &&
+        pidAlive(otherPid) &&
+        pidLooksLikeRunner(otherPid)
+      ) {
         log(`another runner alive at pid ${otherPid} — exiting this one (pid ${process.pid})`);
         process.exit(0);
       }
@@ -991,8 +1206,14 @@ function main() {
       /* ignore */
     }
   });
+  // SIGTERM/SIGINT don't run 'exit' handlers by default — exit explicitly so
+  // the pidfile cleanup above fires on launchd stop / Ctrl-C too.
+  for (const sig of ["SIGTERM", "SIGINT"]) {
+    process.on(sig, () => process.exit(0));
+  }
 
   ensureDirs();
+  sweepOrphanedClaims();
   log(
     `runner booted (pid ${process.pid}) vault=${VAULT_ROOT} model=${CLAUDE_MODEL} ` +
       `notify=${NOTIFY_CONFIG.enabled ? [...NOTIFY_CONFIG.types].join("+") || "none" : "off"}`
@@ -1012,7 +1233,13 @@ function main() {
     AGENDA_SYNC_INTERVAL_MS
   );
   watchLoop();
-  loop();
+  // The tick body is try/caught, so this catch is the last-resort backstop:
+  // if the scheduler still dies, exit non-zero and let launchd (KeepAlive)
+  // relaunch a working runner instead of leaving a heartbeat-only zombie.
+  loop().catch((e) => {
+    log(`scheduler loop crashed: ${e.stack || e.message} — exiting for launchd restart`);
+    process.exit(1);
+  });
 }
 
 // Only boot when run directly (`node runner/runner.js`), never when imported.

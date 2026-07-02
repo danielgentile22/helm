@@ -1,0 +1,219 @@
+// Runner reliability sweep — regression tests for the issue-#37 fixes, driving
+// the pure/exported pieces of runner/runner.js against a throwaway vault. No
+// claude spawns, no real queue writes, no API spend.
+//
+// Covered fixes: Syncthing conflict-copy filter (isIntentFile), poison-entry
+// aging (pickNext), stdout-only spoken summary (summaryFromOutput), deliverable
+// verification (runOutcome), run-note frontmatter finalization (finalizeRunMd),
+// atomic state writes (writeJson), claim retirement on crash/restart
+// (retireClaim), recycled-pid pidfile check (pidLooksLikeRunner), and the
+// plan-today prompt path (Atlas/Projects).
+//
+// Run: npx -y tsx scripts/test-runner.ts
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+
+// runner.js resolves VAULT_ROOT at module load — point it at a throwaway vault
+// BEFORE the dynamic import so fixtures land in temp, never the real vault.
+const VAULT = join(tmpdir(), `helm-test-runner-${process.pid}`);
+process.env.VAULT_ROOT = VAULT;
+const QUEUE = join(VAULT, "system", "queue");
+const RUNS = join(VAULT, "system", "runs");
+mkdirSync(QUEUE, { recursive: true });
+mkdirSync(RUNS, { recursive: true });
+
+let failed = 0;
+const pass = (msg: string) => console.log(`PASS  ${msg}`);
+const fail = (msg: string) => {
+  failed++;
+  console.log(`FAIL  ${msg}`);
+};
+const check = (cond: unknown, msg: string) => (cond ? pass(msg) : fail(msg));
+
+async function run(): Promise<void> {
+  const {
+    isIntentFile,
+    pickNext,
+    summaryFromOutput,
+    runOutcome,
+    finalizeRunMd,
+    writeJson,
+    retireClaim,
+    pidLooksLikeRunner,
+    morphyCounts,
+    morphySnapshotMd,
+    slugify,
+    todayDate,
+    buildPrompt,
+  } = await import("../runner/runner.js");
+
+  // --- isIntentFile: conflict copies and strays never enter the queue --------
+  const uuid = randomUUID();
+  check(isIntentFile(`${uuid}.json`), "a UUID-named intent file is accepted");
+  check(isIntentFile(`${uuid.toUpperCase()}.json`), "UUID match is case-insensitive");
+  check(
+    !isIntentFile(`${uuid}.sync-conflict-20260701-063012-ABCDEF7.json`),
+    "a Syncthing conflict copy is rejected (would re-run a side-effectful skill)"
+  );
+  check(!isIntentFile("notes.json"), "a non-UUID .json is rejected");
+  check(!isIntentFile(`${uuid}.json.claimed`), "a claimed file is not re-enqueued");
+  check(!isIntentFile(""), "empty name is rejected");
+
+  // --- summaryFromOutput: spoken line comes from clean stdout ----------------
+  check(
+    summaryFromOutput("Warning: cli update available\nYour report is ready.") ===
+      "Your report is ready.",
+    "warning lines are skipped for the spoken summary"
+  );
+  check(
+    summaryFromOutput("\n\n  \nAll done.") === "All done.",
+    "leading blank lines are skipped"
+  );
+  check(summaryFromOutput("") === "(no output)", "empty output falls back to a placeholder");
+  check(
+    summaryFromOutput("Warning: only warnings here") === "Warning: only warnings here",
+    "all-warning output still yields a line rather than nothing"
+  );
+
+  // --- runOutcome: exit 0 alone is not success --------------------------------
+  check(
+    runOutcome(0, "not-written.md").status === "error" && runOutcome(0, "not-written.md").missing,
+    "exit 0 with a missing deliverable is an error (no phantom success banner)"
+  );
+  writeFileSync(join(VAULT, "present.md"), "hi", "utf8");
+  check(runOutcome(0, "present.md").status === "ok", "exit 0 with the deliverable on disk is ok");
+  check(runOutcome(1, "present.md").status === "error", "non-zero exit is an error");
+  check(runOutcome(0, null).status === "ok", "exit 0 with no deliverable expected is ok");
+
+  // --- finalizeRunMd: frontmatter status is finalized, body untouched ---------
+  const md =
+    "---\nrun_id: x\nskill: plan-today\nstatus: running\nts_started: T0\n---\n\n" +
+    "# run\n\n```\necho status: running\n```\n";
+  const finalized = finalizeRunMd(md, "ok", "T1");
+  check(
+    finalized.includes("status: ok\nts_completed: T1"),
+    "frontmatter status: running is rewritten with the final status + ts_completed"
+  );
+  check(
+    finalized.includes("echo status: running"),
+    "only the frontmatter is rewritten — body occurrences stay"
+  );
+
+  // --- writeJson: atomic tmp+rename, no torn reads ----------------------------
+  const stateFile = join(VAULT, "state.json");
+  writeJson(stateFile, { ok: true, n: 1 });
+  check(
+    JSON.parse(readFileSync(stateFile, "utf8")).n === 1,
+    "writeJson output parses back"
+  );
+  check(!existsSync(`${stateFile}.tmp`), "writeJson leaves no .tmp behind");
+
+  // --- pickNext: ordering, gating, poison aging -------------------------------
+  const f1 = `${randomUUID()}.json`;
+  writeFileSync(join(QUEUE, f1), JSON.stringify({ id: "a", skill: "voice-ask", args: { prompt: "hi" } }), "utf8");
+  check(pickNext([f1], new Set()) === 0, "a readable runnable intent is picked");
+
+  const f2 = `${randomUUID()}.json`;
+  writeFileSync(join(QUEUE, f2), JSON.stringify({ skill: "morning-report" }), "utf8");
+  check(
+    pickNext([f2], new Set(["morning-report"])) === -1,
+    "a DEDUPE skill already in flight is not picked"
+  );
+
+  const f3 = `${randomUUID()}.json`;
+  writeFileSync(join(QUEUE, f3), JSON.stringify({ skill: "plan-today" }), "utf8");
+  check(
+    pickNext([f3], new Set(["plan-tomorrow"])) === -1,
+    "a SERIAL skill waits while another serial skill runs"
+  );
+
+  const poison = `${randomUUID()}.json`;
+  writeFileSync(join(QUEUE, poison), "{ torn json", "utf8");
+  let early = true;
+  for (let i = 0; i < 10; i++) early = early && pickNext([poison], new Set()) === -1;
+  check(early, "an unreadable file is tolerated for the first 10 ticks (write race)");
+  check(
+    pickNext([poison], new Set()) === 0,
+    "after 10 skips a poison file is handed to processOne for dead-lettering"
+  );
+
+  // --- retireClaim: a claimed intent becomes an error run record --------------
+  const claimId = randomUUID();
+  writeFileSync(
+    join(QUEUE, `${claimId}.json.claimed`),
+    JSON.stringify({ id: claimId, skill: "voice-ask", ts: "T0", args: {} }),
+    "utf8"
+  );
+  retireClaim(`${claimId}.json`, "test retire");
+  const record = JSON.parse(readFileSync(join(RUNS, `${claimId}.json`), "utf8"));
+  check(
+    record.status === "error" && record.exit_code === -4 && record.ts_completed,
+    "retireClaim writes a completed error run record"
+  );
+  check(
+    !existsSync(join(QUEUE, `${claimId}.json.claimed`)),
+    "retireClaim removes the claim file (no replay on the next boot)"
+  );
+
+  // --- pidLooksLikeRunner: a recycled pid no longer blocks boot ---------------
+  check(
+    pidLooksLikeRunner(process.pid) === false,
+    "a live process that is not runner.js does not pass the pidfile check"
+  );
+
+  // --- plan-today prompt scans the real project-notes folder ------------------
+  const prompt = buildPrompt({ id: "x", skill: "plan-today", args: {} }, "daily-notes/x.md");
+  check(
+    prompt !== null && prompt.includes("Atlas/Projects/*.md"),
+    "plan-today scans Atlas/Projects/*.md (where the project notes actually live)"
+  );
+  check(
+    prompt !== null && !prompt.includes("Scan projects/*.md"),
+    "plan-today no longer scans the nonexistent top-level projects/ folder"
+  );
+
+  // --- morphyCounts / morphySnapshotMd ----------------------------------------
+  const tasks = [
+    { id: "1", name: "Site survey", status: "Todo", assignee: "Daniel", addedBy: "HELM", priority: "High" },
+    { id: "2", name: "Lease draft", status: "In progress", assignee: "Michael", addedBy: "Michael", priority: "Med" },
+    { id: "3", name: "New antenna idea", status: "Idea", assignee: "Daniel", addedBy: "Daniel", priority: "Low" },
+    { id: "4", name: "Kickoff", status: "Done", assignee: "Daniel", addedBy: "Daniel", priority: "Med" },
+    { id: "5", name: "Mystery", status: "Weird", assignee: "Nobody", addedBy: "Daniel", priority: "Med" },
+  ];
+  const m = morphyCounts(tasks);
+  check(
+    m.counts.todo === 2 && m.counts.in_progress === 1 && m.counts.idea === 1 && m.counts.done === 1,
+    "morphyCounts buckets statuses (unknown status falls back to todo)"
+  );
+  check(m.open_total === 3, "open_total excludes ideas and done");
+  check(m.ideas_awaiting === 1, "ideas_awaiting counts ideas");
+  check(
+    m.open_by_assignee.Daniel === 2 && m.open_by_assignee.Michael === 1 && m.open_by_assignee.Unassigned === 1,
+    "open_by_assignee buckets by assignee (unknown names → Unassigned)"
+  );
+
+  const snap = morphySnapshotMd(tasks, "T0");
+  check(
+    snap.includes("## Todo (") && snap.includes("Site survey") && snap.includes("_(HELM)_"),
+    "morphySnapshotMd renders sections, task names and the HELM marker"
+  );
+
+  // --- slugify / todayDate ------------------------------------------------------
+  check(slugify("Hello, World!") === "hello-world", "slugify lowercases and dashes");
+  check(slugify("") === "untitled", "slugify falls back to untitled");
+  check(slugify("x".repeat(100)).length <= 48, "slugify caps length");
+  check(/^\d{4}-\d{2}-\d{2}$/.test(todayDate()), "todayDate is a local YYYY-MM-DD");
+
+  rmSync(VAULT, { recursive: true, force: true });
+  console.log(
+    failed === 0 ? `\nAll runner reliability checks pass.` : `\n${failed} runner check(s) failed.`
+  );
+  process.exit(failed ? 1 : 0);
+}
+
+run().catch((e) => {
+  console.error(`test-runner crashed: ${e?.stack || e}`);
+  process.exit(1);
+});
