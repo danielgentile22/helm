@@ -276,7 +276,10 @@ function askLabel(args: unknown): string | null {
 // strings, and runs process untrusted content (emails, web) — so resolve
 // FIRST, then check the RESOLVED path against the resolved allowlist dirs.
 // Checking the raw string's prefix let `inbox/../anywhere.md` through.
-const READABLE_PREFIXES = ["inbox/", "system/runs/"];
+// Atlas/ added for the tab note panels (issue #43) — curated notes, same
+// read-only .md-under-the-vault exposure as the report dirs; daily-notes/ and
+// the rest of the vault stay out.
+const READABLE_PREFIXES = ["inbox/", "system/runs/", "Atlas/"];
 
 export function resolveReadable(rel: string): string | null {
   const clean = rel.replace(/\\/g, "/");
