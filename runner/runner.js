@@ -16,6 +16,7 @@
  */
 
 import { spawn, execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -292,7 +293,7 @@ export function buildPrompt(intent, deliverable) {
     case "vault-cleanup":
       return `${AUTONOMOUS_PREFIX}\n\nTask: tidy the vault and report at exactly ${deliverable}.\n\nScan the vault for stale files (untouched > 7 days, outside system/ and archive/). Move them into archive/ subfolders mirroring their source folder. Write a one-page report at ${deliverable} — YAML frontmatter \`date\`, \`skill: vault-cleanup\`, \`tags: [cleanup, ops]\`; body lists what moved and what was skipped.\n\nEnd your reply with: SAVED ${deliverable}`;
     case "weekly-review":
-      return `${AUTONOMOUS_PREFIX}\n\nTask: produce Daniel's weekly review — a Sunday synthesis of the past 7 days across his three standing directives — and save it at exactly ${deliverable}.\n\nDaniel's directives, in priority order: (1) land a software-engineering job; (2) land the first client for Morphy Consulting (RF/antenna + cell-tower lease analytics); (3) reach a 1600 USCF chess rating. Frame the whole review around these three.\n\nGather the week's evidence from the vault (all paths relative to the current directory — read what exists, skip what doesn't):\n1. Daily notes — read every daily-notes/YYYY-MM-DD.md from the last 7 days. Pull completed vs. carried-over Top 3 priorities, the focus line, and anything notable in the notes.\n2. Delivered reports — skim this week's reports under inbox/reports/ (morning/, inbox-briefs/, vault-cleanup/, and any prior weekly/) for events or items worth carrying into the synthesis.\n3. Morphy board — read system/morphy-state.json (the runner's cache of the shared Notion board): open task count, ideas awaiting review, who owns what, and the week's adds/closes from its delta. If the file is missing or its "ok" field is false, note the board isn't syncing and move on.\n4. Metric history — read system/metrics/metrics.csv (columns: timestamp,source,metric,value,status,error). For each directive's metric compute the week-over-week move (first vs. last point in the window): uscf/rating (chess), jobs/applications and jobs/applied_7d (job search), github/commits_7d + open_prs + open_issues (Morphy code), claude_code/tokens_5h (overall activity). Report start→end and the delta; say "flat" when a number didn't move.\n\nStructure the note: top-level "# Weekly Review" + "**Week of:** <Mon date>–<Sun date>", then "## At a Glance" (3-5 bullets — the week's headline across all three directives, each naming the metric that moved), then one section per directive: "## Job Search", "## Morphy Consulting", "## Chess — Road to 1600". In each: what actually happened this week (from the notes/reports), the metric trend, and a one-word verdict — advanced / held / stalled. Then "## Momentum & Metrics" (a compact markdown table: metric, start, end, delta), then "## Next Week" (3 concrete, directive-aligned priorities drawn from what's still unfinished). Be specific and grounded — cite real numbers and real task names; never invent activity that isn't in the files. If a directive had no activity this week, say so plainly rather than padding.\n\nYAML frontmatter: \`date\`, \`skill: weekly-review\`, \`tags: [weekly, review]\`.\n\nEnd your reply with: SAVED ${deliverable}`;
+      return `${AUTONOMOUS_PREFIX}\n\nTask: produce Daniel's weekly review — a Sunday synthesis of the past 7 days across his three standing directives — and save it at exactly ${deliverable}.\n\nDaniel's directives, in priority order: (1) land a software-engineering job; (2) land the first client for Morphy Consulting (RF/antenna + cell-tower lease analytics); (3) reach a 1600 USCF chess rating. Frame the whole review around these three.\n\nGather the week's evidence from the vault (all paths relative to the current directory — read what exists, skip what doesn't):\n1. Daily notes — read every daily-notes/YYYY-MM-DD.md from the last 7 days. Pull completed vs. carried-over Top 3 priorities, the focus line, and anything notable in the notes.\n2. Delivered reports — skim this week's reports under inbox/reports/ (morning/, inbox-briefs/, vault-cleanup/, and any prior weekly/) for events or items worth carrying into the synthesis.\n3. Morphy board — read system/morphy-state.json (the runner's cache of the shared Notion board): open task count, ideas awaiting review, who owns what, and the week's adds/closes from its delta. If the file is missing or its "ok" field is false, note the board isn't syncing and move on.\n4. Metric history — read system/metrics/metrics.csv (columns: timestamp,source,metric,value,status,error). For each directive's metric compute the week-over-week move (first vs. last point in the window): uscf/rating (chess), jobs/applications and jobs/applied_7d (job search), github/commits_7d + open_prs + open_issues (Morphy code), claude_code/tokens_5h (overall activity). Report start→end and the delta; say "flat" when a number didn't move.\n5. Atlas — Daniel's curated thinking, the notes he actually maintains. Skim any Atlas/Decisions/ notes dated within the week, and check the directive-relevant Areas notes for recent changes — especially "Atlas/Areas/Career - Applications & Roles.md" and "Atlas/Areas/Career - Job Search.md" (job search) and "Atlas/Areas/Chess - Tournament Log.md" (chess). What he wrote there outranks what the machine-generated files imply — cite it in the directive sections.\n\nStructure the note: top-level "# Weekly Review" + "**Week of:** <Mon date>–<Sun date>", then "## At a Glance" (3-5 bullets — the week's headline across all three directives, each naming the metric that moved), then one section per directive: "## Job Search", "## Morphy Consulting", "## Chess — Road to 1600". In each: what actually happened this week (from the notes/reports), the metric trend, and a one-word verdict — advanced / held / stalled. Then "## Momentum & Metrics" (a compact markdown table: metric, start, end, delta), then "## Next Week" (3 concrete, directive-aligned priorities drawn from what's still unfinished). Be specific and grounded — cite real numbers and real task names; never invent activity that isn't in the files. If a directive had no activity this week, say so plainly rather than padding.\n\nYAML frontmatter: \`date\`, \`skill: weekly-review\`, \`tags: [weekly, review]\`.\n\nEnd your reply with: SAVED ${deliverable}`;
     case "voice-ask": {
       const ask = (args.prompt || "").trim();
       if (!ask) return null;
@@ -325,6 +326,27 @@ const DEDUPE_SKILLS = new Set(["morning-report", "inbox-brief", "weekly-review"]
 // Long-haul skills get a 20-min hard timeout instead of 10 — web-research and
 // the week-spanning weekly synthesis routinely take longer than you'd guess.
 const LONG_SKILLS = new Set(["morning-report", "weekly-review"]);
+// Stall watchdog for LONG_SKILLS: a wedged claude -p (network/MCP hang)
+// streams NOTHING — the 2026-06-28 weekly-review burned its whole 20-min
+// timeout with an empty output block and the week's report was lost. Every
+// healthy long run on record finishes in 2-3 min, so 5 silent minutes means
+// dead, not slow. Stall-killed runs are requeued exactly once (see retryIntent).
+export const STALL_TIMEOUT_MS = 5 * 60_000;
+
+// Fresh intent for the one retry a stall-kill earns. New id (a completed run
+// record for the old id blocks replays); retry:1 in the JSON stops loops —
+// a retried intent that stalls again just fails.
+export function retryIntent(intent) {
+  if ((intent.retry || 0) >= 1) return null;
+  return {
+    id: randomUUID(),
+    skill: intent.skill,
+    args: intent.args || {},
+    ts: new Date().toISOString(),
+    source: intent.source || "runner",
+    retry: (intent.retry || 0) + 1,
+  };
+}
 
 let active = 0;
 const inFlight = new Set(); // intent.skill values currently running
@@ -626,6 +648,7 @@ args: ${argsJson}
   );
 
   const out = []; // stdout only — the spoken summary is derived from this
+  let stalled = false; // set by the stall watchdog — triggers the one retry below
   await new Promise((resolve) => {
     // --dangerously-skip-permissions: headless `claude -p` runs non-interactive,
     // so the default permission mode DENIES file writes (the deliverable never
@@ -646,7 +669,10 @@ args: ${argsJson}
       }
     );
 
+    let lastOutput = Date.now(); // either pipe counts — stderr chatter still means alive
+
     proc.stdout.on("data", (chunk) => {
+      lastOutput = Date.now();
       out.push(chunk.toString());
       try {
         appendFileSync(runMdPath, chunk);
@@ -657,6 +683,7 @@ args: ${argsJson}
     // stderr still lands in the run .md, but stays out of `out` so CLI
     // diagnostics can never become the spoken summary.
     proc.stderr.on("data", (chunk) => {
+      lastOutput = Date.now();
       try {
         appendFileSync(runMdPath, chunk);
       } catch {
@@ -675,6 +702,18 @@ args: ${argsJson}
       setTimeout(() => killTree(proc, "SIGKILL"), 10_000);
     }, 1000 * 60 * HARD_TIMEOUT_MIN);
 
+    // Stall watchdog — LONG_SKILLS only (the short 10-min skills fail fast
+    // enough on their own). Checked every 30s; cleared in finalize.
+    const stallTimer = LONG_SKILLS.has(intent.skill)
+      ? setInterval(() => {
+          if (Date.now() - lastOutput <= STALL_TIMEOUT_MS) return;
+          stalled = true;
+          out.push(`\n[runner: stalled — no output for ${STALL_TIMEOUT_MS / 60_000}m — killed]\n`);
+          killTree(proc, "SIGTERM");
+          setTimeout(() => killTree(proc, "SIGKILL"), 10_000);
+        }, 30_000)
+      : null;
+
     // Everything below MUST settle the promise exactly once, whatever throws —
     // an unsettled promise here permanently leaks a concurrency slot and (for
     // DEDUPE skills) blocks that skill until a manual restart.
@@ -684,6 +723,7 @@ args: ${argsJson}
       settled = true;
       clearTimeout(timer);
       clearTimeout(drainTimer);
+      if (stallTimer) clearInterval(stallTimer);
       try {
         const tsCompleted = new Date().toISOString();
         status.exit_code = spawnErrMsg ? -2 : code ?? -1;
@@ -743,8 +783,27 @@ args: ${argsJson}
     });
   });
 
+  // Stall-killed run → requeue once. The retry lands as a normal queue file
+  // the scheduler picks up next tick (the skill leaves inFlight when this
+  // processOne returns, so DEDUPE doesn't block it).
+  let requeued = false;
+  if (stalled && status.status === "error") {
+    const retry = retryIntent(intent);
+    if (retry) {
+      try {
+        writeJson(join(QUEUE_DIR, `${retry.id}.json`), retry);
+        requeued = true;
+        log(`${runId}: stalled — requeued ${intent.skill} as ${retry.id} (retry ${retry.retry})`);
+      } catch (e) {
+        log(`${runId}: stall retry write failed: ${e.message}`);
+      }
+    }
+  }
+
   // Native banner: a deliverable landing → run-complete, any error → run-failed.
   // Fire-and-forget; a notification failure must never affect the run.
+  // A stall that just requeued isn't a failure yet — the retry's own outcome
+  // notifies; banner-then-success two minutes later would cry wolf.
   try {
     if (status.status === "ok" && deliverable) {
       notify(
@@ -752,7 +811,7 @@ args: ${argsJson}
         NOTIFY_CONFIG,
         log
       );
-    } else if (status.status === "error") {
+    } else if (status.status === "error" && !requeued) {
       notify(
         { type: "run-failed", skill: intent.skill, summary: status.summary },
         NOTIFY_CONFIG,
