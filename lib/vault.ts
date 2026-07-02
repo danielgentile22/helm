@@ -235,17 +235,27 @@ function askLabel(args: unknown): string | null {
   return words.length ? words.slice(0, 3).join(" ") : null;
 }
 
+// The only vault dirs the report overlay / deliverable links may read from.
+// Deliverable paths come from runner-written run JSON and /api/report query
+// strings, and runs process untrusted content (emails, web) — so resolve
+// FIRST, then check the RESOLVED path against the resolved allowlist dirs.
+// Checking the raw string's prefix let `inbox/../anywhere.md` through.
+const READABLE_PREFIXES = ["inbox/", "system/runs/"];
+
+export function resolveReadable(rel: string): string | null {
+  const clean = rel.replace(/\\/g, "/");
+  if (clean.split("/").includes("..")) return null; // belt: no dot-dot segments at all
+  const abs = path.resolve(VAULT_ROOT, clean);
+  const allowed = READABLE_PREFIXES.some((p) => abs.startsWith(path.resolve(VAULT_ROOT, p) + path.sep));
+  return allowed ? abs : null;
+}
+
 // peek a deliverable's frontmatter for `link: <url>` — when present, the
 // run's real output lives at that URL and callouts open it instead of the md
 function deliverableLink(relPath: unknown): string | null {
   if (typeof relPath !== "string" || !relPath) return null;
-  // same guard as readVaultMarkdown — deliverable_path comes from runner-written
-  // run JSON, and runs process untrusted content (emails, web); never follow it
-  // outside the dirs runs write to
-  const clean = relPath.replace(/\\/g, "/");
-  if (!READABLE_PREFIXES.some((p) => clean.startsWith(p))) return null;
-  const abs = path.resolve(VAULT_ROOT, clean);
-  if (!abs.startsWith(path.resolve(VAULT_ROOT) + path.sep)) return null;
+  const abs = resolveReadable(relPath);
+  if (!abs) return null;
   try {
     const raw = fs.readFileSync(abs, "utf-8").slice(0, 800);
     if (!raw.startsWith("---")) return null;
@@ -452,15 +462,11 @@ export function toggleTop3(index: number, done: boolean): boolean {
 
 // --- read a vault markdown deliverable (report overlay) ---------------------------
 // Path must stay inside the vault and under the dirs runs write to.
-const READABLE_PREFIXES = ["inbox/", "system/runs/"];
 
 export function readVaultMarkdown(rel: string): string | null {
-  const clean = rel.replace(/\\/g, "/");
-  if (!clean.endsWith(".md")) return null;
-  if (!READABLE_PREFIXES.some((p) => clean.startsWith(p))) return null;
-  const abs = path.resolve(VAULT_ROOT, clean);
-  if (!abs.startsWith(path.resolve(VAULT_ROOT) + path.sep)) return null; // no traversal
-  return safeRead(abs);
+  if (!rel.endsWith(".md")) return null;
+  const abs = resolveReadable(rel);
+  return abs ? safeRead(abs) : null;
 }
 
 // --- today's morning report headlines ---------------------------------------------

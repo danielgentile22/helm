@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { helmKey } from "@/lib/helmKey";
 
 // ---------------------------------------------------------------------------
 // /chat — chat against the vault, now a tab inside the shell. One rolling
@@ -47,7 +48,7 @@ export default function ChatPage() {
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-HELM-KEY": await helmKey() },
         body: JSON.stringify({ threadId, message: text, model }),
       });
       const data = await res.json();

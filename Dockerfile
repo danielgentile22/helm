@@ -26,7 +26,7 @@ RUN apt-get update \
  && curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list \
       > /etc/apt/sources.list.d/tailscale.list \
  && apt-get update && apt-get install -y --no-install-recommends tailscale \
- && npm install -g @anthropic-ai/claude-code \
+ && npm install -g @anthropic-ai/claude-code@2.1.198 \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # ponytail: copy the whole built app (incl. dev deps) — simplest correct thing.
@@ -35,10 +35,13 @@ COPY --from=build /app ./
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# CHAT_ONLY: middleware.ts 404s every API route except /api/chat + /api/key,
+# so the tailnet surface matches the "chat-only" contract above.
 ENV VAULT_ROOT=/data/vault \
     HUD_TZ=America/New_York \
     CLAUDE_BIN=claude \
-    NODE_ENV=production
+    NODE_ENV=production \
+    CHAT_ONLY=1
 
 # No EXPOSE / public port: the app is reachable only over the tailnet (3107).
 ENTRYPOINT ["/entrypoint.sh"]

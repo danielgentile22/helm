@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { voice } from "@/lib/voiceClient";
+import { helmKey } from "@/lib/helmKey";
 import { scrubRunSummary, humanizeFailure } from "@/lib/spokenText";
 import { deriveCore, type CoreSignals, type CoreMode } from "@/lib/core";
 import { deriveStatus } from "@/lib/status";
@@ -214,7 +215,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       try {
         const res = await fetch("/api/queue", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-HELM-KEY": await helmKey() },
           body: JSON.stringify({ skill, args }),
         });
         pushLine(res.ok ? "sys" : "err", res.ok ? `intent queued → ${skill}` : `queue write FAILED → ${skill}`);
@@ -444,10 +445,12 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               ? {
                   label: "reset transcript ×",
                   onClick: () => {
-                    void fetch("/api/transcript", { method: "DELETE" }).then(() => {
-                      setReport(null);
-                      pushLine("sys", "voice transcript cleared");
-                    });
+                    void helmKey()
+                      .then((k) => fetch("/api/transcript", { method: "DELETE", headers: { "X-HELM-KEY": k } }))
+                      .then(() => {
+                        setReport(null);
+                        pushLine("sys", "voice transcript cleared");
+                      });
                   },
                 }
               : undefined

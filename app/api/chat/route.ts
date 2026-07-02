@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { VAULT_ROOT } from "@/lib/config";
+import { bodyTooLarge, checkHelmKey } from "@/lib/auth";
 import {
   CHAT_SYSTEM,
   HARD_TIMEOUT_MS,
@@ -53,6 +54,13 @@ function readSidecar(threadId: string): { sessionId?: string; turns?: number; cr
 }
 
 export async function POST(req: Request) {
+  const key = checkHelmKey(req.headers.get("x-helm-key"));
+  if (!key.ok) return NextResponse.json({ error: key.error }, { status: key.status });
+  // message caps at 8000 chars (validateMessage) — 64KB of JSON is already absurd
+  if (bodyTooLarge(req, 64 * 1024)) {
+    return NextResponse.json({ error: "message too long" }, { status: 413 });
+  }
+
   let body: { threadId?: unknown; message?: unknown; model?: unknown };
   try {
     body = await req.json();
@@ -86,8 +94,10 @@ export async function POST(req: Request) {
     }
     const parsed = parseClaudeJson(stdout);
     if (!parsed) {
+      // stderr carries vault paths + claude wiring — log it, never return it
+      console.error(`[/api/chat] no parseable output (exit ${code})`, stderr.slice(0, 2000));
       return NextResponse.json(
-        { error: `claude produced no parseable output (exit ${code})`, stderr: stderr.slice(0, 400) },
+        { error: `claude produced no parseable output (exit ${code})` },
         { status: 502 }
       );
     }
@@ -123,7 +133,8 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ threadId, reply, sessionId, model, costUsd: parsed.total_cost_usd ?? null, isError: !!parsed.is_error });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 502 });
+    console.error("[/api/chat]", e); // detail stays server-side
+    return NextResponse.json({ error: "internal error" }, { status: 502 });
   } finally {
     releaseThread(threadId);
   }

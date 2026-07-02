@@ -9,6 +9,8 @@
 // then speak the reply. Holding Space IS a gesture, so PTT also unlocks.
 // ---------------------------------------------------------------------------
 
+import { helmKey } from "./helmKey";
+
 type SpeakingListener = (speaking: boolean) => void;
 type LogListener = (cls: string, text: string) => void;
 type PanelsListener = (panels: string[]) => void;
@@ -169,7 +171,7 @@ class VoiceClient {
     try {
       const res = await fetch("/api/voice/text", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-HELM-KEY": await helmKey() },
         body: JSON.stringify({ transcript }),
       });
       await this.handleVoiceResponse(res);
@@ -342,7 +344,7 @@ class VoiceClient {
     try {
       const res = await fetch("/api/voice", {
         method: "POST",
-        headers: { "Content-Type": blob.type },
+        headers: { "Content-Type": blob.type, "X-HELM-KEY": await helmKey() },
         body: blob,
       });
       await this.handleVoiceResponse(res);

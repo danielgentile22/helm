@@ -35,6 +35,13 @@ echo "tailnet IP: $(tailscale ip -4 2>/dev/null || echo '?')"
 # --- 2. Syncthing ------------------------------------------------------------
 # GUI on 0.0.0.0:8384 is tailnet-only (no Fly service exposes it publicly) — it's
 # the one-time pairing surface. Vault folder is configured in the GUI; see runbook.
+#
+# .stignore BEFORE syncthing starts: the VM must never sync runner intents
+# (system/queue) or run records (system/runs) to the Mac — a prompt-injected
+# chat turn could otherwise enqueue work the Mac runner executes with
+# --dangerously-skip-permissions. The Mac's vault carries the same .stignore,
+# which is the enforcement that survives a compromised VM.
+printf '/system/queue\n/system/runs\n' > /data/vault/.stignore
 syncthing serve --no-browser --home=/data/syncthing --gui-address="0.0.0.0:8384" &
 SYNCTHING_PID=$!
 
@@ -46,7 +53,11 @@ NEXT_PID=$!
 echo "helm chat brain up — tailscaled=$TAILSCALED_PID syncthing=$SYNCTHING_PID next=$NEXT_PID"
 
 # --- supervise: first death takes the container down -------------------------
+# kill -0 only proves the PID exists; a wedged next (alive, not serving) needs
+# the HTTP probe. No Fly [checks] block exists (no service), so this loop is
+# the only liveness signal. 3 consecutive failures ≈ 30-90s wedged → restart.
 trap 'kill $TAILSCALED_PID $SYNCTHING_PID $NEXT_PID 2>/dev/null; exit 0' TERM INT
+http_fails=0
 while true; do
   for pid in $TAILSCALED_PID $SYNCTHING_PID $NEXT_PID; do
     if ! kill -0 "$pid" 2>/dev/null; then
@@ -55,5 +66,16 @@ while true; do
       exit 1
     fi
   done
+  if curl -fsS -m 10 -o /dev/null "http://127.0.0.1:${PORT}/chat"; then
+    http_fails=0
+  else
+    http_fails=$((http_fails + 1))
+    echo "liveness probe failed (${http_fails}/3)"
+    if [ "$http_fails" -ge 3 ]; then
+      echo "next is up but not serving — shutting down so Fly restarts the machine"
+      kill $TAILSCALED_PID $SYNCTHING_PID $NEXT_PID 2>/dev/null
+      exit 1
+    fi
+  fi
   sleep 10
 done

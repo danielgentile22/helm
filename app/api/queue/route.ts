@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { checkHelmKey } from "@/lib/auth";
 import { ALLOWED_SKILLS, writeIntent } from "@/lib/skills";
 
 // ---------------------------------------------------------------------------
@@ -11,6 +12,9 @@ import { ALLOWED_SKILLS, writeIntent } from "@/lib/skills";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const key = checkHelmKey(req.headers.get("x-helm-key"));
+  if (!key.ok) return NextResponse.json({ error: key.error }, { status: key.status });
+
   let body: { skill?: string; args?: Record<string, unknown> };
   try {
     body = await req.json();
@@ -32,6 +36,7 @@ export async function POST(req: Request) {
     const id = writeIntent(skill, "vault-hud", args);
     return NextResponse.json({ ok: true, id, skill });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    console.error("[/api/queue]", e); // detail stays server-side — String(e) leaks vault paths
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
   }
 }
