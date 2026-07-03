@@ -14,6 +14,14 @@ export function fmtAge(ts: string | null): { label: string; stale: boolean } {
   return { label: `${Math.floor(h / 24)}d`, stale };
 }
 
+/** fmtAge as a sentence fragment — "just now" / "3m ago" / "—", never "now ago" */
+export function fmtAgo(ts: string | null): string {
+  const { label } = fmtAge(ts);
+  if (label === "now") return "just now";
+  if (label === "—") return "—";
+  return `${label} ago`;
+}
+
 export function fmtClock(s: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
