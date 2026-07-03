@@ -48,16 +48,23 @@ check(!bodyTooLarge(reqWithLength("1000"), 8 * 1024 * 1024), "content-length und
 check(bodyTooLarge(reqWithLength(null), 8 * 1024 * 1024), "missing content-length (chunked) → rejected");
 check(bodyTooLarge(reqWithLength("junk"), 8 * 1024 * 1024), "unparseable content-length → rejected");
 
-// --- CHAT_ONLY route gating (middleware.ts) -------------------------------------
-check(blockedInChatOnly("/api/queue"), "chat-only blocks /api/queue");
-check(blockedInChatOnly("/api/voice"), "chat-only blocks /api/voice");
-check(blockedInChatOnly("/api/voice/text"), "chat-only blocks /api/voice/text");
-check(blockedInChatOnly("/api/report"), "chat-only blocks /api/report");
-check(blockedInChatOnly("/api/todos"), "chat-only blocks /api/todos");
-check(blockedInChatOnly("/api/chats"), "chat-only blocks /api/chats (no prefix confusion)");
-check(!blockedInChatOnly("/api/chat"), "chat-only allows /api/chat");
-check(!blockedInChatOnly("/api/key"), "chat-only allows /api/key");
-check(!blockedInChatOnly("/chat"), "chat-only ignores non-API pages");
+// --- CHAT_ONLY method gating (middleware.ts) ------------------------------------
+// Writes 404 on the Fly box (they'd enqueue runner work Syncthing carries back).
+check(blockedInChatOnly("/api/queue", "POST"), "chat-only blocks POST /api/queue");
+check(blockedInChatOnly("/api/voice", "POST"), "chat-only blocks POST /api/voice");
+check(blockedInChatOnly("/api/voice/text", "POST"), "chat-only blocks POST /api/voice/text");
+check(blockedInChatOnly("/api/todos", "POST"), "chat-only blocks POST /api/todos (toggle)");
+check(blockedInChatOnly("/api/transcript", "DELETE"), "chat-only blocks DELETE /api/transcript");
+check(blockedInChatOnly("/api/chats", "POST"), "chat-only blocks POST /api/chats (no prefix confusion)");
+// Reads pass so the phone can render every tab.
+check(!blockedInChatOnly("/api/state", "GET"), "chat-only allows GET /api/state");
+check(!blockedInChatOnly("/api/report", "GET"), "chat-only allows GET /api/report");
+check(!blockedInChatOnly("/api/transcript", "GET"), "chat-only allows GET /api/transcript");
+check(!blockedInChatOnly("/api/todos", "GET"), "chat-only allows GET /api/todos");
+// Chat + key pass regardless of method; non-API pages are never gated.
+check(!blockedInChatOnly("/api/chat", "POST"), "chat-only allows POST /api/chat");
+check(!blockedInChatOnly("/api/key", "GET"), "chat-only allows /api/key");
+check(!blockedInChatOnly("/chat", "GET"), "chat-only ignores non-API pages");
 
 // --- report markdown XSS (lib/reportMd.ts) ---------------------------------------
 eq(escapeHtml('a"b\'c<d>&'), "a&quot;b&#39;c&lt;d&gt;&amp;", "escapeHtml neutralizes quotes too");
