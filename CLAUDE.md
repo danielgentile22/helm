@@ -71,8 +71,12 @@ versioned in `scripts/`.
 - The vault's `.stignore` (Mac vault root + written by entrypoint.sh on the
   Fly VM) keeps `system/queue/` and `system/runs/` OUT of Syncthing — synced
   peers must never be able to enqueue runner work. Don't delete it.
-- The Fly image sets `CHAT_ONLY=1`: middleware.ts 404s every API route except
-  `/api/chat` + `/api/key`.
+- The Fly image sets `CHAT_ONLY=1`: middleware.ts 404s every **mutating** API
+  request (POST/PUT/PATCH/DELETE) except `/api/chat`. Safe reads (GET/HEAD) pass
+  so the tailnet phone renders every tab read-only; the write surface still can't
+  reach the runner. Gate is method-based — adding a new write route needs no
+  middleware edit, but a route that mutates on GET would slip through, so don't
+  write one.
 
 ## Load-bearing couplings (break one and voice quietly misroutes)
 
