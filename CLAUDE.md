@@ -60,7 +60,7 @@ versioned in `scripts/`.
 
 - **`HELM_API_KEY`** (in `~/.claude/.env`) is the shared secret behind every
   state-changing route (`/api/queue`, `/api/voice`, `/api/voice/text`,
-  `/api/chat`, `/api/transcript` DELETE). Requests must send it
+  `/api/chat`, `/api/todos` POST, `/api/transcript` DELETE). Requests must send it
   as `X-HELM-KEY`; the HUD's own pages fetch it from `/api/key`
   (lib/helmKey.ts). Server check lives in lib/auth.ts — fail-closed: no key
   configured means 503 on writes. Curl example:

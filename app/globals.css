@@ -1019,6 +1019,13 @@ button {
    overlay padding, scroll long notes inside the card */
 .atlas-note { padding: 0; max-height: 420px; font-size: 13px; }
 
+/* Job TODOs panel — native checkboxes over the vault's jobs/todos.md */
+.todo-list { max-height: 420px; overflow-y: auto; margin-bottom: 10px; }
+.todo-sec { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-muted); margin: 10px 0 4px; }
+.todo-item { display: flex; gap: 8px; align-items: baseline; font-size: 13px; line-height: 1.5; color: var(--color-text-secondary); padding: 2px 0; cursor: pointer; }
+.todo-item input { accent-color: var(--color-primary); cursor: pointer; flex: none; }
+.todo-item.done span { color: var(--color-text-muted); text-decoration: line-through; }
+
 /* =============================================================
    Phone
    ============================================================= */
