@@ -12,7 +12,7 @@ import type { Metric } from "@/lib/vault";
 import StatTile from "@/components/StatTile";
 import Deck from "@/components/panels/Deck";
 import TaskAdd from "@/components/panels/TaskAdd";
-import { fmtAge, SectionTitle } from "@/components/panels/util";
+import { fmtAge, fmtAgo, SectionTitle } from "@/components/panels/util";
 
 function findMetric(metrics: Metric[], source: string, metric: string): Metric | null {
   return metrics.find((m) => m.source === source && m.metric === metric) ?? null;
@@ -54,7 +54,7 @@ export default function MorphyPage() {
       <div className="tab-head">
         <h1 className="tab-title">Morphy</h1>
         <p className="tab-sub">
-          {synced ? `board synced ${fmtAge(mp!.last_sync_ts).label} ago` : "board not synced yet"}
+          {synced ? `board synced ${fmtAgo(mp!.last_sync_ts)}` : "board not synced yet"}
         </p>
       </div>
 

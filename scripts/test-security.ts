@@ -53,6 +53,7 @@ check(blockedInChatOnly("/api/queue"), "chat-only blocks /api/queue");
 check(blockedInChatOnly("/api/voice"), "chat-only blocks /api/voice");
 check(blockedInChatOnly("/api/voice/text"), "chat-only blocks /api/voice/text");
 check(blockedInChatOnly("/api/report"), "chat-only blocks /api/report");
+check(blockedInChatOnly("/api/todos"), "chat-only blocks /api/todos");
 check(blockedInChatOnly("/api/chats"), "chat-only blocks /api/chats (no prefix confusion)");
 check(!blockedInChatOnly("/api/chat"), "chat-only allows /api/chat");
 check(!blockedInChatOnly("/api/key"), "chat-only allows /api/key");
