@@ -3,7 +3,7 @@ import { homeEnv } from "./homeEnv";
 
 // ---------------------------------------------------------------------------
 // Write-route guard — every state-changing route (/api/queue, /api/voice,
-// /api/voice/text, /api/chat, /api/transcript DELETE) requires
+// /api/voice/text, /api/chat, /api/todos POST, /api/transcript DELETE) requires
 // X-HELM-KEY to equal HELM_API_KEY (from ~/.claude/.env). This is the CSRF /
 // LAN-peer wall in front of the runner's `claude -p --dangerously-skip-
 // permissions` executor: a drive-by web page can't read the key (same-origin
