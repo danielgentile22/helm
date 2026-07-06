@@ -127,10 +127,20 @@ function VoiceChip({ mode }: { mode: CoreMode }) {
   );
 }
 
-function HealthDot({ healthy, needMe, runner }: { healthy: boolean; needMe: number; runner: string }) {
+function HealthDot({
+  healthy,
+  needMe,
+  runner,
+  fleetStale,
+}: {
+  healthy: boolean;
+  needMe: number;
+  runner: string;
+  fleetStale: string[];
+}) {
   const tone = !healthy ? "danger" : needMe > 0 ? "warning" : "success";
   const title = !healthy
-    ? `system needs attention · runner ${runner}`
+    ? [`system needs attention · runner ${runner}`, ...fleetStale].join("\n")
     : needMe > 0
       ? `${needMe} thing${needMe === 1 ? "" : "s"} need you`
       : "all systems nominal";
@@ -170,7 +180,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const { state, error, refresh } = useVaultState(5000);
   const isPhone = useIsPhone();
   const status = deriveStatus(
-    state ?? { generated_at: "", vault_root: "", tz: "", metrics: [], runner: null, daily: null, runs: [], queue: [], morning: null, morphy: null, agenda: null, etas: {} }
+    state ?? { generated_at: "", vault_root: "", tz: "", metrics: [], runner: null, daily: null, runs: [], queue: [], morning: null, morphy: null, agenda: null, fleet: null, etas: {} }
   );
 
   const [feed, setFeed] = useState<FeedLine[]>([]);
@@ -438,7 +448,12 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           {!isPhone && <TabNav variant="pill" />}
           <div className="shell-status">
             {!isPhone && <VoiceChip mode={mode} />}
-            <HealthDot healthy={status.healthy} needMe={status.needMeCount} runner={status.runner} />
+            <HealthDot
+              healthy={status.healthy}
+              needMe={status.needMeCount}
+              runner={status.runner}
+              fleetStale={status.fleetStale}
+            />
             <Clock />
           </div>
         </header>

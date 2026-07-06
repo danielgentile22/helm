@@ -111,6 +111,23 @@ export interface AgendaState {
   events: AgendaEvent[];
 }
 
+/** Fleet watchdog health — written by the runner's fleetCheck (runner/fleet.js,
+ *  issue #58) to system/fleet-health.json. ok=false → some scheduled producer
+ *  stopped writing its output; the shell dot goes red and names it. */
+export interface FleetProducer {
+  id: string;
+  last_output_ts: string | null;
+  stale: boolean;
+  reason: string | null; // why it's stale (null when fresh)
+  kicked_ts: string | null; // when this episode's one remediation kick fired
+}
+export interface FleetState {
+  ok: boolean;
+  ts: string;
+  tz?: string;
+  producers: FleetProducer[];
+}
+
 export interface VaultState {
   generated_at: string;
   vault_root: string;
@@ -123,6 +140,7 @@ export interface VaultState {
   morning: MorningReport | null;
   morphy: MorphyState | null;
   agenda: AgendaState | null;
+  fleet: FleetState | null;
   etas: Record<string, number>; // skill → median duration_s of past ok runs
 }
 
@@ -531,6 +549,13 @@ export function readAgenda(): AgendaState | null {
   return safeJson<AgendaState>(path.join(VAULT_ROOT, "system", "agenda.json"));
 }
 
+/** Fleet watchdog health, written by the runner every check pass.
+ *  null (missing/garbage) = no data — not itself an alarm. */
+export function readFleetHealth(): FleetState | null {
+  const f = safeJson<FleetState>(path.join(VAULT_ROOT, "system", "fleet-health.json"));
+  return f && typeof f.ok === "boolean" && Array.isArray(f.producers) ? f : null;
+}
+
 // --- consolidated snapshot --------------------------------------------------------
 export function readVaultState(): VaultState {
   return {
@@ -545,6 +570,7 @@ export function readVaultState(): VaultState {
     morning: readMorningReport(),
     morphy: readMorphyState(),
     agenda: readAgenda(),
+    fleet: readFleetHealth(),
     etas: readSkillEtas(),
   };
 }
