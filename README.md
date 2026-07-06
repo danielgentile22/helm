@@ -105,6 +105,10 @@ in the repo root instead (they're inlined into the client at build).
 | `VAULT_ROOT` | vault folder | **required** (no default) |
 | `CLAUDE_PROJECTS_DIR` | transcript root the token feed scans | `~/.claude/projects` |
 | `JOBS_DIR` | folder holding `applications.jsonl` (job feed) | `$VAULT_ROOT/jobs` |
+| `AGENDA_SYNC_MIN` | calendar-agenda refresh cadence (minutes) | `30` |
+| `PYTHON_BIN` | interpreter the runner spawns the calendar feed with | `/usr/local/bin/python3` |
+| `GCAL_CLIENT_SECRET` | Desktop OAuth client JSON (calendar feed) | `~/.claude/helm-gcal-client.json` |
+| `GCAL_TOKEN` | stored Google refresh token (calendar feed) | `~/.claude/helm-gcal-token.json` |
 | `HUD_TZ` | IANA timezone for "today" (HUD + runner) | `America/New_York` |
 | `HUD_USER_NAME` | how voice notes refer to you | `User` |
 | `AGENTIC_OS_MODEL` | model for background `claude -p` runs | `claude-opus-4-8` |
@@ -122,6 +126,39 @@ in the repo root instead (they're inlined into the client at build).
 ⚠️ `ANTHROPIC_API_KEY` belongs in the `~/.claude/.env` FILE only — set as a
 system-wide env var it flips your interactive `claude` CLI from
 subscription to API billing.
+
+## Calendar agenda feed
+
+The HUD's agenda tile is fed by `feeds/calendar-agenda.py`, a deterministic
+Google Calendar API call the runner spawns on boot and every `AGENDA_SYNC_MIN`
+minutes (it writes `system/agenda.json`; the HUD only ever reads that cache).
+It replaced the headless `claude -p` agenda agent — no LLM, no MCP. One-time
+setup:
+
+1. Install the Google client libraries into the interpreter the runner uses
+   (the same `PYTHON_BIN` the other feeds run under):
+
+   ```
+   /usr/local/bin/python3 -m pip install google-auth google-auth-oauthlib google-api-python-client
+   ```
+
+2. In [Google Cloud Console](https://console.cloud.google.com/): create a
+   project, **enable the Google Calendar API**, then create an **OAuth client
+   ID of type "Desktop app"** and download its JSON. Save it to
+   `~/.claude/helm-gcal-client.json` (outside the vault — credentials never
+   live in the vault, the repo, or transcripts).
+
+3. Run the one-time consent (opens a browser, asks for read-only calendar
+   access, stores a refresh token at `~/.claude/helm-gcal-token.json`):
+
+   ```
+   python3 feeds/calendar-agenda.py --auth
+   ```
+
+Every sync after that is headless. A `python3 feeds/calendar-agenda.py` with no
+flag runs one sync by hand. If a sync writes `ok:false` with an `auth:` reason
+(refresh token revoked/expired), re-run the `--auth` bootstrap — the reason
+string names that command.
 
 ## Voice server setup
 

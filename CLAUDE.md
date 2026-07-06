@@ -101,3 +101,10 @@ versioned in `scripts/`.
 - Two HUD tabs = double audio. Browser autoplay needs one click/keypress.
 - Next dev can hang after webpack cache corruption: kill node on 3107,
   delete `.next/`, restart.
+- The agenda tile is a deterministic feed (`feeds/calendar-agenda.py`, issue
+  #56), NOT an LLM — the runner spawns it, validates its `system/agenda.json`
+  write, and falls back to a typed `ok:false` on garbage/timeout. Google OAuth
+  creds live at `~/.claude/helm-gcal-{client,token}.json` (never the vault/repo);
+  an `auth:` reason means re-run `python3 feeds/calendar-agenda.py --auth`. The
+  transform is pure and tested with canned responses (no network, no google
+  deps) in `feeds/test_calendar_agenda.py`.
