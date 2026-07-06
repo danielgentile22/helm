@@ -19,7 +19,7 @@
 import { spawn } from "node:child_process";
 import { platform } from "node:os";
 
-export const NOTIFY_EVENT_TYPES = ["run-complete", "run-failed", "morphy-delta"];
+export const NOTIFY_EVENT_TYPES = ["run-complete", "run-failed", "morphy-delta", "fleet-stale"];
 
 /**
  * Build the notification config from an env accessor (pass the runner's `env`).
@@ -108,6 +108,16 @@ export function decideNotification(event, config) {
       return {
         title: "Morphy board updated",
         body: clip(`${parts.join(", ")}${detail ? ` — ${detail}` : ""}`),
+      };
+    }
+    case "fleet-stale": {
+      // Fired by the watchdog (runner/fleet.js) once per new staleness
+      // episode; event.stale = [{ id, reason }].
+      const stale = event.stale || [];
+      if (!stale.length) return null;
+      return {
+        title: `HELM · ${stale.length} producer${stale.length === 1 ? "" : "s"} stale`,
+        body: clip(stale.length === 1 ? stale[0].reason || stale[0].id : nameList(stale.map((s) => s.id), 4)),
       };
     }
     default:

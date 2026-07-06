@@ -3,7 +3,7 @@
 // run, pending queue. Pure: imports lib/status only. No I/O.
 // Run: npx -y tsx scripts/test-status.ts
 import { deriveStatus } from "../lib/status";
-import type { VaultState, RunnerStatus, MorphyState, RunEntry, QueueEntry } from "../lib/vault";
+import type { VaultState, RunnerStatus, MorphyState, RunEntry, QueueEntry, FleetState } from "../lib/vault";
 
 let failed = 0;
 const pass = (msg: string) => console.log(`PASS  ${msg}`);
@@ -27,6 +27,7 @@ function state(over: Partial<VaultState> = {}): VaultState {
     morning: null,
     morphy: null,
     agenda: null,
+    fleet: null,
     etas: {},
     ...over,
   };
@@ -144,6 +145,37 @@ const queued = (n: number): QueueEntry[] =>
   check(s.failedRuns === 1, "counts the failed run");
   check(s.healthy === true, "a failed run wants attention but isn't an infra alarm (dot stays green→amber)");
   check(s.needMeCount === 1, "a failed run wants attention");
+}
+
+// --- fleet watchdog (issue #58): a stale producer is an infra alarm ---------
+{
+  const fleet: FleetState = {
+    ok: false,
+    ts: "2026-07-01T12:00:00Z",
+    producers: [
+      { id: "agenda", last_output_ts: null, stale: true, reason: "agenda cache 65m old (limit 60m)", kicked_ts: null },
+      { id: "morning-report", last_output_ts: "2026-07-01", stale: false, reason: null, kicked_ts: null },
+    ],
+  };
+  const s = deriveStatus(state({ runner: runner(), morphy: morphy(), fleet }));
+  check(s.healthy === false, "a stale producer drops healthy (dot goes red)");
+  check(s.fleetStale.length === 1, "only the stale producers are surfaced");
+  check(s.fleetStale[0].includes("agenda cache 65m old"), "the reason is carried for the dot title");
+}
+{
+  const fleet: FleetState = {
+    ok: true,
+    ts: "2026-07-01T12:00:00Z",
+    producers: [
+      { id: "agenda", last_output_ts: "2026-07-01T11:55:00Z", stale: false, reason: null, kicked_ts: null },
+    ],
+  };
+  const s = deriveStatus(state({ runner: runner(), morphy: morphy(), fleet }));
+  check(s.healthy === true && s.fleetStale.length === 0, "a fresh fleet stays healthy");
+}
+{
+  const s = deriveStatus(state({ runner: runner(), morphy: morphy(), fleet: null }));
+  check(s.healthy === true, "no fleet-health data yet is unknown, not broken (mirrors the never-synced board)");
 }
 
 // --- pending queue is activity, not need-me --------------------------------

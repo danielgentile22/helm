@@ -215,6 +215,29 @@ async function run(): Promise<void> {
     check(ctx.includes("Background results"), "real completed runs still surface in voice context");
   }
 
+  // --- fleet-health.json reader (issue #58) -----------------------------------
+  {
+    check(vault.readFleetHealth() === null, "no fleet-health file yet → null (no data, not an alarm)");
+    writeFileSync(join(VAULT, "system", "fleet-health.json"), "garbage{{{");
+    check(vault.readFleetHealth() === null, "garbage fleet-health file → null, never a throw");
+    const fixture = {
+      ok: false,
+      ts: iso(0),
+      tz: "America/New_York",
+      producers: [
+        { id: "agenda", last_output_ts: iso(65 * 60_000), stale: true, reason: "agenda cache 65m old", kicked_ts: iso(0) },
+      ],
+    };
+    writeFileSync(join(VAULT, "system", "fleet-health.json"), JSON.stringify(fixture));
+    const fleet = vault.readFleetHealth();
+    check(fleet !== null && fleet.ok === false, "fleet-health file parses");
+    check(
+      fleet !== null && fleet.producers[0].id === "agenda" && fleet.producers[0].stale === true,
+      "stale producers come through with their reasons"
+    );
+    check(vault.readVaultState().fleet?.ok === false, "readVaultState carries fleet health");
+  }
+
   // --- writeIntent: atomic queue write, no temp litter ------------------------
   {
     const id = writeIntent("plan-today", "test-vault");

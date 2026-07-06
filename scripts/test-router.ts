@@ -47,6 +47,7 @@ function state(over: Partial<VaultState> = {}): VaultState {
     morning: null,
     morphy: null,
     agenda: null,
+    fleet: null,
     etas: {},
     ...over,
   };
