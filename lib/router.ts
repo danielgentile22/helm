@@ -681,11 +681,11 @@ function stateAnswer(t: string, state: VaultState): StateAnswer | null {
     return { text: `The Morphy repo has ${listOut(bits)}.`, panels: ["vitals"] };
   }
   if (/token|claude usage/.test(t)) {
-    const m = metric(state, "claude_code", "tokens_5h");
+    const m = metric(state, "claude_code", "pct_5h");
     return {
       text: m
-        ? `You've used ${spokenNum(m.value)} Claude tokens in the current five-hour window.`
-        : "I don't have a token reading.",
+        ? `You're at ${Math.round(m.value)} percent of the Claude five-hour window.`
+        : "I don't have a Claude usage reading.",
       panels: ["vitals"],
     };
   }

@@ -6,7 +6,6 @@
 // no deck, no voice/audio).
 import { useShell } from "@/components/shell/ShellContext";
 import { deckSkillsForTab } from "@/lib/tabs";
-import { fmtMetric } from "@/lib/vitals";
 import type { Metric } from "@/lib/vault";
 import StatTile from "@/components/StatTile";
 import Orb from "@/components/panels/Orb";
@@ -24,9 +23,9 @@ function findMetric(metrics: Metric[], source: string, metric: string): Metric |
 
 export default function TodayPage() {
   const { state, isPhone } = useShell();
-  const tokens = state ? findMetric(state.metrics, "claude_code", "tokens_5h") : null;
-  // auto-calibrating cap: 100% = the biggest 5h window ever recorded
-  const tokenPeak = tokens ? Math.max(...tokens.history.map((h) => h.value), tokens.value) : null;
+  // real 5h-session utilization from the OAuth usage endpoint (same source as
+  // Claude Code's /usage screen) — NOT an estimate against a personal peak
+  const tokens = state ? findMetric(state.metrics, "claude_code", "pct_5h") : null;
 
   // isPhone === false (not !isPhone): during the pre-hydration null tick a
   // phone must not mount the heavy desktop subtree — the Orb alone pulls the
@@ -48,14 +47,14 @@ export default function TodayPage() {
         <Schedule />
         <Wire />
         <Documents />
-        {tokens && tokenPeak !== null && tokenPeak > 0 && (
+        {tokens && (
           <StatTile
             label="Claude 5h Window"
-            value={Math.round((tokens.value / tokenPeak) * 100)}
+            value={Math.round(tokens.value)}
             unit="%"
             tone="info"
             spark={tokens.history.map((h) => h.value)}
-            foot={`${fmtMetric(tokens.value)} of ${fmtMetric(tokenPeak)} peak`}
+            foot="of plan session limit"
             stale={fmtAge(tokens.timestamp).stale}
           />
         )}
