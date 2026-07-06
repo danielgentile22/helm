@@ -31,8 +31,8 @@ const allOn = loadNotifyConfig(envOf({}));
 // --- loadNotifyConfig -------------------------------------------------------
 check(allOn.enabled === true, "default config is enabled");
 check(
-  NOTIFY_EVENT_TYPES.every((t) => allOn.types.has(t)) && allOn.types.size === 3,
-  "default config allows all three event types"
+  NOTIFY_EVENT_TYPES.every((t) => allOn.types.has(t)) && allOn.types.size === NOTIFY_EVENT_TYPES.length,
+  "default config allows every event type"
 );
 
 const off = loadNotifyConfig(envOf({ HELM_NOTIFY: "off" }));
@@ -134,6 +134,30 @@ check(
 
 const noChange = decideNotification({ type: "morphy-delta", added: [], closed: [] }, allOn);
 check(noChange === null, "a morphy-delta with no added/closed stays silent");
+
+// --- decideNotification: fleet-stale (issue #58) -----------------------------
+const fleetNote = decideNotification(
+  {
+    type: "fleet-stale",
+    stale: [
+      { id: "agenda", reason: "agenda cache 65m old (limit 60m)" },
+      { id: "uscf-feed", reason: "no uscf metrics row for 27h (limit 26h)" },
+    ],
+  },
+  allOn
+);
+check(
+  fleetNote !== null && /stale/i.test(fleetNote!.title) && /agenda/.test(fleetNote!.body),
+  "fleet-stale fires a banner naming the stale producers"
+);
+check(
+  decideNotification({ type: "fleet-stale", stale: [] }, allOn) === null,
+  "a fleet-stale with nothing stale stays silent"
+);
+check(
+  NOTIFY_EVENT_TYPES.includes("fleet-stale"),
+  "fleet-stale is a first-class type (gateable via HELM_NOTIFY_EVENTS)"
+);
 
 // --- decideNotification: config gating & bad input --------------------------
 check(

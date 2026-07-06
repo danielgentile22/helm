@@ -34,6 +34,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { watch } from "node:fs/promises";
 import { queryTasks, createTask, MORPHY_DB_ID_DEFAULT } from "./notion.js";
 import { notify, loadNotifyConfig } from "./notify.js";
+import { fleetCheck } from "./fleet.js";
 import { loadEnvFile } from "./env.js";
 
 const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
@@ -92,6 +93,8 @@ const AGENDA_STATE_FILE = join(VAULT_ROOT, "system", "agenda.json");
 const AGENDA_SYNC_INTERVAL_MS = (Number(env("AGENDA_SYNC_MIN")) || 30) * 60_000;
 // A deterministic HTTP call, not an LLM session — seconds, not minutes.
 const AGENDA_SYNC_TIMEOUT_MS = 45_000;
+// Fleet watchdog cadence (issue #58) — cheap file stats, so 5 min is fine.
+const FLEET_CHECK_INTERVAL_MS = 5 * 60_000;
 // Same interpreter the other feeds' launchd jobs use; env-overridable.
 const AGENDA_PYTHON = env("PYTHON_BIN") || "/usr/local/bin/python3";
 const AGENDA_FEED = join(RUNNER_DIR, "..", "feeds", "calendar-agenda.py");
@@ -1299,6 +1302,23 @@ function main() {
     () => agendaSync("scheduled").catch((e) => log(`agenda sync: ${e.message}`)),
     AGENDA_SYNC_INTERVAL_MS
   );
+  // Fleet watchdog (issue #58): freshness math over every scheduled producer,
+  // one kick per staleness episode, health file for the HUD dot. The watchdog
+  // must never take down the runner it watches — every pass is caught.
+  const runFleetCheck = () =>
+    fleetCheck({
+      vaultRoot: VAULT_ROOT,
+      tz: HUD_TZ,
+      agendaIntervalMin: AGENDA_SYNC_INTERVAL_MS / 60_000,
+      agendaSync,
+      morphySync,
+      kickstart: (label) =>
+        execFileSync("launchctl", ["kickstart", `gui/${process.getuid()}/${label}`]),
+      notify: (event) => notify(event, NOTIFY_CONFIG, log),
+      log,
+    }).catch((e) => log(`fleet check: ${e.message}`));
+  setTimeout(runFleetCheck, 60_000).unref?.(); // first pass after boot settles
+  setInterval(runFleetCheck, FLEET_CHECK_INTERVAL_MS);
   watchLoop();
   // The tick body is try/caught, so this catch is the last-resort backstop:
   // if the scheduler still dies, exit non-zero and let launchd (KeepAlive)

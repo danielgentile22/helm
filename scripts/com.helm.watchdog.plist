@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.helm.watchdog</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>/Users/user/Projects/helm/scripts/helm-watchdog.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/user/Projects/helm</string>
+    <key>StartInterval</key>
+    <integer>600</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/user/Projects/helm/logs/watchdog.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/user/Projects/helm/logs/watchdog.log</string>
+</dict>
+</plist>
