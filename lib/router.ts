@@ -681,11 +681,15 @@ function stateAnswer(t: string, state: VaultState): StateAnswer | null {
     return { text: `The Morphy repo has ${listOut(bits)}.`, panels: ["vitals"] };
   }
   if (/token|claude usage/.test(t)) {
-    const m = metric(state, "claude_code", "pct_5h");
+    const session = metric(state, "claude_code", "pct_5h");
+    const week = metric(state, "claude_code", "pct_7d");
+    const fable = metric(state, "claude_code", "pct_7d_fable");
+    const bits: string[] = [];
+    if (session) bits.push(`${Math.round(session.value)} percent of the five-hour window`);
+    if (week) bits.push(`${Math.round(week.value)} percent of the week`);
+    if (fable) bits.push(`${Math.round(fable.value)} percent of Fable`);
     return {
-      text: m
-        ? `You're at ${Math.round(m.value)} percent of the Claude five-hour window.`
-        : "I don't have a Claude usage reading.",
+      text: bits.length ? `You're at ${listOut(bits)}.` : "I don't have a Claude usage reading.",
       panels: ["vitals"],
     };
   }

@@ -2,10 +2,12 @@
 """Claude usage feed for the HELM HUD Vitals panel.
 
 Reads the SAME source Claude Code's /usage screen reads — the OAuth usage
-endpoint — and appends the 5-hour session utilization percent to the vault's
+endpoint — and appends its three utilization percentages to the vault's
 metrics.csv:
 
-    <hour-bucket-iso>,claude_code,pct_5h,<0-100>,ok,
+    <hour-bucket-iso>,claude_code,pct_5h,<0-100>,ok,        (session)
+    <hour-bucket-iso>,claude_code,pct_7d,<0-100>,ok,        (week, all models)
+    <hour-bucket-iso>,claude_code,pct_7d_fable,<0-100>,ok,  (week, Fable)
 
 This replaces the old transcript-summing estimate (rolling output-token total
 vs. an "auto-calibrating" all-time peak), which had no idea what Anthropic's
@@ -38,21 +40,39 @@ from pathlib import Path
 from _metrics import append_metric_row, hour_bucket, load_home_env
 
 SOURCE = "claude_code"
-METRIC = "pct_5h"
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 KEYCHAIN_SERVICE = "Claude Code-credentials"
 
 
 # --- compute step (pure; exercised by feeds/test_claude_tokens.py) -------------
 
-def session_pct(payload) -> int | None:
-    """OAuth usage payload -> 5h session utilization percent (0-100), or None."""
+def _pct(v) -> int | None:
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return None
+    return max(0, min(100, round(v)))
+
+
+def usage_pcts(payload) -> dict[str, int]:
+    """OAuth usage payload -> {metric: percent} for the three /usage bars:
+    pct_5h (session), pct_7d (weekly all models), pct_7d_fable (weekly scoped).
+    Malformed blocks are simply absent — never a fake value."""
     if not isinstance(payload, dict):
-        return None
-    pct = (payload.get("five_hour") or {}).get("utilization")
-    if not isinstance(pct, (int, float)) or isinstance(pct, bool):
-        return None
-    return max(0, min(100, round(pct)))
+        return {}
+    out = {}
+    for metric, block in (("pct_5h", payload.get("five_hour")),
+                          ("pct_7d", payload.get("seven_day"))):
+        p = _pct((block or {}).get("utilization") if isinstance(block, dict) else None)
+        if p is not None:
+            out[metric] = p
+    # ponytail: hardcoded to the single scoped weekly limit the plan exposes
+    # (Fable); go scope-aware if the endpoint ever returns more than one
+    for lim in payload.get("limits") or []:
+        if isinstance(lim, dict) and lim.get("kind") == "weekly_scoped":
+            p = _pct(lim.get("percent"))
+            if p is not None:
+                out["pct_7d_fable"] = p
+            break
+    return out
 
 
 # --- auth + fetch ---------------------------------------------------------------
@@ -99,19 +119,20 @@ def main() -> int:
         return 1
 
     try:
-        pct = session_pct(fetch_usage(token))
+        pcts = usage_pcts(fetch_usage(token))
     except (urllib.error.URLError, TimeoutError, ValueError) as e:
         print(f"usage endpoint failed: {e}", file=sys.stderr)
         return 1
-    if pct is None:
-        print("no five_hour.utilization in usage response", file=sys.stderr)
+    if not pcts:
+        print("no utilization values in usage response", file=sys.stderr)
         return 1
 
     csv = Path(vault) / "system" / "metrics" / "metrics.csv"
     ts = hour_bucket(datetime.now(timezone.utc))
-    wrote = append_metric_row(csv, ts, SOURCE, METRIC, pct)
-    verb = "appended" if wrote else "skipped (idempotent)"
-    print(f"{verb} {SOURCE}/{METRIC}={pct} at {ts}")
+    for metric, pct in pcts.items():
+        wrote = append_metric_row(csv, ts, SOURCE, metric, pct)
+        verb = "appended" if wrote else "skipped (idempotent)"
+        print(f"{verb} {SOURCE}/{metric}={pct} at {ts}")
     return 0
 
 
