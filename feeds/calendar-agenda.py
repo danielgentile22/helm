@@ -177,7 +177,7 @@ def get_credentials(token_path: Path, client_path: Path):
         ) from e
 
     if not token_path.exists():
-        raise AuthError(f"no stored token — run: {REAUTH_CMD}")
+        raise AuthError(f"auth: no stored token — run: {REAUTH_CMD}")
     creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
     if creds.valid:
         return creds
@@ -185,10 +185,10 @@ def get_credentials(token_path: Path, client_path: Path):
         try:
             creds.refresh(Request())
         except RefreshError as e:
-            raise AuthError(f"token refresh failed ({e}) — run: {REAUTH_CMD}") from e
+            raise AuthError(f"auth: token refresh failed ({e}) — run: {REAUTH_CMD}") from e
         _store_token(token_path, creds)
         return creds
-    raise AuthError(f"stored token invalid — run: {REAUTH_CMD}")
+    raise AuthError(f"auth: stored token invalid — run: {REAUTH_CMD}")
 
 
 def fetch_events(creds, time_min: str, time_max: str, tz: str) -> list[dict]:
