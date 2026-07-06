@@ -28,6 +28,9 @@ export interface Status {
   pending: number;
   /** recent runs that ended in error */
   failedRuns: number;
+  /** stale-producer reasons from the fleet watchdog (issue #58) — empty when
+   *  the fleet is fresh or no health data exists yet */
+  fleetStale: string[];
 }
 
 const OPEN_STATUSES = ["todo", "in progress", "blocked"];
@@ -58,6 +61,13 @@ export function deriveStatus(state: VaultState): Status {
   const pending = state.queue.length;
   const failedRuns = state.runs.filter((r) => r.status === "error").length;
 
+  // Fleet watchdog: a producer that stopped writing its output is broken
+  // infrastructure — same class as a stale runner. No health file yet is
+  // unknown, not broken (mirrors the never-synced board).
+  const fleetStale = (state.fleet?.producers ?? [])
+    .filter((p) => p.stale)
+    .map((p) => p.reason || p.id);
+
   // things that actually want Daniel: his open cards, whatever Michael just
   // added, and any failed run. Queue depth and "busy" are activity, not need.
   const needMeCount = openForYou + added + failedRuns;
@@ -66,7 +76,7 @@ export function deriveStatus(state: VaultState): Status {
   // broken" — a stale runner or a board that stopped syncing. A failed run or
   // open work is a "look at this" (it rides needMeCount → the amber dot), not
   // an infrastructure alarm, so it doesn't force the dot red.
-  const healthy = runner !== "stale" && syncing;
+  const healthy = runner !== "stale" && syncing && fleetStale.length === 0;
 
   return {
     runner,
@@ -75,5 +85,6 @@ export function deriveStatus(state: VaultState): Status {
     morphy: { syncing, added, closed, openForYou },
     pending,
     failedRuns,
+    fleetStale,
   };
 }
