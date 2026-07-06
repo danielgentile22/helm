@@ -49,6 +49,7 @@ async function run(): Promise<void> {
     todayDate,
     buildPrompt,
     retryIntent,
+    agendaSync,
     STALL_TIMEOUT_MS,
   } = await import("../runner/runner.js");
 
@@ -270,6 +271,41 @@ async function run(): Promise<void> {
   check(
     homeEnvSrc.includes("[A-Za-z0-9_]"),
     "lib/homeEnv.ts accepts the same mixed-case keys as runner/env.js (rule kept in sync)"
+  );
+
+  // --- agendaSync spawn path (issue #56): stub feed, no claude/python/network -
+  // The feed is swapped for a stub node binary. Success = the runner returns the
+  // feed's valid cache; garbage/timeout = the runner writes its own clean ok:false.
+  const agendaFile = join(VAULT, "system", "agenda.json");
+  const STUB_OK =
+    'const fs=require("fs"),p=require("path");const f=p.join(process.env.VAULT_ROOT,"system","agenda.json");' +
+    'fs.mkdirSync(p.dirname(f),{recursive:true});fs.writeFileSync(f,JSON.stringify(' +
+    '{ok:true,last_sync_ts:"T",date:"2026-07-05",tz:"America/New_York",' +
+    'events:[{time:"09:00",end:"09:30",item:"Standup",allDay:false,location:""}]}));';
+  const STUB_GARBAGE =
+    'const fs=require("fs"),p=require("path");const f=p.join(process.env.VAULT_ROOT,"system","agenda.json");' +
+    'fs.mkdirSync(p.dirname(f),{recursive:true});fs.writeFileSync(f,"{{ not json");';
+  const STUB_SLEEP = "setTimeout(()=>{},10000);";
+
+  const okRes = await agendaSync("test-ok", { cmd: process.execPath, args: ["-e", STUB_OK], timeoutMs: 5000 });
+  check(
+    okRes.ok === true && okRes.events.length === 1 && okRes.events[0].item === "Standup",
+    "agendaSync returns the feed's valid ok:true cache untouched"
+  );
+
+  rmSync(agendaFile, { force: true });
+  const garbageRes = await agendaSync("test-garbage", { cmd: process.execPath, args: ["-e", STUB_GARBAGE], timeoutMs: 5000 });
+  check(
+    garbageRes.ok === false && /feed-missing/.test(garbageRes.reason) &&
+      JSON.parse(readFileSync(agendaFile, "utf8")).ok === false,
+    "garbage feed output → runner writes a clean, well-formed ok:false"
+  );
+
+  rmSync(agendaFile, { force: true });
+  const timeoutRes = await agendaSync("test-timeout", { cmd: process.execPath, args: ["-e", STUB_SLEEP], timeoutMs: 700 });
+  check(
+    timeoutRes.ok === false && /timeout/.test(timeoutRes.reason),
+    "a hung feed is killed and reported as a typed timeout ok:false"
   );
 
   rmSync(VAULT, { recursive: true, force: true });

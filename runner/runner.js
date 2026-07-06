@@ -81,13 +81,20 @@ const MORPHY_STATE_FILE = join(VAULT_ROOT, "system", "morphy-state.json");
 export const NATIVE_SKILLS = new Set(["morphy-sync", "morphy-task-add"]);
 const MORPHY_SYNC_INTERVAL_MS = 30 * 60_000;
 
-// Calendar agenda cache. The runner has no Google OAuth, so a headless agent
-// reaches Calendar via MCP and writes system/agenda.json (the HUD reads this and
-// never calls Calendar — same local-only firewall as the Morphy board). Each
-// refresh spawns `claude -p`, so the cadence is gentle and env-overridable.
+// Calendar agenda cache (issue #56). A deterministic Python feed
+// (feeds/calendar-agenda.py) authenticated directly to the Google Calendar API
+// writes system/agenda.json; the runner spawns it on the same startup +
+// AGENDA_SYNC_MIN cadence and validates the write (the HUD reads the cache and
+// never calls Calendar — same local-only firewall as the Morphy board). No LLM,
+// no MCP: the old headless `claude -p` agenda agent — 689 of 712 headless
+// sessions, half of them hitting a write-before-read error — is gone.
 const AGENDA_STATE_FILE = join(VAULT_ROOT, "system", "agenda.json");
 const AGENDA_SYNC_INTERVAL_MS = (Number(env("AGENDA_SYNC_MIN")) || 30) * 60_000;
-const AGENDA_SYNC_TIMEOUT_MS = 3 * 60_000;
+// A deterministic HTTP call, not an LLM session — seconds, not minutes.
+const AGENDA_SYNC_TIMEOUT_MS = 45_000;
+// Same interpreter the other feeds' launchd jobs use; env-overridable.
+const AGENDA_PYTHON = env("PYTHON_BIN") || "/usr/local/bin/python3";
+const AGENDA_FEED = join(RUNNER_DIR, "..", "feeds", "calendar-agenda.py");
 
 const IS_WINDOWS = platform() === "win32";
 const CLAUDE_BIN = IS_WINDOWS ? "claude.exe" : "claude";
@@ -976,39 +983,22 @@ async function morphySync(reason = "scheduled") {
 }
 
 // --- Calendar agenda cache --------------------------------------------------
-// A headless `claude -p` reaches Calendar via MCP and writes system/agenda.json.
-// If Calendar isn't reachable in headless mode the agent writes ok:false, and
-// the HUD falls back to the daily-note ## Schedule. Mirrors morphySync's
-// cache-on-a-cadence shape; the runner validates the agent's write so the HUD
-// always reads a well-formed file.
-function agendaSyncPrompt(date, tz) {
-  return (
-    "Execute autonomously in headless mode. Do not ask for confirmation, do not " +
-    "call AskUserQuestion, produce no spoken summary. Your only job is to write " +
-    "one JSON file.\n\n" +
-    "Task: write today's calendar agenda to exactly system/agenda.json (relative " +
-    "to the current directory).\n\n" +
-    `1. If a Google Calendar MCP connector is available, list today's events for ${date} ` +
-    `in timezone ${tz}, sorted by start time, from the user's primary calendar.\n` +
-    "2. Write system/agenda.json with EXACTLY this shape and nothing else:\n" +
-    `{"ok": true, "last_sync_ts": "<current UTC time as ISO-8601, e.g. 2026-06-19T16:30:00Z>", ` +
-    `"date": "${date}", "tz": "${tz}", "events": [{"time": "09:00", "end": "09:30", ` +
-    `"item": "Event title", "allDay": false, "location": ""}]}\n` +
-    `   - time and end are 24-hour HH:MM in ${tz}. For an all-day event set ` +
-    `"time":"all-day", "end":"", "allDay":true, and list it first.\n` +
-    "   - item is the event title; location may be \"\". Keep events sorted by start.\n" +
-    "   - An empty day is valid: write \"events\": [].\n" +
-    "3. If NO Google Calendar connector is available, or the lookup fails, instead " +
-    `write: {"ok": false, "reason": "<short reason>", "last_sync_ts": "<UTC ISO>", ` +
-    `"date": "${date}", "tz": "${tz}", "events": []}\n\n` +
-    "Write ONLY that one file — no other files, no markdown. Your final reply must be the single word DONE."
-  );
-}
-
-async function agendaSync(reason = "scheduled") {
+// Spawn the deterministic calendar-agenda feed, then validate its write. A
+// well-formed cache (ok true OR false) is the source of truth — return it
+// untouched, so the feed's own typed ok:false (auth / network / deps) and its
+// "never clobber a valid same-day cache" rule both stand. Only when the feed
+// produced nothing usable (spawn failure, torn output, timeout) do we write a
+// clean, typed ok:false here so the HUD falls back to the daily-note ## Schedule
+// instead of choking. A prior good cache for a different day is left alone: the
+// HUD's date check guards staleness, so a transient failure never clobbers it.
+//
+// opts injects a stub feed in tests: { cmd, args, timeoutMs }.
+export async function agendaSync(reason = "scheduled", opts = {}) {
   const date = todayDate();
   const tz = HUD_TZ;
-  const prompt = agendaSyncPrompt(date, tz);
+  const cmd = opts.cmd || AGENDA_PYTHON;
+  const args = opts.args || [AGENDA_FEED];
+  const timeoutMs = opts.timeoutMs || AGENDA_SYNC_TIMEOUT_MS;
 
   const code = await new Promise((resolve) => {
     let settled = false;
@@ -1020,17 +1010,14 @@ async function agendaSync(reason = "scheduled") {
     };
     let proc;
     try {
-      proc = spawn(
-        CLAUDE_BIN,
-        ["-p", prompt, "--model", CLAUDE_MODEL, "--dangerously-skip-permissions"],
-        {
-          shell: false,
-          windowsHide: true,
-          stdio: ["ignore", "ignore", "pipe"],
-          cwd: VAULT_ROOT,
-          detached: !IS_WINDOWS,
-        }
-      );
+      proc = spawn(cmd, args, {
+        shell: false,
+        windowsHide: true,
+        stdio: ["ignore", "ignore", "pipe"],
+        cwd: VAULT_ROOT,
+        detached: !IS_WINDOWS,
+        env: { ...process.env, VAULT_ROOT, HUD_TZ },
+      });
     } catch (e) {
       log(`agenda-sync spawn failed: ${e.message}`);
       finish(-1);
@@ -1038,9 +1025,9 @@ async function agendaSync(reason = "scheduled") {
     }
     const timer = setTimeout(() => {
       killTree(proc, "SIGTERM");
-      setTimeout(() => killTree(proc, "SIGKILL"), 10_000).unref?.();
+      setTimeout(() => killTree(proc, "SIGKILL"), 5_000).unref?.();
       finish(-2);
-    }, AGENDA_SYNC_TIMEOUT_MS);
+    }, timeoutMs);
     let err = "";
     proc.stderr.on("data", (c) => {
       err += c.toString();
@@ -1052,20 +1039,19 @@ async function agendaSync(reason = "scheduled") {
     });
     proc.on("close", (c) => {
       clearTimeout(timer);
-      if (err.trim()) log(`agenda-sync stderr: ${err.trim().slice(0, 160)}`);
+      if (err.trim()) log(`agenda-sync feed: ${err.trim().slice(0, 200)}`);
       finish(c ?? 0);
     });
   });
 
-  // Validate the agent's write. A well-formed file (ok true OR false) is the
-  // source of truth — return it untouched. Only when the agent produced nothing
-  // usable do we write a clean ok:false so the HUD falls back instead of choking.
-  // A prior good cache for a different day is left alone: the HUD's date check
-  // guards staleness, so we never clobber yesterday on a transient failure.
+  // A well-formed file (ok true OR false) is the source of truth.
   try {
     const cache = readJson(AGENDA_STATE_FILE);
     if (cache && typeof cache.ok === "boolean" && Array.isArray(cache.events)) {
-      log(`agenda-sync (${reason}): ok=${cache.ok} events=${cache.events.length} date=${cache.date}`);
+      log(
+        `agenda-sync (${reason}): ok=${cache.ok} events=${cache.events.length} date=${cache.date}` +
+          (cache.ok ? "" : ` reason=${cache.reason || "?"}`)
+      );
       return cache;
     }
   } catch {
@@ -1074,7 +1060,10 @@ async function agendaSync(reason = "scheduled") {
 
   const fallback = {
     ok: false,
-    reason: code === -2 ? "agenda agent timed out" : "agenda agent produced no valid cache",
+    reason:
+      code === -2
+        ? "timeout: agenda feed exceeded its window"
+        : "feed-missing: agenda feed produced no valid cache",
     last_sync_ts: new Date().toISOString(),
     date,
     tz,
@@ -1085,7 +1074,7 @@ async function agendaSync(reason = "scheduled") {
   } catch {
     /* ignore */
   }
-  log(`agenda-sync (${reason}): no valid cache (code ${code}) — wrote ok:false`);
+  log(`agenda-sync (${reason}): no valid cache (code ${code}) — wrote ok:false (${fallback.reason})`);
   return fallback;
 }
 
@@ -1304,7 +1293,7 @@ function main() {
     () => morphySync("scheduled").catch((e) => log(`morphy sync: ${e.message}`)),
     MORPHY_SYNC_INTERVAL_MS
   );
-  // Calendar agenda: same cache-on-a-cadence shape, refreshed by a headless agent.
+  // Calendar agenda: same cache-on-a-cadence shape, refreshed by the deterministic feed.
   agendaSync("startup").catch((e) => log(`agenda startup sync: ${e.message}`));
   setInterval(
     () => agendaSync("scheduled").catch((e) => log(`agenda sync: ${e.message}`)),
