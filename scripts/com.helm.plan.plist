@@ -21,12 +21,12 @@
     <key>ProgramArguments</key>
     <array>
         <string>/opt/homebrew/bin/node</string>
-        <string>/Users/user/Projects/helm/scripts/queue-intent.mjs</string>
+        <string>__HELM_ROOT__/scripts/queue-intent.mjs</string>
         <string>plan-today</string>
         <string>schedule:plan</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/user/Projects/helm</string>
+    <string>__HELM_ROOT__</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
@@ -40,8 +40,8 @@
         <integer>15</integer>
     </dict>
     <key>StandardOutPath</key>
-    <string>/Users/user/Projects/helm/logs/plan.log</string>
+    <string>__HELM_ROOT__/logs/plan.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/user/Projects/helm/logs/plan.log</string>
+    <string>__HELM_ROOT__/logs/plan.log</string>
 </dict>
 </plist>

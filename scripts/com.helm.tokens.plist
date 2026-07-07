@@ -7,10 +7,10 @@
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/bin/python3</string>
-        <string>/Users/user/Projects/helm/feeds/claude-tokens.py</string>
+        <string>__HELM_ROOT__/feeds/claude-tokens.py</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/user/Projects/helm</string>
+    <string>__HELM_ROOT__</string>
     <key>StartCalendarInterval</key>
     <dict>
         <key>Minute</key>
@@ -19,8 +19,8 @@
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/user/Projects/helm/logs/tokens.log</string>
+    <string>__HELM_ROOT__/logs/tokens.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/user/Projects/helm/logs/tokens.log</string>
+    <string>__HELM_ROOT__/logs/tokens.log</string>
 </dict>
 </plist>

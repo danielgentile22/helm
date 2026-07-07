@@ -14,9 +14,9 @@ Files: `Dockerfile`, `entrypoint.sh` (supervises tailscaled → syncthing → ne
 ## One-time setup
 
 ### 0. Prerequisites
-- `flyctl` installed and logged in (`fly auth login`) — Daniel already uses Fly for Morphy.
+- `flyctl` installed and logged in (`fly auth login`).
 - A [Tailscale](https://tailscale.com) account with the Mac and phone already on the tailnet.
-- The Mac's vault at `/Users/user/Projects/Vault` (~28 MB).
+- The Mac's vault (the folder `VAULT_ROOT` points at).
 
 ### 1. Claude auth token (on the Mac)
 ```bash
@@ -67,7 +67,7 @@ reachable only via the tailnet (no public port):
    open `http://localhost:8384`.
 3. On the Mac, **Add Remote Device** → paste the VM's Device ID (VM GUI → Actions → Show ID).
    On the VM, accept the Mac. (Connect over the tailnet addresses.)
-4. On the Mac, **Add Folder** → the vault (`/Users/user/Projects/Vault`),
+4. On the Mac, **Add Folder** → the vault (your `VAULT_ROOT` folder),
    share it with the VM. On the VM, accept the shared folder and set its path to
    **`/data/vault`**. Let the first sync converge (~28 MB).
 
@@ -124,20 +124,11 @@ That's the whole loop — secrets, volume, and Syncthing pairing persist.
 ---
 
 ## Deployed instance (this machine)
-The live deploy, for reference. None of this is secret — the two secrets
-(`TS_AUTHKEY`, `CLAUDE_CODE_OAUTH_TOKEN`) live only in `fly secrets`.
-
-| | |
-|---|---|
-| Fly app | `helm-chat` (the global `helm-chat` was taken) |
-| Volume | `vault_data` 3 GB @ iad → `/data` |
-| Tailnet host / IP | `helm-chat` / `REDACTED-TAILNET-IP` |
-| Chat URL | `http://helm-chat:3107/chat` |
-| Mac vault | `/Users/user/Projects/Vault` → VM `/data/vault` |
-| Syncthing folder ID | `helm-vault` (must match on both sides) |
-| VM Syncthing device | `REDACTED-DEVICE-ID` (v1.19.2) |
-| Mac Syncthing device | `REDACTED-DEVICE-ID` (v2.1.1) |
-
-When adding the VM as a remote device on the Mac, pin its address to
-`tcp://REDACTED-TAILNET-IP:22000` — a tailnet-only node won't turn up in
-Syncthing's global discovery.
+Machine-specific values (app name, tailnet IP, Syncthing device IDs) live in
+`docs/fly-deploy.local.md` — gitignored, one table, same shape as this doc's
+setup steps. Two tips that always apply:
+- If the global `helm-chat` app name is taken, pick any name — only `app` in
+  `fly.toml` needs to match.
+- When adding the VM as a remote device on the Mac, pin its address to
+  `tcp://<tailnet-ip>:22000` — a tailnet-only node won't turn up in
+  Syncthing's global discovery.
