@@ -81,6 +81,23 @@ async function run(): Promise<void> {
     }
   }
 
+  // 3b. vault-cleanup guardrails (PRD C): the built prompt must name every
+  //     protected path and must not regress to the old deny-list phrasing
+  //     ("outside system/ and archive/") that made Atlas and daily-notes
+  //     archival candidates.
+  {
+    const prompt = buildPrompt({ id: PROBE_ID, skill: "vault-cleanup", args: {} }, "inbox/reports/vault-cleanup/probe.md") ?? "";
+    const protectedPaths = ["Atlas/", "daily-notes/", "CLAUDE.md", "system/", "archive/", "_board-snapshot.md", "morphy-state.json"];
+    const unnamed = protectedPaths.filter((p) => !prompt.includes(p));
+    if (unnamed.length) {
+      fail(`vault-cleanup prompt no longer names protected path(s): [${unnamed}]`);
+    } else if (prompt.includes("outside system/ and archive/")) {
+      fail("vault-cleanup prompt reintroduced deny-list scoping — Atlas/daily-notes become archival candidates");
+    } else {
+      pass("vault-cleanup — allow-list prompt names all protected paths");
+    }
+  }
+
   // 4. Coupling #3 (CLAUDE.md): the hardcoded HUD_TZ default in lib/config.ts
   //    must equal the one in runner/runner.js. Compare the SOURCE literals,
   //    not the resolved values — a machine's ~/.claude/.env would mask drift.
