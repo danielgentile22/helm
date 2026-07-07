@@ -7,17 +7,17 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/sh</string>
-        <string>/Users/user/Projects/helm/scripts/helm-watchdog.sh</string>
+        <string>__HELM_ROOT__/scripts/helm-watchdog.sh</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/user/Projects/helm</string>
+    <string>__HELM_ROOT__</string>
     <key>StartInterval</key>
     <integer>600</integer>
     <key>RunAtLoad</key>
     <false/>
     <key>StandardOutPath</key>
-    <string>/Users/user/Projects/helm/logs/watchdog.log</string>
+    <string>__HELM_ROOT__/logs/watchdog.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/user/Projects/helm/logs/watchdog.log</string>
+    <string>__HELM_ROOT__/logs/watchdog.log</string>
 </dict>
 </plist>

@@ -3,16 +3,12 @@
  *
  * The RUNNER owns all Notion I/O — the HUD/Next process never calls Notion, it
  * only reads the JSON cache the runner writes (system/morphy-state.json). The
- * token (NOTION_TOKEN) lives in ~/.claude/.env; the board's IDs are NOT secret
- * (default below, override via env). Uses global fetch (Node 18+). No deps.
+ * token (NOTION_TOKEN) and the Tasks database id (MORPHY_DB_ID) both live in
+ * ~/.claude/.env — no hardcoded defaults. Uses global fetch (Node 18+). No deps.
  */
 
 const NOTION_VERSION = "2022-06-28";
 const API = "https://api.notion.com/v1";
-
-// The Morphy "Tasks" database — in the "Morphy Consulting Space" workspace
-// (Daniel moved the board there 2026-06-27; old private-workspace ID retired).
-export const MORPHY_DB_ID_DEFAULT = "REDACTED-NOTION-DB-ID";
 
 export function notionConfigured(token) {
   return typeof token === "string" && token.length > 0;
@@ -42,7 +38,8 @@ const sel = (p) => p?.select?.name ?? null;
 const txt = (rich) => (rich || []).map((r) => r.plain_text).join("").trim();
 
 /** Page through the whole Tasks DB → a flat array of normalized task objects. */
-export async function queryTasks(token, dbId = MORPHY_DB_ID_DEFAULT) {
+export async function queryTasks(token, dbId) {
+  if (!dbId) throw new Error("no MORPHY_DB_ID in ~/.claude/.env");
   const tasks = [];
   let cursor;
   do {
@@ -72,6 +69,7 @@ export async function queryTasks(token, dbId = MORPHY_DB_ID_DEFAULT) {
 
 /** Create one task row. Defaults match a voice-captured todo from Daniel. */
 export async function createTask(token, dbId, task) {
+  if (!dbId) throw new Error("no MORPHY_DB_ID in ~/.claude/.env");
   const {
     title,
     status = "Todo",
@@ -92,6 +90,6 @@ export async function createTask(token, dbId, task) {
   }
   return notionFetch(token, `/pages`, {
     method: "POST",
-    body: JSON.stringify({ parent: { database_id: dbId || MORPHY_DB_ID_DEFAULT }, properties }),
+    body: JSON.stringify({ parent: { database_id: dbId }, properties }),
   });
 }

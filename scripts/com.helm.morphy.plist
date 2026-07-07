@@ -7,10 +7,10 @@
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/bin/python3</string>
-        <string>/Users/user/Projects/helm/feeds/morphy-github.py</string>
+        <string>__HELM_ROOT__/feeds/morphy-github.py</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/user/Projects/helm</string>
+    <string>__HELM_ROOT__</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
@@ -26,8 +26,8 @@
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/user/Projects/helm/logs/morphy.log</string>
+    <string>__HELM_ROOT__/logs/morphy.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/user/Projects/helm/logs/morphy.log</string>
+    <string>__HELM_ROOT__/logs/morphy.log</string>
 </dict>
 </plist>

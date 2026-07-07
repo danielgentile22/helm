@@ -7,14 +7,14 @@
     <key>ProgramArguments</key>
     <array>
         <string>/opt/homebrew/bin/node</string>
-        <string>/Users/user/Projects/helm/runner/runner.js</string>
+        <string>__HELM_ROOT__/runner/runner.js</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/user/Projects/helm</string>
+    <string>__HELM_ROOT__</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/Users/user/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>
@@ -23,8 +23,8 @@
     <key>ThrottleInterval</key>
     <integer>10</integer>
     <key>StandardOutPath</key>
-    <string>/Users/user/Projects/helm/logs/runner.log</string>
+    <string>__HELM_ROOT__/logs/runner.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/user/Projects/helm/logs/runner.log</string>
+    <string>__HELM_ROOT__/logs/runner.log</string>
 </dict>
 </plist>
