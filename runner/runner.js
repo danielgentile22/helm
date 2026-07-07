@@ -32,7 +32,7 @@ import { join, basename, dirname } from "node:path";
 import { homedir, platform } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { watch } from "node:fs/promises";
-import { queryTasks, createTask, MORPHY_DB_ID_DEFAULT } from "./notion.js";
+import { queryTasks, createTask } from "./notion.js";
 import { notify, loadNotifyConfig } from "./notify.js";
 import { fleetCheck } from "./fleet.js";
 import { loadEnvFile } from "./env.js";
@@ -69,11 +69,11 @@ const STATUS_FILE = join(VAULT_ROOT, "system", "runner-status.json");
 const RUNNER_LOG = join(RUNNER_DIR, "runner.log");
 
 // --- Morphy ↔ Notion ------------------------------------------------------
-// The runner owns ALL Notion I/O. NOTION_TOKEN is secret (~/.claude/.env); the
-// board IDs are not (default in notion.js, env-overridable). morphySync() pulls
+// The runner owns ALL Notion I/O. NOTION_TOKEN (secret) and MORPHY_DB_ID (the
+// board's database id) both come from ~/.claude/.env. morphySync() pulls
 // the board → a JSON cache the HUD reads + a human snapshot in the vault.
 const NOTION_TOKEN = env("NOTION_TOKEN") || null;
-const MORPHY_DB_ID = env("MORPHY_DB_ID") || MORPHY_DB_ID_DEFAULT;
+const MORPHY_DB_ID = env("MORPHY_DB_ID") || null;
 const MORPHY_DIR = join(VAULT_ROOT, "Atlas", "Projects", "Morphy");
 const MORPHY_STATE_FILE = join(VAULT_ROOT, "system", "morphy-state.json");
 // Native skills run in Node here (Notion REST), NOT via headless `claude -p`.

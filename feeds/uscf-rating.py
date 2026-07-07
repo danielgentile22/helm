@@ -15,8 +15,7 @@ so a manual re-run or a `launchctl kickstart` never duplicates a row.
 
 The host is Cloudflare-fronted but the API itself answers a plain HTTPS GET as
 long as we send an honest, non-default User-Agent (the ratings website's own JS
-calls the same endpoint). No browser, no headless Chromium. Endpoint discovered
-by Daniel's REDACTED-REPO project (~/Projects/REDACTED-REPO/uscf_client.py).
+calls the same endpoint). No browser, no headless Chromium.
 
 On any failure we log to stderr and exit non-zero WITHOUT writing a row, so the
 tile keeps its last good value instead of flashing an error.

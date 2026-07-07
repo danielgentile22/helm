@@ -3,8 +3,10 @@
 # reachable only over Tailscale. Because no service fronts the machine, Fly's
 # autostop never applies: the machine stays up. Keep exactly one running with
 # `fly scale count 1`. See docs/fly-deploy.md.
+# If the global "helm-chat" name is taken, create your own (`fly apps create`)
+# and deploy with `fly deploy -a <name>` — only this line has to match.
 app = "helm-chat"
-primary_region = "iad"  # Ashburn — closest to the DMV
+primary_region = "iad"  # Ashburn
 
 [build]
   dockerfile = "Dockerfile"

@@ -130,7 +130,7 @@ export default function MorphyPage() {
             label="Commits"
             {...statTileProps(commits, { raw: true, per: "/7d" })}
             unit="/7d"
-            foot="REDACTED-REPO"
+            foot={process.env.NEXT_PUBLIC_MORPHY_REPO || "repo activity"}
             stale={fmtAge(commits.timestamp).stale}
           />
         )}
