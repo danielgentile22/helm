@@ -31,7 +31,7 @@ plan and its checkboxes are no longer authoritative.
 
 ## Example dialogue
 
-> **Dev:** Daniel checked off "Deploy REDACTED-REPO" on his phone — do we
+> **Dev:** Daniel checked off "Deploy the side project" on his phone — do we
 > update Interview Readiness.md?
 > **Domain expert:** No. That checkbox lives in the TODO list; the Atlas note
 > is just the story of the plan. Nothing syncs back.
