@@ -38,8 +38,20 @@ commands below are the fallback.
 The `com.helm.*` launchd agents live in `~/Library/LaunchAgents/` and
 start everything at login — the authoritative inventory (services, feed
 schedules, and scheduled skills like the Sunday 17:00 weekly-review) is
-the `launchdAgents` list in `.helm-config.json`; canonical plists are
-versioned in `scripts/`.
+the `launchdAgents` list in `.helm-config.json`; canonical plist TEMPLATES
+(`__HELM_ROOT__`/`__HOME__` placeholders) are versioned in `scripts/` —
+render + (re)install them with `scripts/install-launchd.sh`.
+
+## Ship after merge (the routine)
+
+1. Prod build: `npx next build`
+2. Restart local HUD: `launchctl kickstart -k gui/$(id -u)/com.helm.hud`
+   (kickstart `com.helm.runner` / `com.helm.voice` too if you touched them)
+3. Fly VM: `fly deploy -a <app> && ./scripts/smoke-fly.sh` — the machine's
+   real app name lives in `docs/fly-deploy.local.md` (gitignored);
+   tailnet-only (see docs/fly-deploy.md)
+4. Verify live: `curl -sf http://localhost:3107 >/dev/null` (HUD health
+   probe; voice: `http://127.0.0.1:3108/health`)
 
 ## Project facts
 

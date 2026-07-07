@@ -6,15 +6,15 @@
     <string>com.helm.voice</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/user/Projects/helm/voice-server/.venv/bin/python</string>
+        <string>__HELM_ROOT__/voice-server/.venv/bin/python</string>
         <string>server.py</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/user/Projects/helm/voice-server</string>
+    <string>__HELM_ROOT__/voice-server</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/Users/user/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>KOKORO_DEVICE</key>
         <string>cpu</string>
         <key>WHISPER_DEVICE</key>
@@ -31,8 +31,8 @@
     <key>ThrottleInterval</key>
     <integer>10</integer>
     <key>StandardOutPath</key>
-    <string>/Users/user/Projects/helm/logs/voice.log</string>
+    <string>__HELM_ROOT__/logs/voice.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/user/Projects/helm/logs/voice.log</string>
+    <string>__HELM_ROOT__/logs/voice.log</string>
 </dict>
 </plist>
