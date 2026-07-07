@@ -37,6 +37,7 @@ const SKILL_TAB: Record<string, TabId> = {
   "plan-tomorrow": "today",
   "vault-cleanup": "today",
   "weekly-review": "today",
+  "atlas-distill": "today",
   "voice-ask": "today",
   "morphy-sync": "morphy",
   "morphy-task-add": "morphy",
@@ -53,6 +54,7 @@ export const DECK_SKILLS: { skill: string; label: string }[] = [
   { skill: "plan-tomorrow", label: "Plan Tmrw" },
   { skill: "vault-cleanup", label: "Vault Clean" },
   { skill: "weekly-review", label: "Weekly Rev" },
+  { skill: "atlas-distill", label: "Distill" },
   { skill: "morphy-sync", label: "Morphy Sync" },
   // morphy-task-add has no deck button — the TaskAdd panel is its UI (same
   // reasoning as voice-ask above). It stays in SKILL_TAB for the union test.

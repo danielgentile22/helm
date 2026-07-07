@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- New scheduled skill `atlas-distill` (PRD B): Sundays 16:00 (before the
+  weekly review) the runner distills the recent raw layer (daily notes,
+  voice, chats, reports) into Atlas — dated fact bullets auto-appended to
+  existing `Atlas/Areas/` notes (append-only, dedupe-checked), while new
+  Decision records, new Areas, and canon contradictions land as drafts in
+  an `inbox/reports/atlas-distill/` report flagged `pending-review`.
+  `#sensitive`, `system/`, `archive/`, and Morphy board files excluded.
 - Docs & repo hygiene (issue #44): machine record (`.helm-config.json`)
   now lists all 9 skills and is the authoritative launchd inventory, with
   every installed plist versioned in `scripts/`; CLAUDE.md / README /

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  Atlas-distill schedule. Fires every Sunday at 16:00 local time — one hour
+  BEFORE com.helm.weekly (17:00) so the weekly review synthesizes an
+  up-to-date Atlas instead of raw scraps. Drops an `atlas-distill` intent
+  into the runner's queue; the always-alive com.helm.runner executes it.
+
+  Install:  cp scripts/com.helm.distill.plist ~/Library/LaunchAgents/
+            launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.helm.distill.plist
+  Run now:  launchctl kickstart -k gui/$(id -u)/com.helm.distill
+
+  No RunAtLoad on purpose — a login should not fire a vault-wide distill.
+-->
+<dict>
+    <key>Label</key>
+    <string>com.helm.distill</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/node</string>
+        <string>__HELM_ROOT__/scripts/queue-intent.mjs</string>
+        <string>atlas-distill</string>
+        <string>schedule:distill</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>__HELM_ROOT__</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>0</integer>
+        <key>Hour</key>
+        <integer>16</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>__HELM_ROOT__/logs/distill.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HELM_ROOT__/logs/distill.log</string>
+</dict>
+</plist>
