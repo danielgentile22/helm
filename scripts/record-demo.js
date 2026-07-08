@@ -1,5 +1,5 @@
 // Record one demo segment: load HUD, hold Space (fake mic plays the wav), release, wait for reply.
-// usage: node record.js <wavPath> <outDir> <holdMs> <scrollAfterMs> <tailMs> [clickTranscript]
+// usage: node scripts/record-demo.js <wavPath> <outDir> <holdMs> <scrollAfterMs> <tailMs> [clickTranscript]
 const { chromium } = require('playwright');
 
 (async () => {

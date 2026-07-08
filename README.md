@@ -6,7 +6,7 @@
 
 *Recorded against the committed demo vault: a tier-2 question answered
 instantly by the local router, then a tier-1 command dispatching a skill
-to the runner queue, with the spoken reply. ~40s.*
+to the runner queue, with the spoken reply. ~42s.*
 
 A voice-controlled heads-up display for my own life — **local-first**,
 file-backed, with a background Claude agent doing the heavy thinking. Hold
