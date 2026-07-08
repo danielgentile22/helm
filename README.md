@@ -57,8 +57,12 @@ install the `com.helm.*` launchd agents with `scripts/install-launchd.sh`
 
 ## How it works
 
-**Full visual explainer: [`docs/architecture.html`](docs/architecture.html)**
-— open in any browser, works offline. The short version:
+**Full visual explainer: [danielgentile22.github.io/helm/architecture.html](https://danielgentile22.github.io/helm/architecture.html)**
+(also [`docs/architecture.html`](docs/architecture.html) — open in any browser, works offline).
+
+[![HELM architecture explainer](docs/architecture-screenshot.png)](https://danielgentile22.github.io/helm/architecture.html)
+
+The short version:
 
 ```
 ┌──────────────────────────── YOUR MACHINE ────────────────────────────┐   ┌─ CLOUD (opt) ─┐
