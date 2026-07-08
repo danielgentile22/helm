@@ -20,7 +20,8 @@ applications, USCF rating with a weekly delta, morning-report headlines in
 the AI Wire, completed run records, Morphy board, agenda). `npm run demo`
 first runs `scripts/demo-freshen.mjs`, which shifts the demo vault's dates
 so its "today" is your today — the only thing it touches is data under
-`demo-vault/`; there are no demo flags or code branches in the HUD.
+`demo-vault/` (that dirties the working tree; `git checkout demo-vault`
+restores it); there are no demo flags or code branches in the HUD.
 
 **Non-functional in demo mode** (by design): voice (no voice server),
 runner-dispatched skills (the runner status honestly shows OFFLINE — the

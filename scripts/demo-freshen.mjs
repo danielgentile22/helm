@@ -9,6 +9,7 @@
 // Run: node scripts/demo-freshen.mjs   (then VAULT_ROOT=demo-vault next dev)
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const DAY = 24 * 3600 * 1000;
 // bare YYYY-MM-DD, optionally followed by an ISO time part — one regex pass
@@ -51,7 +52,7 @@ export function freshenDemoVault(root, today) {
 }
 
 // CLI: freshen the committed demo vault in place, "today" in the demo's TZ.
-if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]))) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const root = path.resolve(process.argv[2] ?? "demo-vault");
   const today = new Intl.DateTimeFormat("en-CA", {
     timeZone: process.env.HUD_TZ ?? "America/New_York",
