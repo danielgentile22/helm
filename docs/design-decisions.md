@@ -66,7 +66,7 @@ rather than by widening this bind.
 
 **Decision.** The Fly.io VM (tailnet-only) runs the identical image with
 `CHAT_ONLY=1`. Middleware 404s every mutating API request
-(POST/PUT/PATCH/DELETE) except `/api/chat`; GET/HEAD pass
+(POST/PUT/PATCH/DELETE) except `/api/chat`; safe methods pass
 ([middleware.ts](../middleware.ts)).
 
 **Why.** The perimeter line that matters is reads vs. writes, not a route
@@ -143,10 +143,10 @@ you which one you forgot. That friction is the feature.
 
 **Decision.** Data tiles (calendar agenda, GitHub activity, USCF rating, job
 applications) are plain Python scripts hitting APIs directly
-([feeds/](../feeds/)), not AI skills. The runner spawns them on a schedule,
-validates their JSON output, and substitutes a typed `ok:false` on garbage
-or timeout ([runner/runner.js](../runner/runner.js), "Calendar agenda
-cache").
+([feeds/](../feeds/)), not AI skills. Most run as scheduled launchd jobs;
+the agenda feed is spawned by the runner, which validates its JSON output
+and substitutes a typed `ok:false` on garbage or timeout
+([runner/runner.js](../runner/runner.js), "Calendar agenda cache").
 
 **Why.** Fetching a calendar is not a judgment task. The agenda tile was
 originally a headless `claude -p` agent — 689 of 712 runs produced identical
