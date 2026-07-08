@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "last_sync_ts": "2026-07-08T11:15:00.000Z",
+  "date": "2026-07-08",
+  "tz": "America/New_York",
+  "events": [
+    { "time": "09:00", "end": "09:15", "item": "Standup (Acme)" },
+    { "time": "11:30", "end": "12:30", "item": "Pairing session with Rivka", "location": "Meet" },
+    { "time": "14:00", "end": "16:00", "item": "Deep work: onboarding flow" },
+    { "time": "17:30", "end": "19:00", "item": "Chess club", "location": "Community center" }
+  ]
+}

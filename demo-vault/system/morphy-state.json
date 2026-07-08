@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "last_sync_ts": "2026-07-08T11:20:00.000Z",
+  "total": 9,
+  "counts": { "idea": 2, "todo": 3, "in_progress": 2, "blocked": 1, "done": 1 },
+  "open_total": 6,
+  "open_by_assignee": { "Ada": 3, "Grace": 2, "Both": 1 },
+  "ideas_awaiting": 2,
+  "delta": {
+    "since": "2026-07-07T11:20:00.000Z",
+    "added": [{ "name": "Draft Vega site-survey checklist", "addedBy": "Grace" }],
+    "closed": ["Send June invoice"]
+  },
+  "tasks": [
+    { "id": "t1", "name": "Draft Vega site-survey checklist", "status": "Todo", "assignee": "Ada", "addedBy": "Grace", "priority": "High", "due": "2026-07-10" },
+    { "id": "t2", "name": "Antenna pattern report for the Hilltop site", "status": "In progress", "assignee": "Ada", "addedBy": "Ada", "priority": "High", "due": null },
+    { "id": "t3", "name": "Renew ham-radio club sponsorship", "status": "Todo", "assignee": "Grace", "addedBy": "Grace", "priority": "Low", "due": null },
+    { "id": "t4", "name": "Small-cell lease comps spreadsheet", "status": "In progress", "assignee": "Grace", "addedBy": "HELM", "priority": "Med", "due": "2026-07-15" },
+    { "id": "t5", "name": "Waiting on Vega NDA countersign", "status": "Blocked", "assignee": "Both", "addedBy": "Ada", "priority": "Med", "due": null },
+    { "id": "t6", "name": "Quote template refresh", "status": "Todo", "assignee": "Both", "addedBy": "Ada", "priority": "Low", "due": null },
+    { "id": "t7", "name": "Try a drone photo add-on service", "status": "Idea", "assignee": "Unassigned", "addedBy": "Grace", "priority": null, "due": null },
+    { "id": "t8", "name": "Newsletter for tower landlords", "status": "Idea", "assignee": "Unassigned", "addedBy": "Ada", "priority": null, "due": null },
+    { "id": "t9", "name": "Send June invoice", "status": "Done", "assignee": "Grace", "addedBy": "Grace", "priority": "Med", "due": null }
+  ]
+}
