@@ -1,6 +1,6 @@
 # HELM
 
-[![CI](https://github.com/danielgentile22/helm/actions/workflows/ci.yml/badge.svg)](https://github.com/danielgentile22/helm/actions/workflows/ci.yml)
+[![CI](https://github.com/danielgentile22/helm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/danielgentile22/helm/actions/workflows/ci.yml)
 
 A voice-controlled heads-up display for my own life — **local-first**,
 file-backed, with a background Claude agent doing the heavy thinking. Hold

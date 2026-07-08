@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
@@ -16,6 +17,7 @@ jobs:
       - run: npm ci
       - run: npm test
         env:
+          # runner has no ~/.claude/.env; lib/config.ts fail-closes without a vault
           VAULT_ROOT: ${{ github.workspace }}/demo-vault
           HUD_TZ: America/New_York
       - run: npx tsc --noEmit
