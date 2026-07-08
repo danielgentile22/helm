@@ -1,0 +1,9 @@
+{
+  "id": "run-demo-morning",
+  "skill": "morning-report",
+  "status": "ok",
+  "ts_started": "2026-07-08T10:30:04.000Z",
+  "ts_completed": "2026-07-08T10:33:41.000Z",
+  "summary": "Morning report written: 4 headlines, jobs + chess + Morphy sections.",
+  "deliverable_path": "inbox/reports/morning/2026-07-08-morning-report-demo0001.md"
+}
