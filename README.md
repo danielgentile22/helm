@@ -26,12 +26,10 @@ data. Two more pieces make it real:
 
 **Day-to-day**: open `claude` in this folder and say **"spin up HELM"** —
 it starts whatever isn't running (voice server, runner, HUD) detached, so
-everything survives closing the terminal. To make it automatic at login,
-the `com.helm.*` launchd agents under `~/Library/LaunchAgents/` handle it
-on this machine — the authoritative inventory (services, feed schedules,
-and scheduled skills like the Sunday 17:00 weekly-review) lives in
-`.helm-config.json` (`launchdAgents`), and the canonical plists are
-versioned in `scripts/` with install commands in their comments.
+everything survives closing the terminal. For automatic start at login,
+install the `com.helm.*` launchd agents with `scripts/install-launchd.sh`
+(plist templates and the full service inventory live in `scripts/` and
+`.helm-config.json`).
 
 ## How it works
 
@@ -90,9 +88,8 @@ append-only, so the data is yours independent of the HUD:
 `company` or `role` is required; `applied` (YYYY-MM-DD) drives the
 "this week" count; `id` (optional) is the de-dup handle. The daily
 `feeds/job-applications.py` reads this store and writes `jobs/applications`
-(total) and `jobs/applied_7d` (last 7 days) to `metrics.csv`. **How records
-get *captured* — voice command, inbox-scan, or manual edit — is deliberately
-left open**; for now, append a line by hand or seed a sample to demo the tile.
+(total) and `jobs/applied_7d` (last 7 days) to `metrics.csv`. Append a line
+by hand, or seed a sample to demo the tile.
 
 ## Configuration
 
