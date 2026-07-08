@@ -15,4 +15,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+        env:
+          VAULT_ROOT: ${{ github.workspace }}/demo-vault
+          HUD_TZ: America/New_York
       - run: npx tsc --noEmit
