@@ -161,9 +161,14 @@ with tempfile.TemporaryDirectory() as d:
               rc1 != 0 and written["ok"] is False and typed, got=(rc1, written.get("reason")))
 
         # (b) a pre-existing valid same-day cache survives a failure byte-for-byte
+        # main() dates the cache from the real clock, so the fixture must too —
+        # a frozen DATE here rots the moment the calendar day rolls over.
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        today = datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d")
         good = ca.agenda_payload(
-            [timed("Keep me", "2026-07-05T09:00:00-04:00", "2026-07-05T09:30:00-04:00")],
-            DATE, TZ, NOW_ISO)
+            [timed("Keep me", f"{today}T09:00:00-04:00", f"{today}T09:30:00-04:00")],
+            today, TZ, NOW_ISO)
         ca.write_agenda(agenda, good)
         before = agenda.read_bytes()
         rc2 = ca.main([])
