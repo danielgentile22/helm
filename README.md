@@ -59,6 +59,9 @@ install the `com.helm.*` launchd agents with `scripts/install-launchd.sh`
 
 **Full visual explainer: [danielgentile22.github.io/helm/architecture.html](https://danielgentile22.github.io/helm/architecture.html)**
 (also [`docs/architecture.html`](docs/architecture.html) — open in any browser, works offline).
+For the *why* behind the interesting parts — the security perimeter, files as
+the message bus, router tiers, contract tests — see
+[`docs/design-decisions.md`](docs/design-decisions.md).
 
 [![HELM architecture explainer](docs/architecture-screenshot.png)](https://danielgentile22.github.io/helm/architecture.html)
 
