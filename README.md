@@ -6,6 +6,28 @@ Space, talk; it answers in under a second, dispatches real work to a queue,
 and speaks the results when they land. Every glyph on screen traces to a
 real file. No theater.
 
+## Try it in 60 seconds (demo vault)
+
+No credentials, no Claude CLI, no voice stack — just the HUD against the
+committed demo vault of fictional data:
+
+```bash
+npm install && npm run demo               # → http://localhost:3107
+```
+
+Every tab, tile, and feed panel renders populated (daily note, job
+applications, USCF rating with a weekly delta, morning-report headlines in
+the AI Wire, completed run records, Morphy board, agenda). `npm run demo`
+first runs `scripts/demo-freshen.mjs`, which shifts the demo vault's dates
+so its "today" is your today — the only thing it touches is data under
+`demo-vault/` (that dirties the working tree; `git checkout demo-vault`
+restores it); there are no demo flags or code branches in the HUD.
+
+**Non-functional in demo mode** (by design): voice (no voice server),
+runner-dispatched skills (the runner status honestly shows OFFLINE — the
+graceful degradation is part of the demo), and live feeds (metrics are
+canned, not fetched).
+
 ## Quickstart
 
 ```bash

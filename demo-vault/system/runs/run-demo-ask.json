@@ -1,0 +1,10 @@
+{
+  "id": "run-demo-ask",
+  "skill": "voice-ask",
+  "status": "ok",
+  "ts_started": "2026-07-08T13:02:00.000Z",
+  "ts_completed": "2026-07-08T13:03:12.000Z",
+  "summary": "Compared the two tournament sections; recommended the U1600 for rating upside.",
+  "args": { "prompt": "which uscf section should I enter this summer" },
+  "deliverable_path": "inbox/demo-ask-uscf-sections.md"
+}
