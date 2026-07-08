@@ -17,8 +17,10 @@
   counts removed); one shared `~/.claude/.env` parser for the runner and
   queue scripts (`runner/env.js`), key rule aligned with `lib/homeEnv.ts`;
   version single-sourced from package.json (heartbeat reads it, `VERSION`
-  file removed); `public/how-it-works.html` moved to `docs/` as a marked
-  historical snapshot; untracked `morphy-hud.png` (1.2 MB).
+  file removed); untracked `morphy-hud.png` (1.2 MB).
+- Docs cleanup: removed the stale `docs/how-it-works.html` historical
+  snapshot (superseded by `docs/architecture.html`) and moved the internal
+  `PRD-helm-improvements.md` out of the repo into the vault.
 
 ## 1.0.1 — 2026-07-01
 
