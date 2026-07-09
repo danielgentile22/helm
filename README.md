@@ -2,6 +2,12 @@
 
 [![CI](https://github.com/danielgentile22/helm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/danielgentile22/helm/actions/workflows/ci.yml)
 
+![HELM demo — hold Space, ask a question, get an instant answer from vault files, then dispatch a real skill to the queue](docs/demo.gif)
+
+*Recorded against the committed demo vault: a tier-2 question answered
+instantly by the local router, then a tier-1 command dispatching a skill
+to the runner queue, with the spoken reply. ~42s.*
+
 A voice-controlled heads-up display for my own life — **local-first**,
 file-backed, with a background Claude agent doing the heavy thinking. Hold
 Space, talk; it answers in under a second, dispatches real work to a queue,
