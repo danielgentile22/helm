@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-11
+---
+
 # Syncthing must not be able to enqueue work
 
 ## Context and Problem Statement
@@ -22,7 +27,7 @@ and `system/runs/` from sync — on the Mac, and written unconditionally by
 Excluding the queue from sync severs the path at the transport layer instead
 of trusting every peer forever.
 
-## Consequences
+### Consequences
 
 * Run history doesn't sync either, so the remote HUD can't show it.
   Acceptable: run records are an operator view, and the alternative was a

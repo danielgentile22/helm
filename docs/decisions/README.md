@@ -5,8 +5,9 @@ cold. Most decisions are about one fact: the runner executes an AI agent
 with broad permissions on a personal machine, so the power must stay
 reachable by exactly one person.
 
-MADR-style: each record states the problem, the options actually on the
-table, what was chosen and why, and what it costs.
+[MADR](https://adr.github.io/madr/) format: each record states the problem,
+the options actually on the table, what was chosen and why, and what it
+costs, with status and date in the frontmatter.
 
 1. [Files as the message bus](0001-files-as-the-message-bus.md)
 2. [Fail-closed shared-key auth on every write route](0002-fail-closed-shared-key-auth.md)

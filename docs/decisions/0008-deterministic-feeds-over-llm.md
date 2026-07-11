@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-11
+---
+
 # Deterministic feeds where an LLM adds only failure modes
 
 ## Context and Problem Statement
@@ -28,7 +33,7 @@ function exercised against canned API responses with no network
 are reserved for tasks that need synthesis — the reports, the reviews, the
 open-ended voice asks.
 
-## Consequences
+### Consequences
 
 * Each feed hand-rolls one API client, including OAuth for Google Calendar.
   Worth it: those clients fail loudly and identically, which is the point.
