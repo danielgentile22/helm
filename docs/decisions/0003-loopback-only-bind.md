@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-11
+---
+
 # Loopback-only bind on the machine that can execute code
 
 ## Context and Problem Statement
@@ -21,7 +26,7 @@ if the key leaked or the auth check regressed, LAN peers can't reach the
 port at all. The only host that may talk to the queue is the host the user
 is sitting at.
 
-## Consequences
+### Consequences
 
 * No phone access to the Mac HUD. Remote access is a separate deployment
   with a deliberately weaker capability set

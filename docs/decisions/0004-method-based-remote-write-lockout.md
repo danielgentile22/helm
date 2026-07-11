@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-11
+---
+
 # Remote access = same app, method-based write lockout
 
 ## Context and Problem Statement
@@ -25,7 +30,7 @@ a GET never touches the queue, so it can never reach the Mac runner. Gating
 on HTTP method means the phone renders every tab read-only and new write
 routes are covered automatically — no middleware edit to forget.
 
-## Consequences
+### Consequences
 
 * One standing rule: no route may mutate on GET, or it slips through the
   gate. That's REST hygiene anyway, but here it's load-bearing.

@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-11
+---
+
 # Fail-closed shared-key auth on every write route
 
 ## Context and Problem Statement
@@ -28,7 +33,7 @@ oversized bodies are rejected by `Content-Length` *before* buffering
 (`bodyTooLarge`), since a post-read length check can't prevent the
 allocation.
 
-## Consequences
+### Consequences
 
 * Every write route carries two lines of guard glue, and the HUD's own pages
   must fetch the key at runtime ([lib/helmKey.ts](../../lib/helmKey.ts)).

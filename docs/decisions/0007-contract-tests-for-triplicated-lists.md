@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-11
+---
+
 # Contract tests where three files must agree
 
 ## Context and Problem Statement
@@ -26,7 +31,7 @@ daemon; a contract test buys the same guarantee without coupling the
 runtimes. The same file also pins timezone agreement between HUD and runner,
 where drift would split "today" across two dates.
 
-## Consequences
+### Consequences
 
 * Adding a skill means touching three files plus the test telling you which
   one you forgot. That friction is the feature.

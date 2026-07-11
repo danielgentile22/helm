@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-11
+---
+
 # Three router tiers, with a rules engine that always works
 
 ## Context and Problem Statement
@@ -31,12 +36,31 @@ degraded to exact phrases, but never dead. Model output is distrusted: a
 tier-1 route naming a skill outside `ALLOWED_SKILLS` is rejected and
 re-routed rather than executed.
 
-## Consequences
+### Consequences
 
 * Three engines to keep behaviorally aligned, and the rules engine is a pile
   of regexes with the fragility that implies —
   [scripts/test-router.ts](../../scripts/test-router.ts) sweeps utterances
   across all of them.
+
+### Confirmation
+
+Measured with [scripts/bench-router-model.mjs](../../scripts/bench-router-model.mjs)
+(warm model, grammar-enforced JSON, 16-utterance sweep mirroring the test
+suite's), 2026-07-11, Apple Silicon, local Ollama:
+
+| engine | valid JSON | tier accuracy | skill discipline | p50 latency | p90 latency |
+|---|---|---|---|---|---|
+| `qwen3:4b` (local) | 16/16 | 12/16 | 15/16 | 1404ms | 3094ms |
+
+The 4 misses were all tier confusion (chitchat and snapshot questions routed
+to tier 1/3), never an unsafe skill dispatch — and one utterance answered
+correctly but self-classified as tier 1. This is exactly why model-proposed
+skills are validated against `ALLOWED_SKILLS` and why
+[scripts/test-router.ts](../../scripts/test-router.ts) sweeps the rules
+engine, which handles the known phrasings deterministically before a model
+is ever asked. The Haiku engine is not benchmarked here (it spends API
+tokens); the rules engine is exercised directly by the test suite.
 
 ## Pros and Cons of the Options
 
@@ -58,22 +82,3 @@ re-routed rather than executed.
 
 * Good: deterministic, free, offline.
 * Bad: exact phrases only — tier 3 (open-ended asks) can't exist.
-
-## Confirmation
-
-Measured with [scripts/bench-router-model.mjs](../../scripts/bench-router-model.mjs)
-(warm model, grammar-enforced JSON, 16-utterance sweep mirroring the test
-suite's), 2026-07-11, Apple Silicon, local Ollama:
-
-| engine | valid JSON | tier accuracy | skill discipline | p50 latency | p90 latency |
-|---|---|---|---|---|---|
-| `qwen3:4b` (local) | 16/16 | 12/16 | 15/16 | 1404ms | 3094ms |
-
-The 4 misses were all tier confusion (chitchat and snapshot questions routed
-to tier 1/3), never an unsafe skill dispatch — and one utterance answered
-correctly but self-classified as tier 1. This is exactly why model-proposed
-skills are validated against `ALLOWED_SKILLS` and why
-[scripts/test-router.ts](../../scripts/test-router.ts) sweeps the rules
-engine, which handles the known phrasings deterministically before a model
-is ever asked. The Haiku engine is not benchmarked here (it spends API
-tokens); the rules engine is exercised directly by the test suite.

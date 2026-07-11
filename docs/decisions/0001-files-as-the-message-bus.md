@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-11
+---
+
 # Files as the message bus
 
 ## Context and Problem Statement
@@ -25,7 +30,7 @@ with nothing but the filesystem; the user can too, in any text editor or in
 Obsidian. Debugging is `cat`. Sync to other machines is Syncthing on the
 vault directory — no replication logic written here.
 
-## Consequences
+### Consequences
 
 * Polling latency measured in seconds — fine for a personal HUD.
 * No transactions; writes must be atomic so readers never see torn JSON —

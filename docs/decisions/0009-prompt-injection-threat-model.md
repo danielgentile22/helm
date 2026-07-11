@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-11
+---
+
 # Prompt injection: the content path is accepted, the transport path is closed
 
 ## Context and Problem Statement
@@ -35,7 +40,7 @@ Reevaluation triggers: **any multi-user surface, or any write path that
 syncs into the queue.** Either breaks the assumptions above and the
 sanitize/quarantine option stops being optional.
 
-## Consequences
+### Consequences
 
 * Report content is trusted as read; a poisoned source can bias what the HUD
   displays and speaks until the user notices.
