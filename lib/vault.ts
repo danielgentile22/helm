@@ -3,9 +3,10 @@ import path from "path";
 import { VAULT_ROOT, HUD_TZ } from "./config";
 
 // ---------------------------------------------------------------------------
-// V.A.U.L.T. data layer — reads the SAME files the vault cockpit reads.
-// Zero new plumbing: metrics.csv, runner-status.json,
-// system/runs/*.json, daily-notes/YYYY-MM-DD.md.
+// Vault data layer — reads the vault's plain files (metrics.csv,
+// runner-status.json, system/runs/*.json, daily-notes/YYYY-MM-DD.md)
+// into typed state for the HUD. No database, no cache: every read
+// hits the files, so whatever wrote them last wins.
 // ---------------------------------------------------------------------------
 
 export interface MetricPoint {

@@ -264,7 +264,7 @@ export default function GraphCore({
     // WebGL can legitimately be unavailable (GPU-process reset on a
     // long-running tab, context cap, blocklist) and the constructor throws
     // synchronously — degrade to no orb (the phone layout ships that way)
-    // instead of crashing the shell. Mirrors dithering-shader's guard.
+    // instead of crashing the shell.
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({ antialias: false });

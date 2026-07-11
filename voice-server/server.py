@@ -15,7 +15,7 @@ POST /stt            -> raw audio body (webm/opus/wav) -> {"text": "..."}
                         faster-whisper on CUDA (RTX 5090, ~100ms warm),
                         CPU int8 if CUDA init fails.
 
-Run: .venv\\Scripts\\python.exe server.py   (or start-voice-server.vbs)
+Run: .venv/bin/python server.py
 """
 
 import asyncio
