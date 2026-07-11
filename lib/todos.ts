@@ -7,7 +7,7 @@ import { atomicWriteFileSync } from "./atomicWrite";
 // Job-search TODO list — one markdown file, <vault>/jobs/todos.md, is the
 // database. `- [ ]` / `- [x]` lines are the items; `##` headings group them.
 // Obsidian edits and HUD edits act on the same file (seeded 2026-07-03 from
-// Atlas/Projects/Interview Readiness.md — see CONTEXT.md "Seed").
+// Atlas/Projects/Interview Readiness.md).
 // Pure functions here, unit-tested in scripts/test-todos.ts; the /api/todos
 // route adds auth + IO glue.
 // ---------------------------------------------------------------------------

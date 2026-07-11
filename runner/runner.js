@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Agentic OS Runner — background skill executor for the HELM HUD.
+ * HELM Runner — background skill executor for the HELM HUD.
  *
  * Watches `<vault>/system/queue/<uuid>.json`, processes intents, shells
  * `claude -p "<prompt>"`, writes `system/runs/<uuid>.json` + `<uuid>.md`.
  * The HUD writes intents (buttons + voice); this daemon does the work.
  *
- * Run it: `node runner/runner.js` (or start-runner.vbs hidden at login).
+ * Run it: `node runner/runner.js`.
  * Crash-safe: logs uncaught exceptions. No external deps — Node 20+.
  *
  * ADDING A SKILL: add a case to deliverablePathFor() + buildPrompt(), then
@@ -102,10 +102,11 @@ const AGENDA_FEED = join(RUNNER_DIR, "..", "feeds", "calendar-agenda.py");
 const IS_WINDOWS = platform() === "win32";
 const CLAUDE_BIN = IS_WINDOWS ? "claude.exe" : "claude";
 // Pin the model for ALL headless spawns — never inherit the interactive CLI
-// default. Defaults to opus for the best skill output; set AGENTIC_OS_MODEL in
+// default. Defaults to opus for the best skill output; set HELM_MODEL in
 // ~/.claude/.env to a cheaper model (claude-sonnet-4-6 / claude-haiku-4-5-...)
 // if you'd rather trade quality for cost. Onboarding asks which you want.
-const CLAUDE_MODEL = env("AGENTIC_OS_MODEL") || "claude-opus-4-8";
+// (AGENTIC_OS_MODEL is the pre-rename key, still read for one release.)
+const CLAUDE_MODEL = env("HELM_MODEL") || env("AGENTIC_OS_MODEL") || "claude-opus-4-8";
 // Per-run override — voice asks may carry args.model ("use opus" spoken in
 // the ask). Allowlist only; anything else falls back to CLAUDE_MODEL.
 const MODEL_ALLOWLIST = new Set([
