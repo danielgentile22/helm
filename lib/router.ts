@@ -7,7 +7,8 @@ import { recentExchanges, type Exchange } from "./voiceMemory";
 // ---------------------------------------------------------------------------
 // route(transcript) → {tier, skill?, reply}. Tier 1 = dispatch a skill to the
 // queue, tier 2 = answer from the vault snapshot, tier 3 = needs real
-// thinking (not wired yet — honest about it).
+// thinking — voiceDispatch queues a `voice-ask` the runner answers with a
+// full model, and the reply is spoken when the run lands.
 // Two engines: Haiku when ANTHROPIC_API_KEY exists (~/.claude/.env), else a
 // rule matcher that covers the known commands and dashboard questions.
 // Haiku failure falls back to rules — the PTT loop never dies on a 4xx.

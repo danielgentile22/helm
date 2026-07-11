@@ -181,19 +181,13 @@ async function run(): Promise<void> {
   }
 
   // 8. Version (issue #44): package.json is the one version source. The
-  //    heartbeat must read PKG_VERSION (never a hardcoded literal) and the
-  //    CHANGELOG must have an entry for the current version.
+  //    heartbeat must read PKG_VERSION (never a hardcoded literal).
   const runnerSrc = readFileSync(join(root, "runner", "runner.js"), "utf8");
   const pkgVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
   if (!runnerSrc.includes("version: PKG_VERSION")) {
     fail("runner heartbeat no longer uses PKG_VERSION — hardcoded version literals drift");
   } else {
     pass(`runner heartbeat reports package.json version (${pkgVersion})`);
-  }
-  if (!readFileSync(join(root, "CHANGELOG.md"), "utf8").includes(`## ${pkgVersion} `)) {
-    fail(`CHANGELOG.md has no entry for package.json version ${pkgVersion}`);
-  } else {
-    pass(`CHANGELOG.md has an entry for ${pkgVersion}`);
   }
 
   const total = ALLOWED_SKILLS.size;

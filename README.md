@@ -14,6 +14,14 @@ Space, talk; it answers in under a second, dispatches real work to a queue,
 and speaks the results when they land. Every glyph on screen traces to a
 real file. No theater.
 
+It is built for exactly one user on one machine (~18k lines), and that
+constraint is load-bearing: with a single writer and a human-paced workload,
+plain files beat a database as the message bus
+([ADR 0001](docs/decisions/0001-files-as-the-message-bus.md)), and the
+security model reduces to keeping an AI agent with broad permissions
+reachable by exactly one person
+([the decision records](docs/decisions/)).
+
 ## Try it in 60 seconds (demo vault)
 
 No credentials, no Claude CLI, no voice stack — just the HUD against the
@@ -36,38 +44,13 @@ runner-dispatched skills (the runner status honestly shows OFFLINE — the
 graceful degradation is part of the demo), and live feeds (metrics are
 canned, not fetched).
 
-## Quickstart
-
-```bash
-npm install
-export VAULT_ROOT=/path/to/your/vault   # required — no default
-npx next dev -p 3107                     # → http://localhost:3107
-```
-
-`VAULT_ROOT` points at the folder of plain files the HUD reads and writes
-(set it in your shell or `~/.claude/.env`; see [Vault structure](#vault-structure)
-for the layout). It's required — start without it and the HUD and runner
-both fail fast with a message naming the setting rather than rendering demo
-data. Two more pieces make it real:
-
-1. **The runner** (background skill executor): `node runner/runner.js` in a
-   second terminal. Needs the `claude` CLI installed and logged in.
-2. **Voice** (optional, fully local): see [Voice server setup](#voice-server-setup).
-
-**Day-to-day**: open `claude` in this folder and say **"spin up HELM"** —
-it starts whatever isn't running (voice server, runner, HUD) detached, so
-everything survives closing the terminal. For automatic start at login,
-install the `com.helm.*` launchd agents with `scripts/install-launchd.sh`
-(plist templates and the full service inventory live in `scripts/` and
-`.helm-config.json`).
-
 ## How it works
 
 **Full visual explainer: [danielgentile22.github.io/helm/architecture.html](https://danielgentile22.github.io/helm/architecture.html)**
 (also [`docs/architecture.html`](docs/architecture.html) — open in any browser, works offline).
 For the *why* behind the interesting parts — the security perimeter, files as
-the message bus, router tiers, contract tests — see
-[`docs/design-decisions.md`](docs/design-decisions.md).
+the message bus, router tiers, contract tests — see the
+[architecture decision records](docs/decisions/).
 
 [![HELM architecture explainer](docs/architecture-screenshot.png)](https://danielgentile22.github.io/helm/architecture.html)
 
@@ -92,6 +75,35 @@ The short version:
   headless-Claude ask, answer spoken when it lands.
 - **Mental model**: the voice layer is a dispatcher, not a worker. Files
   are the message bus — every step of every job is inspectable on disk.
+
+## Quickstart
+
+```bash
+npm install
+export VAULT_ROOT=/path/to/your/vault   # required — no default
+npx next dev -p 3107                     # → http://localhost:3107
+```
+
+`VAULT_ROOT` points at the folder of plain files the HUD reads and writes
+(set it in your shell or `~/.claude/.env`; see [Vault structure](#vault-structure)
+for the layout). It's required — start without it and the HUD and runner
+both fail fast with a message naming the setting rather than rendering demo
+data. Two more pieces make it real:
+
+1. **The runner** (background skill executor): `node runner/runner.js` in a
+   second terminal. Needs the `claude` CLI installed and logged in.
+2. **Voice** (optional, fully local): see the
+   [voice server setup](docs/setup.md#voice-server-setup).
+
+Every environment variable, the Google Calendar OAuth bootstrap, and the
+full voice install live in [`docs/setup.md`](docs/setup.md).
+
+**Day-to-day**: open `claude` in this folder and say **"spin up HELM"** —
+it starts whatever isn't running (voice server, runner, HUD) detached, so
+everything survives closing the terminal. For automatic start at login,
+install the `com.helm.*` launchd agents with `scripts/install-launchd.sh`
+(plist templates and the full service inventory live in `scripts/` and
+`.helm-config.json`).
 
 ## Vault structure
 
@@ -128,99 +140,6 @@ append-only, so the data is yours independent of the HUD:
 (total) and `jobs/applied_7d` (last 7 days) to `metrics.csv`. Append a line
 by hand, or seed a sample to demo the tile.
 
-## Configuration
-
-All env vars are read from your shell or `~/.claude/.env` (a plain
-`KEY=value` file; process env wins). `NEXT_PUBLIC_*` vars go in `.env.local`
-in the repo root instead (they're inlined into the client at build).
-
-| Var | Purpose | Default |
-|---|---|---|
-| `VAULT_ROOT` | vault folder | **required** (no default) |
-| `CLAUDE_PROJECTS_DIR` | transcript root the token feed scans | `~/.claude/projects` |
-| `JOBS_DIR` | folder holding `applications.jsonl` (job feed) | `$VAULT_ROOT/jobs` |
-| `AGENDA_SYNC_MIN` | calendar-agenda refresh cadence (minutes) | `30` |
-| `PYTHON_BIN` | interpreter the runner spawns the calendar feed with | `/usr/local/bin/python3` |
-| `GCAL_CLIENT_SECRET` | Desktop OAuth client JSON (calendar feed) | `~/.claude/helm-gcal-client.json` |
-| `GCAL_TOKEN` | stored Google refresh token (calendar feed) | `~/.claude/helm-gcal-token.json` |
-| `HUD_TZ` | IANA timezone for "today" (HUD + runner) | `America/New_York` |
-| `HUD_USER_NAME` | how voice notes refer to you | `User` |
-| `AGENTIC_OS_MODEL` | model for background `claude -p` runs | `claude-opus-4-8` |
-| `ANTHROPIC_API_KEY` | enables Haiku intent routing (~$0.002/ask) | unset (optional) |
-| `VOICE_ROUTER` | force router engine: `auto`/`rules`/`haiku`/`local` | `auto` |
-| `VOICE_ROUTER_MODEL` / `OLLAMA_URL` | local routing fallback | `qwen3:4b` / `:11434` |
-| `VOICE_SERVER_URL` | TTS/STT server | `http://127.0.0.1:3108` |
-| `KOKORO_VOICE` / `KOKORO_SPEED` | TTS voice + speed | `bm_george` / `1.0` |
-| `WHISPER_MODEL` / `WHISPER_PROMPT` | STT model + vocab bias | `small.en` / built-in |
-| `KOKORO_DEVICE` / `WHISPER_DEVICE` | force `cpu` if CUDA misbehaves | auto |
-| `WAKE_WORD` / `WAKE_MODEL` | opt-in hands-free wake (`on`/`off`) + openWakeWord model name | `off` / unset (push-to-talk) |
-| `NEXT_PUBLIC_OBSIDIAN_VAULT` | Obsidian vault name for deep links | unset (link hidden) |
-| `NEXT_PUBLIC_VOICE_WS` | wake-event websocket | `ws://127.0.0.1:3108/events` |
-
-⚠️ `ANTHROPIC_API_KEY` belongs in the `~/.claude/.env` FILE only — set as a
-system-wide env var it flips your interactive `claude` CLI from
-subscription to API billing.
-
-## Calendar agenda feed
-
-The HUD's agenda tile is fed by `feeds/calendar-agenda.py`, a deterministic
-Google Calendar API call the runner spawns on boot and every `AGENDA_SYNC_MIN`
-minutes (it writes `system/agenda.json`; the HUD only ever reads that cache).
-It replaced the headless `claude -p` agenda agent — no LLM, no MCP. One-time
-setup:
-
-1. Install the Google client libraries into the interpreter the runner uses
-   (the same `PYTHON_BIN` the other feeds run under):
-
-   ```
-   /usr/local/bin/python3 -m pip install google-auth google-auth-oauthlib google-api-python-client
-   ```
-
-2. In [Google Cloud Console](https://console.cloud.google.com/): create a
-   project, **enable the Google Calendar API**, then create an **OAuth client
-   ID of type "Desktop app"** and download its JSON. Save it to
-   `~/.claude/helm-gcal-client.json` (outside the vault — credentials never
-   live in the vault, the repo, or transcripts).
-
-3. Run the one-time consent (opens a browser, asks for read-only calendar
-   access, stores a refresh token at `~/.claude/helm-gcal-token.json`):
-
-   ```
-   python3 feeds/calendar-agenda.py --auth
-   ```
-
-Every sync after that is headless. A `python3 feeds/calendar-agenda.py` with no
-flag runs one sync by hand. If a sync writes `ok:false` with an `auth:` reason
-(refresh token revoked/expired), re-run the `--auth` bootstrap — the reason
-string names that command.
-
-## Voice server setup
-
-Fully local TTS + STT. One-time setup:
-
-```bash
-cd voice-server
-python -m venv .venv
-.venv/bin/pip install kokoro-onnx fastapi uvicorn websockets soundfile faster-whisper onnxruntime
-# NVIDIA GPU: swap plain onnxruntime for onnxruntime-gpu + the matching
-# nvidia-cudnn-cu12 / nvidia-cublas-cu12 / nvidia-cufft-cu12 wheels.
-```
-
-Download `kokoro-v1.0.onnx` (~325MB) and `voices-v1.0.bin` (~28MB) from the
-[kokoro-onnx releases](https://github.com/thewh1teagle/kokoro-onnx/releases)
-into `voice-server/`. Start: `.venv/bin/python server.py`. GPU gives
-~250ms/sentence TTS and ~130ms STT; CPU works at ~4x slower.
-
-**Pick your voice**: `python make_samples.py` regenerates `samples/` +
-open `audition.html`, pick, set `KOKORO_VOICE`/`KOKORO_SPEED`, restart.
-
-**Input is push-to-talk** (hold Space). Hands-free wake is off by default
-and intentionally unbundled — without headphones the wake mic hears the
-HUD's own speech. To opt in, `pip install --no-deps openwakeword` (the
-`--no-deps` is LOAD-BEARING — a bare install overwrites onnxruntime-gpu
-with the CPU build), point `WAKE_MODEL` at an openWakeWord model name, and
-set `WAKE_WORD=on`.
-
 ## Using it
 
 - **Tabs** — the shell is organized by project: Today / Morphy / Job
@@ -242,21 +161,69 @@ The HUD binds **127.0.0.1 only**, and every state-changing route requires
 the `HELM_API_KEY` shared secret (from `~/.claude/.env`) sent as
 `X-HELM-KEY` — no key configured means writes fail closed (503). It still
 assumes a trusted machine: never bind it to `0.0.0.0`, never port-forward
-3107/3108 — `/api/queue` feeds the runner's headless Claude.
-
-## Platform notes
-
-Everything is Node/Python and runs cross-platform. On Apple Silicon use
-plain `onnxruntime` (CPU) or set `KOKORO_DEVICE=cpu`/`WHISPER_DEVICE=cpu`.
-The `.vbs` files are Windows launcher conveniences; on Mac/Linux use `node
-runner/runner.js &` and `python voice-server/server.py &` (or launchd /
-systemd).
+3107/3108 — `/api/queue` feeds the runner's headless Claude. The full
+perimeter, including why the remote deployment can't write and why Syncthing
+can't enqueue work, is in [ADRs 0002–0005 and 0009](docs/decisions/).
 
 ## Quality gates
 
-After any `lib/` change: `npm test` + `npx tsc --noEmit`. The test chain
-runs the runner syntax check, the TS suites (router sweep, skill/tab
-contract, security, feeds glue, chat), then the Python voice-server and
-feed suites — it needs `python3` on PATH and spends no API tokens. After
-any `runner/runner.js` edit, `node --check runner/runner.js` — the runner
-fails silently on syntax errors.
+`npm test` runs every suite via `scripts/run-tests.mjs` — the runner syntax
+checks, the TS suites (router sweep, skill/tab contract, security, feeds
+glue, chat), then the Python voice-server and feed suites — continuing past
+failures and summarizing per suite. Needs `python3` on PATH; spends no API
+tokens. Run one suite directly: `npx tsx scripts/test-router.ts`. After any
+`lib/` change also run `npx tsc --noEmit`; after any `runner/runner.js`
+edit, `node --check runner/runner.js` — the runner fails silently on syntax
+errors.
+
+## Known limitations
+
+- **Single-user, single-machine by design.** There is no auth beyond one
+  shared secret and no user model; a multi-user HELM would need a different
+  security architecture, not a bigger allowlist
+  ([ADR 0009](docs/decisions/0009-prompt-injection-threat-model.md)).
+- **Polling, not push.** The file-based queue means seconds of latency and
+  no transactions; atomic-rename writes are the only concurrency control
+  ([ADR 0001](docs/decisions/0001-files-as-the-message-bus.md)).
+- **The rules router is a pile of regexes.** It only knows the phrasings in
+  its patterns; anything else needs a model engine up. The utterance sweep
+  in `scripts/test-router.ts` is what keeps it honest
+  ([ADR 0006](docs/decisions/0006-three-router-tiers.md)).
+- **Run history doesn't sync** — the price of keeping the queue out of
+  Syncthing ([ADR 0005](docs/decisions/0005-syncthing-cannot-enqueue-work.md)).
+- **Injected content can bias reports.** Internet text summarized into the
+  vault re-enters model context unfiltered; accepted, with the blast radius
+  bounded ([ADR 0009](docs/decisions/0009-prompt-injection-threat-model.md)).
+
+## Lessons learned
+
+- **Measure before you agentify.** The agenda tile ran as a headless Claude
+  agent for months; logging showed 689 of 712 runs produced identical
+  output. A 200-line Python script replaced it — faster, free, testable
+  ([ADR 0008](docs/decisions/0008-deterministic-feeds-over-llm.md)).
+- **Perimeters should gate on invariants, not inventories.** The first
+  remote write-lockout was a route allowlist; it broke the read-only tabs
+  and still missed the point. Gating on HTTP method covered every future
+  route for free ([ADR 0004](docs/decisions/0004-method-based-remote-write-lockout.md)).
+- **When three files must agree and can't import each other, test the
+  agreement.** Contract tests turned "voice quietly misroutes" into a named
+  failing assertion ([ADR 0007](docs/decisions/0007-contract-tests-for-triplicated-lists.md)).
+
+## AI usage
+
+Most of this implementation was written by Claude Code (Claude Opus 4.x and
+Claude Fable 5), working from specs I wrote and reviewed; the runner's
+background skills execute through the same tool headlessly. The
+architecture, the data model, the security perimeter, and every decision in
+[docs/decisions/](docs/decisions/) are mine — including the ones where I
+overrode the agent's working version: the agenda tile shipped as a headless
+`claude -p` agent and I replaced it with a deterministic Python feed after
+689/712 runs produced identical output (ADR 0008), and the remote
+write-lockout shipped as a route allowlist that I had rewritten as a
+method-based gate after it left the phone's tabs hollow without actually
+removing the write surface (ADR 0004). The `Co-Authored-By: Claude` commit
+trailers are accurate and stay.
+
+## License
+
+[MIT](LICENSE).

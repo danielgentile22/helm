@@ -21,3 +21,4 @@ runner/runner.pid
 # generated review artifacts (contain machine-local paths)
 docs/audits/
 docs/fly-deploy.local.md
+.cate/

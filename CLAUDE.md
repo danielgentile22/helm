@@ -7,8 +7,7 @@ machine is wired (vault path, timezone, voice, router, launchd agents).
 ## Platform
 
 Runs on macOS (Apple Silicon). Voice runs in CPU mode (plain
-`onnxruntime`): slower than GPU but fully functional. The `.vbs` files in
-the repo are leftover Windows launchers — on this machine, use the direct
+`onnxruntime`): slower than GPU but fully functional. Use the direct
 commands or the `com.helm.*` launchd agents.
 
 ## "Spin up HELM" — the start-everything playbook
