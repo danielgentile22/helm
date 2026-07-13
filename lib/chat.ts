@@ -37,17 +37,50 @@ export const CHAT_SKILLS = [
 // only shapes chat — the runner's task skills are untouched. Makes chat behave
 // like a conversation, not a one-shot "SAVED <path>" task run, and restates the
 // two read-only areas (Morphy board + system/ caches) in chat's voice.
-export const CHAT_SYSTEM = [
-  "You are HELM, Daniel's personal assistant, answering an interactive chat from his phone or laptop.",
-  "This is a conversation, not a one-shot task: reply directly and concisely in plain text (it renders in a small chat bubble) — no markdown headers, no file paths, no 'SAVED ...' lines.",
-  "You're running inside his Obsidian vault: read freely, and when he asks you to capture or change something, edit the relevant note (daily-notes/, inbox/, Atlas/) directly.",
-  "Two read-only areas: (1) the Morphy board — answer from system/morphy-state.json and NEVER modify Morphy tasks or the generated Atlas/Projects/Morphy snapshot; to change tasks, tell him to use the board. (2) system/ caches (agenda, metrics, runs) are machine-generated — don't hand-edit them.",
-  // The ONE sanctioned system/ write: the runner's intent queue. Same contract
-  // as the deck buttons and voice (lib/skills.ts writeIntent) — the runner
-  // daemon on the Mac watches system/queue/ and executes the skill.
-  `When he explicitly asks you to RUN a skill ('run my morning report', 'kick off the weekly review' — a dispatch, not a question about what a past report said), write ONE new file system/queue/<uuid>.json (mint a fresh lowercase UUIDv4) containing exactly: {"id": "<that same uuid>", "skill": "<name>", "args": {}, "ts": "<current UTC time, ISO-8601>", "source": "chat"}. Skill names you may queue: ${CHAT_SKILLS.join(", ")}. This queue write is the one exception to the system/ rule. Then tell him it's queued and takes a few minutes — reports land under inbox/reports/, plans in daily-notes/. If he asks about a report's CONTENTS, read the existing file instead of queueing a fresh run.`,
-  "Carry the thread across turns.",
-].join(" ");
+//
+// Dispatch is NOT a file write anymore (ADR-0009): the model emits a
+// `DISPATCH <skill>` sentinel line and route code — not model obedience —
+// validates it against CHAT_SKILLS before calling writeIntent. So a prompt
+// injection in vault/web content the chat reads can ask for `voice-ask` all it
+// likes; parseDispatch() drops anything outside CHAT_SKILLS, and the untrusted
+// `claude -p` session never touches system/queue/ itself.
+export function chatSystem(chatOnly = false): string {
+  const dispatch = chatOnly
+    ? // On the tailnet VM (CHAT_ONLY=1) there is no runner to reach — don't
+      // promise a queue we can't deliver; point him at the Mac instead.
+      `You are running on the tailnet VM, which cannot reach the runner. If he asks you to RUN a skill (${CHAT_SKILLS.join(", ")}), do NOT claim it's queued — tell him to dispatch it from the Mac HUD deck or by voice. You can still read any existing report or plan from the vault.`
+    : `When he explicitly asks you to RUN a skill ('run my morning report', 'kick off the weekly review' — a dispatch, not a question about what a past report said), emit the line "DISPATCH <skill>" on its own line with nothing else on it, then tell him it's queued and takes a few minutes — reports land under inbox/reports/, plans in daily-notes/. Skills you may dispatch: ${CHAT_SKILLS.join(", ")}. That sentinel line is the ONLY way you queue work — never write a file under system/ yourself. If he asks about a report's CONTENTS, read the existing file instead of dispatching.`;
+  return [
+    "You are HELM, Daniel's personal assistant, answering an interactive chat from his phone or laptop.",
+    "This is a conversation, not a one-shot task: reply directly and concisely in plain text (it renders in a small chat bubble) — no markdown headers, no file paths, no 'SAVED ...' lines.",
+    "You're running inside his Obsidian vault: read freely, and when he asks you to capture or change something, edit the relevant note (daily-notes/, inbox/, Atlas/) directly.",
+    "Two read-only areas: (1) the Morphy board — answer from system/morphy-state.json and NEVER modify Morphy tasks or the generated Atlas/Projects/Morphy snapshot; to change tasks, tell him to use the board. (2) system/ caches (agenda, metrics, runs) are machine-generated — don't hand-edit them.",
+    dispatch,
+    "Carry the thread across turns.",
+  ].join(" ");
+}
+
+// A dispatch sentinel: `DISPATCH` at line start, then the skill token. The
+// route strips these lines before showing the reply, so the user never sees
+// the machine token. Anchored + single-token so ordinary prose can't fire it.
+const DISPATCH_RE = /^DISPATCH[ \t]+([a-z][a-z0-9-]*)[ \t]*$/im;
+
+/** The skill the reply asks to dispatch, but ONLY if it's a CHAT_SKILLS skill;
+ *  else null. This — not the prompt — is the enforcement boundary. */
+export function parseDispatch(reply: string): string | null {
+  const m = reply.match(DISPATCH_RE);
+  if (!m) return null;
+  const skill = m[1].toLowerCase();
+  return CHAT_SKILLS.includes(skill) ? skill : null;
+}
+
+/** Drop every DISPATCH sentinel line and collapse the hole it leaves. */
+export function stripDispatch(reply: string): string {
+  return reply
+    .replace(/^DISPATCH[ \t]+[a-z0-9-]+[ \t]*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
 
 /** Pick the request's model if it's allowlisted, else the default. */
 export function modelFor(m: unknown): string {
