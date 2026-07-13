@@ -5,14 +5,17 @@ import { join } from "node:path";
 import { VAULT_ROOT } from "@/lib/config";
 import { atomicWriteFileSync } from "@/lib/atomicWrite";
 import { bodyTooLarge, checkHelmKey } from "@/lib/auth";
+import { writeIntent } from "@/lib/skills";
 import {
-  CHAT_SYSTEM,
+  chatSystem,
   HARD_TIMEOUT_MS,
   acquireThread,
   modelFor,
   parseClaudeJson,
+  parseDispatch,
   releaseThread,
   resolveThreadId,
+  stripDispatch,
   validateMessage,
 } from "@/lib/chat";
 
@@ -84,8 +87,11 @@ export async function POST(req: Request) {
     mkdirSync(CHATS_DIR, { recursive: true });
     mkdirSync(SESSIONS_DIR, { recursive: true });
 
+    // CHAT_ONLY=1 is the tailnet VM: no runner to reach, so the prompt declines
+    // dispatch and the route below never parses/writes one (defense in depth).
+    const chatOnly = process.env.CHAT_ONLY === "1";
     const prior = readSidecar(threadId);
-    const args = ["-p", message, "--model", model, "--output-format", "json", "--append-system-prompt", CHAT_SYSTEM, "--dangerously-skip-permissions"];
+    const args = ["-p", message, "--model", model, "--output-format", "json", "--append-system-prompt", chatSystem(chatOnly), "--dangerously-skip-permissions"];
     if (prior.sessionId) args.push("--resume", prior.sessionId);
 
     const { stdout, stderr, code, timedOut } = await runClaude(args);
@@ -103,7 +109,29 @@ export async function POST(req: Request) {
       );
     }
 
-    const reply = (parsed.result ?? "").trim() || "(no reply)";
+    const rawReply = (parsed.result ?? "").trim();
+    // Trusted dispatch: parseDispatch returns a skill ONLY if it's in
+    // CHAT_SKILLS — a prompt-injected `DISPATCH voice-ask` yields null and is
+    // never queued. args stay {} (writeIntent's default), so chat can't smuggle
+    // a model override or task payload via the sentinel path.
+    let dispatchFailed = false;
+    if (!chatOnly) {
+      const skill = parseDispatch(rawReply);
+      if (skill) {
+        try {
+          writeIntent(skill, "chat");
+        } catch (e) {
+          // a failed write must not sink the chat turn, but the model already
+          // said "queued" — flag it so the user doesn't wait on nothing
+          console.error("[/api/chat] dispatch writeIntent failed", e);
+          dispatchFailed = true;
+        }
+      }
+    }
+    let reply = stripDispatch(rawReply) || "(no reply)";
+    if (dispatchFailed) {
+      reply += "\n\n(Heads up: I couldn't actually queue that — the runner queue write failed. Try again in a moment.)";
+    }
     const sessionId = parsed.session_id ?? prior.sessionId;
     const ts = new Date().toISOString();
 

@@ -139,16 +139,17 @@ async function run(): Promise<void> {
 
   // 6. Chat dispatch (issue #43): every skill CHAT_SYSTEM offers must be one
   //    the runner accepts — same drift guard as the deck/voice couplings.
-  const { CHAT_SKILLS, CHAT_SYSTEM } = await import("../lib/chat");
+  const { CHAT_SKILLS, chatSystem } = await import("../lib/chat");
+  const sys = chatSystem(false);
   for (const skill of CHAT_SKILLS) {
     if (!ALLOWED_SKILLS.has(skill)) fail(`chat offers "${skill}" but it is not in ALLOWED_SKILLS`);
-    else if (!CHAT_SYSTEM.includes(skill)) fail(`CHAT_SKILLS lists "${skill}" but CHAT_SYSTEM never names it`);
+    else if (!sys.includes(skill)) fail(`CHAT_SKILLS lists "${skill}" but chatSystem never names it`);
     else pass(`chat can queue ${skill}`);
   }
-  if (!CHAT_SYSTEM.includes("system/queue/")) {
-    fail("CHAT_SYSTEM no longer teaches the system/queue intent contract");
+  if (!sys.includes("DISPATCH")) {
+    fail("chatSystem no longer teaches the DISPATCH sentinel");
   } else {
-    pass("CHAT_SYSTEM carries the queue-intent contract");
+    pass("chatSystem carries the DISPATCH dispatch contract");
   }
 
   // 7. Machine record (issue #44): .helm-config.json is authoritative by
