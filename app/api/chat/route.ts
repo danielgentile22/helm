@@ -113,19 +113,25 @@ export async function POST(req: Request) {
     // Trusted dispatch: parseDispatch returns a skill ONLY if it's in
     // CHAT_SKILLS — a prompt-injected `DISPATCH voice-ask` yields null and is
     // never queued. args stay {} (writeIntent's default), so chat can't smuggle
-    // a model override or task payload the way an LLM file-write could.
+    // a model override or task payload via the sentinel path.
+    let dispatchFailed = false;
     if (!chatOnly) {
       const skill = parseDispatch(rawReply);
       if (skill) {
         try {
           writeIntent(skill, "chat");
         } catch (e) {
-          // a failed dispatch must not sink the chat turn — log and reply anyway
+          // a failed write must not sink the chat turn, but the model already
+          // said "queued" — flag it so the user doesn't wait on nothing
           console.error("[/api/chat] dispatch writeIntent failed", e);
+          dispatchFailed = true;
         }
       }
     }
-    const reply = stripDispatch(rawReply) || "(no reply)";
+    let reply = stripDispatch(rawReply) || "(no reply)";
+    if (dispatchFailed) {
+      reply += "\n\n(Heads up: I couldn't actually queue that — the runner queue write failed. Try again in a moment.)";
+    }
     const sessionId = parsed.session_id ?? prior.sessionId;
     const ts = new Date().toISOString();
 

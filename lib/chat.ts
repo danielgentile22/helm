@@ -38,12 +38,20 @@ export const CHAT_SKILLS = [
 // like a conversation, not a one-shot "SAVED <path>" task run, and restates the
 // two read-only areas (Morphy board + system/ caches) in chat's voice.
 //
-// Dispatch is NOT a file write anymore (ADR-0009): the model emits a
+// Dispatch is NOT a sanctioned file write anymore (ADR-0009): the model emits a
 // `DISPATCH <skill>` sentinel line and route code — not model obedience —
 // validates it against CHAT_SKILLS before calling writeIntent. So a prompt
-// injection in vault/web content the chat reads can ask for `voice-ask` all it
-// likes; parseDispatch() drops anything outside CHAT_SKILLS, and the untrusted
-// `claude -p` session never touches system/queue/ itself.
+// injection in vault/web content the chat reads can ask for `voice-ask` via the
+// sentinel all it likes; parseDispatch() drops anything outside CHAT_SKILLS and
+// route code always writes args={}.
+//
+// ponytail: this closes the SANCTIONED path only. The `claude -p` child still
+// runs --dangerously-skip-permissions in the vault, so an injection can order
+// it to Write a raw system/queue/<uuid>.json (any ALLOWED_SKILLS skill, any
+// args), bypassing this validation entirely. No in-process guard fixes that —
+// the child has full FS read, so any signing secret is readable too. True
+// isolation needs an OS sandbox / separate uid for the child (follow-up ticket,
+// out of scope for #16); tracked so it isn't mistaken for closed.
 export function chatSystem(chatOnly = false): string {
   const dispatch = chatOnly
     ? // On the tailnet VM (CHAT_ONLY=1) there is no runner to reach — don't
@@ -63,21 +71,33 @@ export function chatSystem(chatOnly = false): string {
 // A dispatch sentinel: `DISPATCH` at line start, then the skill token. The
 // route strips these lines before showing the reply, so the user never sees
 // the machine token. Anchored + single-token so ordinary prose can't fire it.
-const DISPATCH_RE = /^DISPATCH[ \t]+([a-z][a-z0-9-]*)[ \t]*$/im;
+const DISPATCH_RE = /^DISPATCH[ \t]+([a-z][a-z0-9-]*)[ \t]*$/gim;
 
-/** The skill the reply asks to dispatch, but ONLY if it's a CHAT_SKILLS skill;
- *  else null. This — not the prompt — is the enforcement boundary. */
+// Fenced code blocks are where the model quotes things verbatim — a protocol
+// example it prints, or untrusted vault/web content it echoes back. A legit
+// dispatch is a bare line in prose, never fenced, so drop fences before
+// scanning: a `DISPATCH morning-report` sitting inside ``` can't queue work.
+function stripFences(s: string): string {
+  return s.replace(/```[\s\S]*?```/g, "").replace(/~~~[\s\S]*?~~~/g, "");
+}
+
+/** The skill the reply asks to dispatch, but ONLY if EXACTLY ONE non-fenced
+ *  sentinel names a CHAT_SKILLS skill; else null. This — not the prompt — is
+ *  the enforcement boundary. Zero sentinels = no dispatch; two or more = the
+ *  reply is ambiguous or injected, so we refuse rather than guess (safe-fail:
+ *  nothing queued beats queuing the wrong thing). */
 export function parseDispatch(reply: string): string | null {
-  const m = reply.match(DISPATCH_RE);
-  if (!m) return null;
-  const skill = m[1].toLowerCase();
+  const matches = [...stripFences(reply).matchAll(DISPATCH_RE)];
+  if (matches.length !== 1) return null;
+  const skill = matches[0][1].toLowerCase();
   return CHAT_SKILLS.includes(skill) ? skill : null;
 }
 
-/** Drop every DISPATCH sentinel line and collapse the hole it leaves. */
+/** Drop every DISPATCH sentinel line and collapse the hole it leaves, so the
+ *  user never sees the machine token — even a stray one parseDispatch ignored. */
 export function stripDispatch(reply: string): string {
   return reply
-    .replace(/^DISPATCH[ \t]+[a-z0-9-]+[ \t]*$/gim, "")
+    .replace(DISPATCH_RE, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
