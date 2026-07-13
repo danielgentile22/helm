@@ -3,12 +3,16 @@
 // against synthetic input: no network, no claude spawn, nothing written.
 // Run: npx -y tsx scripts/test-chat.ts
 import {
+  CHAT_SKILLS,
   DEFAULT_MODEL,
   acquireThread,
+  chatSystem,
   modelFor,
   parseClaudeJson,
+  parseDispatch,
   releaseThread,
   resolveThreadId,
+  stripDispatch,
   validateMessage,
 } from "../lib/chat";
 
@@ -89,6 +93,43 @@ eq(parseClaudeJson(""), null, "empty stdout → null");
   check(acquireThread(t), "acquire succeeds again after release");
   releaseThread(t);
   check(acquireThread("other-thread"), "a different thread is independently lockable");
+}
+
+// --- dispatch enforcement (issue #16) ----------------------------------------
+// The security property: route code, not model obedience, decides what queues.
+eq(parseDispatch("DISPATCH morning-report"), "morning-report", "allowed skill on its own line → dispatched");
+eq(parseDispatch("Sure, running it now.\nDISPATCH weekly-review\nIt's queued."), "weekly-review", "sentinel embedded in prose is still parsed");
+eq(parseDispatch("DISPATCH Morning-Report"), "morning-report", "sentinel is case-insensitive, normalized lowercase");
+// (a) a non-CHAT_SKILLS skill is rejected by parse, not by the prompt
+eq(parseDispatch("DISPATCH voice-ask"), null, "injected voice-ask sentinel is rejected");
+eq(parseDispatch("DISPATCH morphy-task-add"), null, "injected morphy-task-add sentinel is rejected");
+eq(parseDispatch("DISPATCH rm-rf-vault"), null, "unknown skill sentinel is rejected");
+eq(parseDispatch("Please dispatch morning-report for me"), null, "skill named only in prose does not dispatch");
+eq(parseDispatch("no sentinel here"), null, "reply with no sentinel → null");
+// fenced/quoted sentinels don't fire — the model quoting an example or echoing
+// untrusted content in ``` fences must not queue real work
+eq(parseDispatch("Here's how it works:\n```\nDISPATCH morning-report\n```\nGot it?"), null, "sentinel inside a ``` fence is ignored");
+eq(parseDispatch("~~~\nDISPATCH weekly-review\n~~~"), null, "sentinel inside a ~~~ fence is ignored");
+// two or more sentinels → ambiguous/injected → dispatch nothing (safe-fail)
+eq(parseDispatch("DISPATCH morning-report\nDISPATCH voice-ask"), null, "legit + injected sentinel → refuse both");
+eq(parseDispatch("DISPATCH morning-report\nDISPATCH weekly-review"), null, "two legit sentinels → ambiguous → null");
+for (const skill of CHAT_SKILLS) {
+  eq(parseDispatch(`DISPATCH ${skill}`), skill, `every CHAT_SKILLS skill dispatches: ${skill}`);
+}
+
+// stripDispatch hides the machine token from the user-facing reply
+eq(stripDispatch("It's queued.\nDISPATCH morning-report\n"), "It's queued.", "sentinel line stripped from reply");
+eq(stripDispatch("DISPATCH morning-report"), "", "reply that is only a sentinel → empty (route shows '(no reply)')");
+eq(stripDispatch("plain reply, no sentinel"), "plain reply, no sentinel", "reply without a sentinel is untouched");
+
+// (b) the CHAT_ONLY prompt variant carries NO queue/dispatch contract
+{
+  const chatOnly = chatSystem(true);
+  check(!chatOnly.includes("DISPATCH"), "CHAT_ONLY prompt does not teach the DISPATCH sentinel");
+  check(!chatOnly.includes("system/queue/"), "CHAT_ONLY prompt does not teach the queue file contract");
+  check(chatOnly.includes("Mac"), "CHAT_ONLY prompt points him at the Mac to dispatch");
+  const normal = chatSystem(false);
+  check(normal.includes("DISPATCH"), "normal prompt DOES teach the DISPATCH sentinel");
 }
 
 console.log(failed === 0 ? `\nAll chat checks pass.` : `\n${failed} chat check(s) failed.`);
