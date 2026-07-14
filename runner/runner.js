@@ -921,6 +921,12 @@ export function failedSyncState(prev, reason) {
     // undefined when there's never been a successful sync — JSON.stringify drops
     // the key, so the watchdog reads a null ts and goes red (issue #18).
     last_sync_ts: prev?.last_sync_ts,
+    // The live `tasks`/`delta`/`counts` are intentionally NOT carried — the HUD
+    // reads them ungated and would render stale board data as current. But keep
+    // the last-good task list under a private key so the NEXT successful sync
+    // can still diff against it and report what changed during the outage
+    // (delta + Michael-added-a-card notification). Chains across a failure run.
+    tasks_baseline: prev?.tasks ?? prev?.tasks_baseline,
   };
 }
 
@@ -959,10 +965,13 @@ async function morphySync(reason = "scheduled") {
   const ts = new Date().toISOString();
   const { counts, open_by_assignee, open_total, ideas_awaiting } = morphyCounts(tasks);
 
-  // delta vs the previous cache: new task ids = added; Todo→Done = closed
+  // delta vs the previous cache: new task ids = added; Todo→Done = closed. After
+  // an outage prev is a failedSyncState with no live `tasks`, so fall back to the
+  // baseline it carried — otherwise the recovery sync reports no changes (#18).
+  const baseline = Array.isArray(prev?.tasks) ? prev.tasks : prev?.tasks_baseline;
   const delta = { since: prev?.last_sync_ts ?? null, added: [], closed: [] };
-  if (Array.isArray(prev?.tasks)) {
-    const prevById = new Map(prev.tasks.map((t) => [t.id, t]));
+  if (Array.isArray(baseline)) {
+    const prevById = new Map(baseline.map((t) => [t.id, t]));
     for (const t of tasks) {
       const p = prevById.get(t.id);
       if (!p) delta.added.push({ name: t.name, addedBy: t.addedBy });

@@ -299,7 +299,18 @@ async function run(): Promise<void> {
   );
   check(
     !("delta" in failedState) && !("counts" in failedState) && !("tasks" in failedState),
-    "failedSyncState drops stale delta/counts/tasks (consumers read them without gating on ok)"
+    "failedSyncState drops stale delta/counts and the LIVE tasks key (HUD reads them ungated)"
+  );
+  check(
+    Array.isArray(failedState.tasks_baseline) && failedState.tasks_baseline[0].id === "a",
+    "failedSyncState keeps the last-good tasks under tasks_baseline (recovery delta needs it)"
+  );
+  // the baseline survives a run of consecutive failures (chains prev.tasks_baseline)
+  const failedAgain = failedSyncState(failedState, "still down");
+  check(
+    Array.isArray(failedAgain.tasks_baseline) && failedAgain.tasks_baseline[0].id === "a" &&
+      failedAgain.last_sync_ts === "2020-01-01T00:00:00Z",
+    "a second consecutive failure still carries the baseline + frozen last_sync_ts"
   );
   check(
     failedSyncState(null, "boom").last_sync_ts === undefined,
