@@ -32,7 +32,7 @@ import { join, basename, dirname } from "node:path";
 import { homedir, platform } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { watch } from "node:fs/promises";
-import { queryTasks, createTask, sanitizeTaskName } from "./notion.js";
+import { queryTasks, createTask, sanitizeBoardText } from "./notion.js";
 import { notify, loadNotifyConfig } from "./notify.js";
 import { fleetCheck } from "./fleet.js";
 import { loadEnvFile } from "./env.js";
@@ -372,6 +372,17 @@ export function isIntentFile(name) {
   return UUID_JSON_RE.test(String(name || ""));
 }
 
+// The run-record id is the queue FILENAME's UUID — never intent.id from file
+// contents (a planted JSON could set it to `../../…` and redirect the write out
+// of system/runs/, or dodge the completed-run dedup and re-run claude -p).
+// isIntentFile accepts `<uuid>.JSON` (case-insensitive), and node's basename
+// won't strip a case-mismatched extension, so strip it ourselves and lowercase:
+// a replay named `<uuid>.JSON` must resolve to the SAME record as `<uuid>.json`
+// or the dedup misses it (issue #18).
+export function runIdFromFile(fileName) {
+  return basename(String(fileName || "")).replace(/\.json$/i, "").toLowerCase();
+}
+
 function enqueueNew() {
   if (!existsSync(QUEUE_DIR)) return;
   const files = readdirSync(QUEUE_DIR).filter(isIntentFile);
@@ -474,10 +485,7 @@ export function retireClaim(fileName, summary) {
   } catch {
     /* unreadable — retire it anyway */
   }
-  // runId from the FILENAME only (a validated UUID) — never intent.id from
-  // file contents, which a planted queue/claim JSON could set to `../../…`
-  // to redirect this write outside system/runs/ (issue #18).
-  const runId = basename(fileName, ".json");
+  const runId = runIdFromFile(fileName); // FILENAME UUID, never intent.id (#18)
   const ts = new Date().toISOString();
   try {
     writeJson(join(RUNS_DIR, `${runId}.json`), {
@@ -543,7 +551,7 @@ async function processOne(fileName) {
     }
   }
   if (lastErr || !intent) {
-    const runId = basename(fileName, ".json");
+    const runId = runIdFromFile(fileName);
     const ts = new Date().toISOString();
     writeJson(join(RUNS_DIR, `${runId}.json`), {
       id: runId,
@@ -568,12 +576,7 @@ async function processOne(fileName) {
     return;
   }
 
-  // runId from the FILENAME only (isIntentFile guarantees a UUID) — never
-  // intent.id from file contents. A planted queue JSON with intent.id set to
-  // `../../…` would otherwise redirect the run-record write outside
-  // system/runs/ AND spawn a claude -p session (issue #18). Every real
-  // producer names the file `${id}.json`, so this is identical for them.
-  const runId = basename(fileName, ".json");
+  const runId = runIdFromFile(fileName); // FILENAME UUID, never intent.id (#18)
 
   // Second layer against replayed intents (conflict copies share the same
   // intent.id): an id that already completed must never run again.
@@ -887,13 +890,16 @@ export function morphySnapshotMd(tasks, ts) {
     if (!list || !list.length) continue;
     md += `## ${st} (${list.length})\n`;
     for (const t of list) {
+      // queryTasks already sanitizes these; re-sanitize here so morphySnapshotMd
+      // is self-defending if ever handed raw tasks. Status headings iterate the
+      // fixed `order` list, so an injected status just doesn't render.
       const meta = [
-        t.assignee && t.assignee !== "Unassigned" ? `@${t.assignee}` : null,
-        t.priority,
+        t.assignee && t.assignee !== "Unassigned" ? `@${sanitizeBoardText(t.assignee)}` : null,
+        sanitizeBoardText(t.priority) || null,
       ]
         .filter(Boolean)
         .join(" · ");
-      md += `- ${sanitizeTaskName(t.name)}${meta ? ` — ${meta}` : ""}${t.addedBy === "HELM" ? " _(HELM)_" : ""}\n`;
+      md += `- ${sanitizeBoardText(t.name)}${meta ? ` — ${meta}` : ""}${t.addedBy === "HELM" ? " _(HELM)_" : ""}\n`;
     }
     md += `\n`;
   }
@@ -902,10 +908,20 @@ export function morphySnapshotMd(tasks, ts) {
 
 // A FAILED sync must never advance last_sync_ts — the fleet watchdog measures
 // staleness from it, so bumping it on failure hides a dead token / frozen feed
-// behind a green dot (issue #18). Carry the last *successful* sync forward
-// (via prev) and record the failed attempt separately in last_attempt_ts.
+// behind a green dot (issue #18). Carry ONLY the last *successful* timestamp
+// forward (so the age math still points at the last good sync) and record the
+// failed attempt in last_attempt_ts. Deliberately does NOT spread the rest of
+// prev: consumers (lib/status.ts, app/morphy/page.tsx) read delta/counts/tasks
+// without gating on ok, so retaining them would render stale board data as live.
 export function failedSyncState(prev, reason) {
-  return { ...(prev || {}), ok: false, reason, last_attempt_ts: new Date().toISOString() };
+  return {
+    ok: false,
+    reason,
+    last_attempt_ts: new Date().toISOString(),
+    // undefined when there's never been a successful sync — JSON.stringify drops
+    // the key, so the watchdog reads a null ts and goes red (issue #18).
+    last_sync_ts: prev?.last_sync_ts,
+  };
 }
 
 async function morphySync(reason = "scheduled") {
