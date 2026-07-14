@@ -37,6 +37,19 @@ async function notionFetch(token, route, init = {}) {
 const sel = (p) => p?.select?.name ?? null;
 const txt = (rich) => (rich || []).map((r) => r.plain_text).join("").trim();
 
+// Board task names are co-edited by Michael and flow verbatim into files that
+// skip-permissions sessions are *instructed* to read (morphy-state.json, the
+// board snapshot → the morning-report/weekly-review prompts). Collapse
+// newlines + control chars to spaces and length-cap so a task name can't inject
+// a markdown heading or a line of "instructions" into those reads (issue #18).
+export function sanitizeTaskName(s) {
+  return String(s ?? "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
 /** Page through the whole Tasks DB → a flat array of normalized task objects. */
 export async function queryTasks(token, dbId) {
   if (!dbId) throw new Error("no MORPHY_DB_ID in ~/.claude/.env");
@@ -53,7 +66,7 @@ export async function queryTasks(token, dbId) {
       const props = pg.properties || {};
       tasks.push({
         id: pg.id,
-        name: txt(props.Name?.title) || "(untitled)",
+        name: sanitizeTaskName(txt(props.Name?.title)) || "(untitled)",
         status: sel(props.Status) || "Todo",
         assignee: sel(props.Assignee) || "Unassigned",
         addedBy: sel(props["Added by"]),
