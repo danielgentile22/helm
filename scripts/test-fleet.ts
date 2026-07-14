@@ -81,6 +81,32 @@ const producer = (h: { producers: Producer[] }, id: string) => h.producers.find(
     "missing caches count as stale (runner should have written them)"
   );
 }
+// --- ok:false trips red on the next failed sync, even with a FRESH ts (#18) --
+// A dead Notion token freezes the sync; an agenda feed can even write its own
+// fresh-timestamped ok:false. Age math alone would stay green — ok:false must not.
+{
+  const h = deriveFleetHealth(
+    inputs({ agenda: { ok: false, reason: "auth: bad creds", last_sync_ts: NOW } })
+  );
+  const p = producer(h, "agenda");
+  check(p.stale === true, "agenda ok:false with a fresh ts is stale (broken feed → red)");
+  check(!!p.reason && /not syncing/.test(p.reason), "agenda ok:false reason names the outage");
+}
+{
+  const h = deriveFleetHealth(
+    inputs({ morphy: { ok: false, reason: "dead token", last_sync_ts: NOW } })
+  );
+  const p = producer(h, "morphy-board");
+  check(p.stale === true, "morphy ok:false with a fresh ts is stale (dead token → red)");
+  check(!!p.reason && /not syncing/.test(p.reason), "morphy ok:false reason names the outage");
+}
+{
+  // ok:true still uses the age window — a healthy fresh sync stays green.
+  const h = deriveFleetHealth(
+    inputs({ agenda: { ok: true, last_sync_ts: "2026-06-30T15:45:00Z" } })
+  );
+  check(producer(h, "agenda").stale === false, "agenda ok:true and fresh is not stale");
+}
 
 // --- deadline producers: due only after the local deadline -------------------
 {
