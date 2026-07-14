@@ -107,27 +107,34 @@ export function deriveFleetHealth(inputs) {
   // Each check → { last_output_ts, stale, reason } (reason null when fresh).
   const checks = [];
 
-  // Runner-owned caches: stale = last sync older than 2× the sync interval.
+  // Runner-owned caches: stale = last sync older than 2× the sync interval, OR
+  // an explicit ok:false. The ok:false arm turns the dot red on the very next
+  // failed sync (a dead Notion token, or an agenda feed that writes its own
+  // fresh-timestamped ok:false) instead of waiting out the age window (#18).
   const agendaLimit = 2 * (inputs.agendaIntervalMin || 30);
   const agendaTs = inputs.agenda?.last_sync_ts || null;
   const agendaAge = ageMin(agendaTs, nowMs);
+  const agendaFailed = inputs.agenda?.ok === false;
   checks.push({
     id: "agenda",
     last_output_ts: agendaTs,
-    stale: agendaAge > agendaLimit,
-    reason:
-      agendaAge > agendaLimit
+    stale: agendaFailed || agendaAge > agendaLimit,
+    reason: agendaFailed
+      ? `agenda feed not syncing (${inputs.agenda?.reason || "ok:false"})`
+      : agendaAge > agendaLimit
         ? `agenda cache ${Math.round(agendaAge)}m old (limit ${agendaLimit}m)`
         : null,
   });
   const morphyTs = inputs.morphy?.last_sync_ts || null;
   const morphyAge = ageMin(morphyTs, nowMs);
+  const morphyFailed = inputs.morphy?.ok === false;
   checks.push({
     id: "morphy-board",
     last_output_ts: morphyTs,
-    stale: morphyAge > AGE_LIMIT_MIN["morphy-board"],
-    reason:
-      morphyAge > AGE_LIMIT_MIN["morphy-board"]
+    stale: morphyFailed || morphyAge > AGE_LIMIT_MIN["morphy-board"],
+    reason: morphyFailed
+      ? `morphy board not syncing (${inputs.morphy?.reason || "ok:false"})`
+      : morphyAge > AGE_LIMIT_MIN["morphy-board"]
         ? `morphy board ${Math.round(morphyAge)}m old (limit ${AGE_LIMIT_MIN["morphy-board"]}m)`
         : null,
   });

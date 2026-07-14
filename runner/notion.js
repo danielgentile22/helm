@@ -37,6 +37,22 @@ async function notionFetch(token, route, init = {}) {
 const sel = (p) => p?.select?.name ?? null;
 const txt = (rich) => (rich || []).map((r) => r.plain_text).join("").trim();
 
+// Board text (task names AND the Assignee/Status/Priority/Added-by select
+// options) is co-edited by Michael / an API client and flows verbatim into
+// files that skip-permissions sessions are *instructed* to read
+// (morphy-state.json, the board snapshot -> the morning-report/weekly-review
+// prompts). Replace every Unicode control char (\p{Cc} covers C0, DEL, and C1
+// such as U+0085 NEL) with a space, collapse the remaining whitespace (\s folds
+// U+2028/U+2029 line/para separators too), and length-cap -- so no field can
+// inject a markdown heading or a line of "instructions" into those reads (#18).
+export function sanitizeBoardText(s) {
+  return String(s ?? "")
+    .replace(/\p{Cc}/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
 /** Page through the whole Tasks DB → a flat array of normalized task objects. */
 export async function queryTasks(token, dbId) {
   if (!dbId) throw new Error("no MORPHY_DB_ID in ~/.claude/.env");
@@ -53,11 +69,11 @@ export async function queryTasks(token, dbId) {
       const props = pg.properties || {};
       tasks.push({
         id: pg.id,
-        name: txt(props.Name?.title) || "(untitled)",
-        status: sel(props.Status) || "Todo",
-        assignee: sel(props.Assignee) || "Unassigned",
-        addedBy: sel(props["Added by"]),
-        priority: sel(props.Priority),
+        name: sanitizeBoardText(txt(props.Name?.title)) || "(untitled)",
+        status: sanitizeBoardText(sel(props.Status)) || "Todo",
+        assignee: sanitizeBoardText(sel(props.Assignee)) || "Unassigned",
+        addedBy: sanitizeBoardText(sel(props["Added by"])) || null,
+        priority: sanitizeBoardText(sel(props.Priority)) || null,
         due: props.Due?.date?.start ?? null,
         lastEdited: pg.last_edited_time ?? null,
       });
