@@ -226,7 +226,15 @@ function runClaude(args: string[]): Promise<{ stdout: string; stderr: string; co
     proc.on("error", (err) => finalize(-1, String(err)));
     proc.on("close", (code) => finalize(code));
     proc.on("exit", (code) => {
-      drainTimer = setTimeout(() => finalize(code), 5000);
+      drainTimer = setTimeout(() => {
+        // 'close' hasn't fired 5 s after the child exited → a grandchild is
+        // holding the pipes open. SIGKILL the whole group BEFORE settling so a
+        // new turn (releaseThread) can't start while a descendant still mutates
+        // the vault — the 10 s escalation above would otherwise land after we
+        // resolved. No-op on a group that's already dead.
+        killTree(proc, "SIGKILL");
+        finalize(code);
+      }, 5000);
     });
   });
 }
