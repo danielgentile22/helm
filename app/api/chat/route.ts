@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { VAULT_ROOT } from "@/lib/config";
@@ -170,33 +170,63 @@ export async function POST(req: Request) {
   }
 }
 
+// Kill the child's whole process group (spawned detached → it leads one) so
+// grandchildren (MCP servers, shell tools) die too and can't hold the stdio
+// pipes open or keep mutating the vault after a timeout. Mirrors runner.js.
+function killTree(proc: ChildProcess, signal: NodeJS.Signals) {
+  try {
+    if (proc.pid) process.kill(-proc.pid, signal);
+  } catch {
+    try {
+      proc.kill(signal);
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
 function runClaude(args: string[]): Promise<{ stdout: string; stderr: string; code: number | null; timedOut: boolean }> {
   return new Promise((resolve) => {
     const proc = spawn(CLAUDE_BIN, args, {
       shell: false,
       cwd: VAULT_ROOT, // vault is cwd → reads/writes the vault, auto-loads its CLAUDE.md guardrails
       stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32", // own process group → killTree reaches grandchildren
     });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let drainTimer: ReturnType<typeof setTimeout> | null = null;
+
     const timer = setTimeout(() => {
       timedOut = true;
-      try {
-        proc.kill();
-      } catch {
-        /* ignore */
-      }
+      killTree(proc, "SIGTERM");
+      // ponytail: fixed 10 s grace, then SIGKILL — no configurable escalation.
+      // Never cancelled: a SIGTERM-ignoring grandchild must die even if the turn
+      // settles first (killTree on a dead group is a no-op). unref → the pending
+      // kill never keeps the process alive.
+      setTimeout(() => killTree(proc, "SIGKILL"), 10_000).unref?.();
     }, HARD_TIMEOUT_MS);
+
     proc.stdout.on("data", (c) => (stdout += c));
     proc.stderr.on("data", (c) => (stderr += c));
-    proc.on("error", (err) => {
+
+    // Settle exactly once — a grandchild that inherited the stdio pipes can hold
+    // them open after the child dies, so 'close' may never fire. 'exit' + a short
+    // drain window guarantees the promise (and thus releaseThread) always runs.
+    let settled = false;
+    const finalize = (code: number | null, spawnErr?: string) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      resolve({ stdout, stderr: stderr + String(err), code: -1, timedOut });
-    });
-    proc.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ stdout, stderr, code, timedOut });
+      if (drainTimer) clearTimeout(drainTimer);
+      resolve({ stdout, stderr: spawnErr ? stderr + spawnErr : stderr, code, timedOut });
+    };
+
+    proc.on("error", (err) => finalize(-1, String(err)));
+    proc.on("close", (code) => finalize(code));
+    proc.on("exit", (code) => {
+      drainTimer = setTimeout(() => finalize(code), 5000);
     });
   });
 }
