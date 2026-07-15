@@ -40,7 +40,7 @@ const CHARS_PER_SEC = 13;
 // post-wake utterances that just mean "never mind" — already barged in, drop
 const DISMISS_RE = /^(stop|cancel|never ?mind|nothing|no|nope|shut up|quiet)[\s.!,]*$/i;
 
-class VoiceClient {
+export class VoiceClient {
   private ctx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private input: AudioNode | null = null; // head of the sheen chain
@@ -385,13 +385,27 @@ class VoiceClient {
       return;
     }
     this.recorder = null;
+    // snapshot before the await — a fast re-press (tap-release-tap within the
+    // stop-event latency) swaps this.chunks/this.recorder out from under us
+    const chunks = this.chunks;
     const heldMs = performance.now() - this.captureStart;
-    await new Promise<void>((res) => {
-      rec.addEventListener("stop", () => res(), { once: true });
-      rec.stop();
-    });
-    const blob = new Blob(this.chunks, { type: rec.mimeType || "audio/webm" });
-    this.chunks = [];
+    if (rec.state !== "inactive") {
+      // mic died mid-hold → 'stop' may never fire (or stop() throws); resolve
+      // false so we log instead of silently shipping an empty/partial clip
+      const stopped = await new Promise<boolean>((res) => {
+        const t = setTimeout(() => res(false), 1000);
+        rec.addEventListener("stop", () => { clearTimeout(t); res(true); }, { once: true });
+        try {
+          rec.stop();
+        } catch {
+          clearTimeout(t);
+          res(false);
+        }
+      });
+      if (!stopped) this.log("err", "microphone unavailable");
+    }
+    const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
+    if (this.chunks === chunks) this.chunks = []; // don't clobber a re-press's buffer
     if (heldMs < 350 || blob.size < 1000) return; // accidental tap
 
     this.log("sys", "transcribing …");

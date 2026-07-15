@@ -11,7 +11,7 @@ const TS_SUITES = [
   "test-runner", "test-vault", "test-demo-vault", "test-tabs", "test-tz",
   "test-status", "test-fleet", "test-callouts", "test-notify", "test-vitals",
   "test-core", "test-audio", "test-deck", "test-obsidian", "test-chat",
-  "test-capture",
+  "test-capture", "test-voiceclient",
 ];
 const PY_SUITES = [
   "voice-server/test_server.py", "feeds/test_claude_tokens.py",
