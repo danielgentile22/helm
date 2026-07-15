@@ -21,6 +21,13 @@ check(parseMorphyCapture("what's on the morphy board") === null, "question about
 check(parseMorphyCapture("add a task to buy milk") === null, "non-morphy task is not a capture");
 check(parseMorphyCapture("add a morphy task to email the AR rep") !== null, "add a morphy task → capture");
 
+// --- question guard (issue #19): interrogative / '?' never queues a write ----
+check(parseMorphyCapture("did michael add a new task to the morphy board?") === null, "'did ... add a task ...?' is a question, not a capture");
+check(parseMorphyCapture("does the morphy task list make sense?") === null, "'does ... make sense?' is a question, not a capture");
+check(parseMorphyCapture("what task did we add to morphy") === null, "leading 'what' interrogative bails");
+check(parseMorphyCapture("is there a morphy task to make the deck?") === null, "leading 'is' + '?' bails");
+check(parseMorphyCapture("add a morphy task to review the vendor's proposal?") === null, "trailing '?' on an imperative still bails");
+
 // --- title / assignee / priority extraction ----------------------------------
 eq(
   parseMorphyCapture("add a Morphy task to email the AR rep, assign Michael, high priority"),
