@@ -135,6 +135,16 @@ const producer = (h: { producers: Producer[] }, id: string) => h.producers.find(
   );
   check(producer(h, "morning-report").stale === true, "yesterday's report doesn't cover today");
 }
+{
+  // Today's AND tomorrow's daily note present (plan-tomorrow writes ahead) —
+  // presence-of-today, not max-date, so tomorrow's note must not false-stale
+  // and pay a kick after the deadline (issue #20).
+  const h = deriveFleetHealth(
+    inputs({ now: "2026-06-30T13:01:00Z", dailyFiles: ["2026-06-30.md", "2026-07-01.md"] })
+  );
+  check(producer(h, "daily-note").stale === false, "today's note present is fresh despite a future-dated note");
+  check(!h.kicks.includes("daily-note"), "future-dated daily note triggers no kick");
+}
 
 // --- midnight TZ edge: 00:30 NY is 04:30Z NEXT day — "today" must stay local --
 {

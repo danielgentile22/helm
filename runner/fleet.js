@@ -144,7 +144,11 @@ export function deriveFleetHealth(inputs) {
   // "the weekly review crashed and never existed" is exactly the bug.
   const deadline = (id, files, byHm, extra = true) => {
     const last = latestDate(files);
-    const due = extra && hm >= byHm && last !== today;
+    // Presence of TODAY's file, not max date — plan-tomorrow writes a
+    // future-dated daily note, so latestDate can be tomorrow while today's
+    // note is present. Comparing max !== today would false-stale (issue #20).
+    const has = (files || []).some((f) => String(f).startsWith(today));
+    const due = extra && hm >= byHm && !has;
     checks.push({
       id,
       last_output_ts: last,
