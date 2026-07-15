@@ -1,4 +1,4 @@
-import { route, type Reveal } from "./router";
+import { route, QUESTION_START, type Reveal } from "./router";
 import { writeIntent } from "./skills";
 import { extractModelOverride } from "./modelOverride";
 import { conversationContext, rememberExchange } from "./voiceMemory";
@@ -31,7 +31,11 @@ export interface VoicePayload {
 export function parseMorphyCapture(
   raw: string
 ): { title: string; assignee: string; priority: string } | null {
-  const low = raw.toLowerCase();
+  const low = raw.toLowerCase().trim();
+  // A capture is an imperative — never a question. "did michael add a task to
+  // the morphy board?" matches the three-word gate below but must not queue a
+  // Notion write. Reuse the router's interrogative test + a raw '?' check.
+  if (QUESTION_START.test(low) || raw.includes("?")) return null;
   const isCapture =
     /\bmorphy\b/.test(low) &&
     /\b(task|to-?do|todo|item)\b/.test(low) &&
