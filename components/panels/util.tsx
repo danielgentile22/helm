@@ -1,4 +1,19 @@
+import type { KeyboardEvent } from "react";
 import { obsidianUri, OBSIDIAN_VAULT } from "@/lib/obsidian";
+
+// Enter/Space activation for role="button" elements that aren't real <button>s.
+// stopPropagation keeps Space from also firing the shell's push-to-talk capture.
+export function pressToActivate(fn: () => void) {
+  return (e: KeyboardEvent<HTMLElement>) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    // ignore keys bubbling up from nested controls (toast dismiss ×, Obsidian
+    // link) — activating the row here would swallow their own Enter/Space
+    if (e.target !== e.currentTarget) return;
+    e.preventDefault();
+    e.stopPropagation();
+    fn();
+  };
+}
 
 // relative age of an ISO timestamp; stale = older than two missed 6h pulls
 export function fmtAge(ts: string | null): { label: string; stale: boolean } {

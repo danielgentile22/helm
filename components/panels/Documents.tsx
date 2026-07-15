@@ -1,7 +1,7 @@
 "use client";
 
 import { useShell } from "@/components/shell/ShellContext";
-import { fmtAge, ObsidianLink, SectionTitle } from "./util";
+import { fmtAge, ObsidianLink, pressToActivate, SectionTitle } from "./util";
 
 // Recent deliverables — every run that produced a document, newest first.
 export default function Documents() {
@@ -18,7 +18,14 @@ export default function Documents() {
     <section className="panel">
       <SectionTitle title="Documents" tick="INBOX.TRAIL" />
       {docs.map((doc) => (
-        <div className="doc-row" key={doc.path} role="button" onClick={() => openReport(doc.path)}>
+        <div
+          className="doc-row"
+          key={doc.path}
+          role="button"
+          tabIndex={0}
+          onClick={() => openReport(doc.path)}
+          onKeyDown={pressToActivate(() => openReport(doc.path))}
+        >
           <span className="doc-skill">{doc.skill.replace(/-/g, " ")}</span>
           <span className="doc-meta">
             <span className="doc-age">{fmtAge(doc.ts).label}</span>

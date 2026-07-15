@@ -1,7 +1,7 @@
 "use client";
 
 import { useShell } from "@/components/shell/ShellContext";
-import { SectionTitle } from "./util";
+import { pressToActivate, SectionTitle } from "./util";
 
 // AI Wire — today's morning-report headlines; a row opens the full report.
 export default function Wire() {
@@ -13,7 +13,14 @@ export default function Wire() {
       <SectionTitle title="AI Wire" tick="MORNING.INTEL" />
       {/* top 3 — keeps the panel tight */}
       {m.heads.slice(0, 3).map((h, i) => (
-        <div className="wire-row" key={i} role="button" onClick={() => openReport(m.rel)}>
+        <div
+          className="wire-row"
+          key={i}
+          role="button"
+          tabIndex={0}
+          onClick={() => openReport(m.rel)}
+          onKeyDown={pressToActivate(() => openReport(m.rel))}
+        >
           <span className="wire-bullet">▸</span>
           <span>{h}</span>
         </div>
