@@ -19,7 +19,7 @@ process.env.VAULT_ROOT = join(tmpdir(), "helm-router-sweep");
 // clock fails the sweep at any civilised hour
 process.env.HELM_TEST_TIME = "03:07";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { rulesRoute, inFlightGuard, briefingOffer, SKILL_ALIASES } =
+const { rulesRoute, inFlightGuard, briefingOffer, SKILL_ALIASES, validateRouted } =
   require("../lib/router") as typeof import("../lib/router");
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { ALLOWED_SKILLS } = require("../lib/skills") as typeof import("../lib/skills");
@@ -190,6 +190,10 @@ const CASES: Case[] = [
     want: "fallthrough",
   },
 
+  // --- alias-as-substring must NOT dispatch (word-boundary guard, issue #22)
+  { name: "team report != am report", transcript: "team report", expect: fallsThrough, want: "fallthrough" },
+  { name: "inboxes != inbox", transcript: "inboxes", expect: fallsThrough, want: "fallthrough" },
+
   // --- rundown stays anchored (deterministic: empty vault, 03:07 clock)
   {
     name: "rundown trigger",
@@ -359,6 +363,22 @@ check("plain decline", no2.tier === 2 && no2.reply === "Standing by.", `tier ${n
 const stale = rulesRoute("yes", state(), offerExchange(morningOffer, 4 * 60 * 1000));
 check("stale offer ignored", stale.tier !== 1, `tier ${stale.tier}`, "not tier 1");
 
-const total = CASES.length + SKILL_ALIASES.length + 6;
+// --- validateRouted tier coercion (issue #22): only an explicit 1/2/3 may
+// pass; anything else returns null so the caller's rulesRoute/next-engine
+// fallback takes over instead of a silent tier-3 escalation. Uses Number()
+// per spec, so a stringified "3" is still an honest tier-3 intent.
+const vr = (parsed: object) => validateRouted(parsed as never, "haiku");
+check("tier 3 accepted", vr({ tier: 3, reply: "ok" })?.tier === 3, `${vr({ tier: 3, reply: "ok" })?.tier}`, "tier 3");
+check("tier 2 accepted", vr({ tier: 2, reply: "ok" })?.tier === 2, `${vr({ tier: 2, reply: "ok" })?.tier}`, "tier 2");
+const vr1 = vr({ tier: 1, skill: "morning-report" });
+check("tier 1 + valid skill", vr1?.tier === 1 && vr1.skill === "morning-report", `tier ${vr1?.tier} skill=${vr1?.skill}`, "tier 1 morning-report");
+check("tier 1 no skill → null", vr({ tier: 1 }) === null, `${vr({ tier: 1 })}`, "null");
+check("tier 0 → null", vr({ tier: 0 }) === null, `${vr({ tier: 0 })}`, "null");
+check("tier 4 → null", vr({ tier: 4 }) === null, `${vr({ tier: 4 })}`, "null");
+check("tier undefined → null", vr({}) === null, `${vr({})}`, "null");
+check("tier garbage string → null", vr({ tier: "nope" }) === null, `${vr({ tier: "nope" })}`, "null");
+check('stringified "3" coerces to tier 3', vr({ tier: "3", reply: "ok" })?.tier === 3, `${vr({ tier: "3", reply: "ok" })?.tier}`, "tier 3");
+
+const total = CASES.length + SKILL_ALIASES.length + 6 + 9;
 console.log(failed === 0 ? `\nAll ${total} cases pass.` : `\n${failed}/${total} FAILED`);
 process.exit(failed ? 1 : 0);
