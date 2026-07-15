@@ -218,15 +218,14 @@ button {
   align-items: center;
   gap: 6px;
 }
-.health-dot > i {
-  width: 9px;
-  height: 9px;
-  border-radius: var(--radius-full);
-  background: var(--color-text-muted);
+.health-glyph {
+  width: 15px;
+  height: 15px;
+  color: var(--color-text-muted);
 }
-.health-dot.tone-success > i { background: var(--color-success); box-shadow: 0 0 0 3px var(--color-success-soft); }
-.health-dot.tone-warning > i { background: var(--color-warning); box-shadow: 0 0 0 3px var(--color-warning-soft); animation: pulse 1.6s ease-in-out infinite; }
-.health-dot.tone-danger > i { background: var(--color-danger); box-shadow: 0 0 0 3px var(--color-danger-soft); animation: pulse 1s ease-in-out infinite; }
+.health-dot.tone-success .health-glyph { color: var(--color-success); }
+.health-dot.tone-warning .health-glyph { color: var(--color-warning); animation: pulse 1.6s ease-in-out infinite; }
+.health-dot.tone-danger .health-glyph { color: var(--color-danger); animation: pulse 1s ease-in-out infinite; }
 .health-count {
   font-family: var(--font-mono), monospace;
   font-size: 11px;
@@ -334,6 +333,7 @@ button {
 .toast.tone-info { border-left-color: var(--color-info); }
 .toast.is-clickable { cursor: pointer; }
 .toast.is-clickable:hover { border-color: var(--color-primary); }
+.toast.is-clickable:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 @keyframes toast-in {
   from { opacity: 0; transform: translateX(12px); }
@@ -644,6 +644,7 @@ button {
 }
 .wire-row:last-child { border-bottom: none; }
 .wire-row:hover { color: var(--color-text-primary); }
+.wire-row:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
 .wire-bullet { color: var(--color-primary); flex: none; }
 
 .doc-row {
@@ -656,6 +657,7 @@ button {
   cursor: pointer;
 }
 .doc-row:last-child { border-bottom: none; }
+.doc-row:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
 .doc-skill { font-size: 13px; color: var(--color-text-primary); text-transform: capitalize; }
 .doc-row:hover .doc-skill { color: var(--color-primary-hover); }
 .doc-meta { display: inline-flex; align-items: center; gap: 8px; }
