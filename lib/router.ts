@@ -65,7 +65,7 @@ export const SKILL_ALIASES: [RegExp, string][] = [
   [/sync morphy|morphy sync|refresh morphy|refresh the morphy/, "morphy-sync"],
 ];
 
-const QUESTION_START = /^(what|how|is|are|was|did|when|who|where|why|any|do i|does|tell me)\b/;
+export const QUESTION_START = /^(what|how|is|are|was|did|when|who|where|why|any|do i|does|tell me)\b/;
 // The full ~25s rundown fires ONLY on deliberate whole-utterance triggers —
 // "give me the rundown", "brief me", "good morning". The old wide net (~20
 // loose phrasings) hijacked specific questions ("what's going on with the
