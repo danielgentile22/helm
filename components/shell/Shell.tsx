@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import Link from "next/link";
 import { voice } from "@/lib/voiceClient";
 import { helmKey } from "@/lib/helmKey";
@@ -144,9 +145,12 @@ function HealthDot({
     : needMe > 0
       ? `${needMe} thing${needMe === 1 ? "" : "s"} need you`
       : "all systems nominal";
+  // distinct glyph per tone so health reads without color and without motion —
+  // owner is red-green colorblind (issue #21). Shapes: check / triangle / x-circle.
+  const Glyph = !healthy ? XCircle : needMe > 0 ? AlertTriangle : CheckCircle2;
   return (
     <span className={`health-dot tone-${tone}`} title={title} aria-label={title}>
-      <i />
+      <Glyph className="health-glyph" strokeWidth={2} aria-hidden="true" />
       {needMe > 0 && <span className="health-count">{needMe}</span>}
     </span>
   );
@@ -323,7 +327,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       seenRunsRef.current.set(r.id, r.status);
       const cls = r.status === "ok" ? "ok" : r.status === "running" ? "sys" : "err";
       const dur = r.duration_s !== null ? ` · ${fmtDur(r.duration_s)}` : "";
-      const text = `run/${r.label ?? r.skill} — ${r.summary || r.status}${dur}`;
+      // non-color outcome marker — owner is red-green colorblind, so ok/err
+      // must be legible from the text, not just the line color (issue #21)
+      const mark = r.status === "ok" ? "✓ " : r.status === "running" ? "▸ " : "✗ ";
+      const text = `${mark}run/${r.label ?? r.skill} — ${r.summary || r.status}${dur}`;
       const ts = r.ts_completed ? new Date(r.ts_completed).toTimeString().slice(0, 8) : nowHHMMSS();
       setFeed((f) => [...f.slice(-30), { ts, cls, text }]);
     });

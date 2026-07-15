@@ -2,6 +2,7 @@
 
 import { CheckCircle2, AlertTriangle, Loader2, FileText, X, type LucideIcon } from "lucide-react";
 import type { Toast, ToastKind } from "@/lib/callouts";
+import { pressToActivate } from "@/components/panels/util";
 
 // a toast plus its expiry timestamp (the shell prunes on exp)
 export type LiveToast = Toast & { exp: number };
@@ -49,7 +50,12 @@ export default function Toasts({
           <div
             key={t.id}
             className={`toast tone-${TONE[t.kind]} ${clickable ? "is-clickable" : ""}`}
-            {...(clickable && { role: "button", tabIndex: 0, onClick: () => onOpen(t) })}
+            {...(clickable && {
+              role: "button",
+              tabIndex: 0,
+              onClick: () => onOpen(t),
+              onKeyDown: pressToActivate(() => onOpen(t)),
+            })}
           >
             <Icon className={`toast-icon ${t.kind === "started" ? "spin" : ""}`} strokeWidth={1.75} aria-hidden="true" />
             <span className="toast-text">
