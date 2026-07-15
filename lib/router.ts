@@ -57,12 +57,12 @@ const HAIKU_MODEL = "claude-haiku-4-5-20251001";
 // alias → skill; order matters when aliases could substring-shadow each other
 // (exported for tests — the sweep asserts every target is in ALLOWED_SKILLS)
 export const SKILL_ALIASES: [RegExp, string][] = [
-  [/morning report|am report/, "morning-report"],
-  [/inbox/, "inbox-brief"],
-  [/clean ?up/, "vault-cleanup"],
-  [/plan today|plan the day|plan my day/, "plan-today"],
-  [/plan tomorrow/, "plan-tomorrow"],
-  [/sync morphy|morphy sync|refresh morphy|refresh the morphy/, "morphy-sync"],
+  [/\b(?:morning report|am report)\b/, "morning-report"],
+  [/\binbox\b/, "inbox-brief"],
+  [/\bclean ?up\b/, "vault-cleanup"],
+  [/\b(?:plan today|plan the day|plan my day)\b/, "plan-today"],
+  [/\bplan tomorrow\b/, "plan-tomorrow"],
+  [/\b(?:sync morphy|morphy sync|refresh morphy|refresh the morphy)\b/, "morphy-sync"],
 ];
 
 export const QUESTION_START = /^(what|how|is|are|was|did|when|who|where|why|any|do i|does|tell me)\b/;
@@ -866,8 +866,12 @@ interface RoutedJson {
 
 // shared sanity layer for model engines — skill must be real, panels must be
 // real, tier-1 without a valid skill bounces back to the caller's fallback
-function validateRouted(parsed: RoutedJson, engine: "haiku" | "local"): RouteResult | null {
-  const tier = parsed.tier === 1 || parsed.tier === 2 ? parsed.tier : 3;
+// (exported for the tier-coercion sweep in scripts/test-router.ts)
+export function validateRouted(parsed: RoutedJson, engine: "haiku" | "local"): RouteResult | null {
+  // only trust an explicit 1/2/3 — a truncated/garbage response must bounce to
+  // the caller's fallback, not silently escalate to a queued tier-3 claude run
+  const tier = Number(parsed.tier);
+  if (tier !== 1 && tier !== 2 && tier !== 3) return null;
   const skill =
     tier === 1 && parsed.skill && ALLOWED_SKILLS.has(parsed.skill) ? parsed.skill : undefined;
   if (tier === 1 && !skill) return null;
