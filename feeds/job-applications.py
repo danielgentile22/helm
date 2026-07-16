@@ -103,8 +103,10 @@ def iter_application_records(store_path: Path):
     one-line skip instead of a UnicodeDecodeError killing both metrics."""
     try:
         lines = store_path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except (FileNotFoundError, OSError):
-        return
+    except FileNotFoundError:
+        return  # no store yet = configured-empty; an honest 0
+    # any other OSError (permissions, I/O) propagates: main() bails without
+    # writing so the tile keeps its last good value instead of a false 0.
     for line in lines:
         line = line.strip()
         if not line or line.startswith("#"):
@@ -131,7 +133,11 @@ def main() -> int:
     store = Path(jobs_dir) / STORE_FILE
 
     now_dt = datetime.now(timezone.utc)
-    total, week = job_stats(iter_application_records(store), now_dt.timestamp())
+    try:
+        total, week = job_stats(iter_application_records(store), now_dt.timestamp())
+    except OSError as e:  # store exists but unreadable — bail, don't lock in a false 0
+        print(f"applications store unreadable ({e}) — keeping last value", file=sys.stderr)
+        return 1
 
     csv = Path(vault) / "system" / "metrics" / "metrics.csv"
     ts = day_bucket(now_dt)

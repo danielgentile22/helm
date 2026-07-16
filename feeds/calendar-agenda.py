@@ -178,7 +178,10 @@ def get_credentials(token_path: Path, client_path: Path):
 
     if not token_path.exists():
         raise AuthError(f"auth: no stored token — run: {REAUTH_CMD}")
-    creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
+    try:
+        creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
+    except ValueError as e:  # corrupt/torn token JSON → re-auth, not a raw parse error
+        raise AuthError(f"auth: stored token unreadable ({e}) — run: {REAUTH_CMD}") from e
     if creds.valid:
         return creds
     if creds.expired and creds.refresh_token:
@@ -214,12 +217,19 @@ def fetch_events(creds, time_min: str, time_max: str, tz: str) -> list[dict]:
 
 
 def _store_token(token_path: Path, creds) -> None:
+    """Atomic tmp+rename so a crash mid-refresh can't tear the token file — the
+    previous valid token survives and the next run self-heals. tmp is created
+    0o600 (mode arg is umask-masked, so chmod too) to keep the secret private."""
     token_path.parent.mkdir(parents=True, exist_ok=True)
-    token_path.write_text(creds.to_json())
+    tmp = token_path.with_name(token_path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(creds.to_json())
     try:
-        os.chmod(token_path, 0o600)  # ponytail: best-effort; no-op on Windows
+        os.chmod(tmp, 0o600)  # ponytail: best-effort; no-op on Windows
     except OSError:
         pass
+    os.replace(tmp, token_path)
 
 
 def bootstrap(token_path: Path, client_path: Path) -> int:

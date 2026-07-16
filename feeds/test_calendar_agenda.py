@@ -135,6 +135,21 @@ with tempfile.TemporaryDirectory() as d:
     ca.write_agenda(p, ca.failure_payload("network: down", DATE, TZ, NOW_ISO))
     check("an ok:false record is not a valid same-day cache", not ca.has_valid_same_day_cache(p, DATE))
 
+# --- _store_token: atomic, private, leaves no .tmp (issue #24) ------------------
+with tempfile.TemporaryDirectory() as d:
+    import os as _os
+    tok = Path(d) / "token.json"
+
+    class _Creds:
+        def to_json(self):
+            return '{"token":"secret","refresh_token":"r"}'
+
+    ca._store_token(tok, _Creds())
+    check("_store_token writes the token + leaves no .tmp",
+          json.loads(tok.read_text())["token"] == "secret" and not (Path(d) / "token.json.tmp").exists())
+    check("_store_token file is 0o600", (_os.stat(tok).st_mode & 0o777) == 0o600,
+          got=oct(_os.stat(tok).st_mode & 0o777))
+
 # --- failure path end-to-end: non-zero exit, valid cache survives untouched ----
 # No token exists in the temp home, so get_credentials fails (auth or deps — both
 # typed). main must exit non-zero either way and MUST NOT touch a good cache.
