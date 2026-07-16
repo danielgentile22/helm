@@ -27,8 +27,10 @@ daily launchd cadence therefore never duplicates a row, and the metrics reader's
 
 A legitimate reading can be 0 (no applications yet, or none this week), so we DO
 write a 0 row — it keeps the sparkline continuous. We only bail without writing
-on a real error (no vault). A missing store is treated as zero applications, not
-an error: the tile should read "0 applied" honestly rather than going stale.
+on a real error (no vault, or a store that exists but can't be read). A *missing*
+store is treated as zero applications, not an error: the tile should read
+"0 applied" honestly. But an unreadable store (permissions/IO) bails without
+writing so the tile keeps its last good value instead of a false, locked-in 0.
 
 Config (read from ~/.claude/.env, overridable by real env vars):
   VAULT_ROOT   vault folder (metrics.csv lives at system/metrics/)

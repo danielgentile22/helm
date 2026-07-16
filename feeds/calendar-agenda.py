@@ -49,6 +49,7 @@ file's tests stay dependency-free).
 import json
 import os
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -180,7 +181,10 @@ def get_credentials(token_path: Path, client_path: Path):
         raise AuthError(f"auth: no stored token — run: {REAUTH_CMD}")
     try:
         creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
-    except ValueError as e:  # corrupt/torn token JSON → re-auth, not a raw parse error
+    except (ValueError, AttributeError, TypeError, KeyError) as e:
+        # corrupt/torn token → re-auth, not a raw parse error. ValueError covers
+        # invalid JSON (JSONDecodeError) + wrong dict shape; the rest cover valid
+        # JSON of the wrong top-level type ([], null, "str") the loader chokes on.
         raise AuthError(f"auth: stored token unreadable ({e}) — run: {REAUTH_CMD}") from e
     if creds.valid:
         return creds
@@ -217,19 +221,22 @@ def fetch_events(creds, time_min: str, time_max: str, tz: str) -> list[dict]:
 
 
 def _store_token(token_path: Path, creds) -> None:
-    """Atomic tmp+rename so a crash mid-refresh can't tear the token file — the
-    previous valid token survives and the next run self-heals. tmp is created
-    0o600 (mode arg is umask-masked, so chmod too) to keep the secret private."""
+    """Atomic write so a crash mid-refresh can't tear the token file — the
+    previous valid token survives and the next run self-heals. mkstemp gives a
+    unique same-dir tmp (so overlapping syncs from timer/watchdog/manual can't
+    truncate each other's tmp) created 0o600 to keep the secret private."""
     token_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = token_path.with_name(token_path.name + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        f.write(creds.to_json())
+    fd, tmp = tempfile.mkstemp(dir=token_path.parent, prefix=token_path.name + ".", suffix=".tmp")
     try:
-        os.chmod(tmp, 0o600)  # ponytail: best-effort; no-op on Windows
-    except OSError:
-        pass
-    os.replace(tmp, token_path)
+        with os.fdopen(fd, "w") as f:
+            f.write(creds.to_json())
+        os.replace(tmp, token_path)  # mkstemp already made it 0o600
+    except BaseException:
+        try:
+            os.unlink(tmp)  # don't leak the tmp on a failed write
+        except OSError:
+            pass
+        raise
 
 
 def bootstrap(token_path: Path, client_path: Path) -> int:

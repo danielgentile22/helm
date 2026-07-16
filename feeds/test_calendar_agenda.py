@@ -146,7 +146,7 @@ with tempfile.TemporaryDirectory() as d:
 
     ca._store_token(tok, _Creds())
     check("_store_token writes the token + leaves no .tmp",
-          json.loads(tok.read_text())["token"] == "secret" and not (Path(d) / "token.json.tmp").exists())
+          json.loads(tok.read_text())["token"] == "secret" and not list(Path(d).glob("*.tmp")))
     check("_store_token file is 0o600", (_os.stat(tok).st_mode & 0o777) == 0o600,
           got=oct(_os.stat(tok).st_mode & 0o777))
 
