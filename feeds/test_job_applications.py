@@ -157,6 +157,29 @@ with tempfile.TemporaryDirectory() as d:
     check("a new day appends a fresh row",
           wnext is True and len(data2) == 3, got=(wnext, len(data2)), want=(True, 3))
 
+# --- read-failure contract: missing store = honest 0; unreadable = bail (issue #24)
+with tempfile.TemporaryDirectory() as d:
+    import os
+    missing = Path(d) / "nope" / ja.STORE_FILE
+    check("missing store yields nothing (configured-empty, honest 0)",
+          list(ja.iter_application_records(missing)) == [])
+
+    # store path is a directory → read_text raises IsADirectoryError (an OSError,
+    # not FileNotFoundError): main() must return non-zero and write no metrics row
+    vault = Path(d) / "vault"
+    (Path(d) / "jobs-dir" / ja.STORE_FILE).mkdir(parents=True)  # unreadable "store"
+    csv = vault / "system" / "metrics" / "metrics.csv"
+    env_snapshot = dict(os.environ)
+    os.environ.update(VAULT_ROOT=str(vault), JOBS_DIR=str(Path(d) / "jobs-dir"))
+    os.environ["HOME"] = str(Path(d))  # keep load_home_env off the real ~/.claude
+    try:
+        rc = ja.main()
+        check("unreadable store: main() bails non-zero and writes no row",
+              rc != 0 and not csv.exists(), got=(rc, csv.exists()))
+    finally:
+        os.environ.clear()
+        os.environ.update(env_snapshot)
+
 total_cases = passed + failed
 print(f"\nAll {total_cases} cases pass." if failed == 0 else f"\n{failed}/{total_cases} FAILED")
 raise SystemExit(1 if failed else 0)
