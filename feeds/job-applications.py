@@ -27,8 +27,10 @@ daily launchd cadence therefore never duplicates a row, and the metrics reader's
 
 A legitimate reading can be 0 (no applications yet, or none this week), so we DO
 write a 0 row — it keeps the sparkline continuous. We only bail without writing
-on a real error (no vault). A missing store is treated as zero applications, not
-an error: the tile should read "0 applied" honestly rather than going stale.
+on a real error (no vault, or a store that exists but can't be read). A *missing*
+store is treated as zero applications, not an error: the tile should read
+"0 applied" honestly. But an unreadable store (permissions/IO) bails without
+writing so the tile keeps its last good value instead of a false, locked-in 0.
 
 Config (read from ~/.claude/.env, overridable by real env vars):
   VAULT_ROOT   vault folder (metrics.csv lives at system/metrics/)
@@ -103,8 +105,10 @@ def iter_application_records(store_path: Path):
     one-line skip instead of a UnicodeDecodeError killing both metrics."""
     try:
         lines = store_path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except (FileNotFoundError, OSError):
-        return
+    except FileNotFoundError:
+        return  # no store yet = configured-empty; an honest 0
+    # any other OSError (permissions, I/O) propagates: main() bails without
+    # writing so the tile keeps its last good value instead of a false 0.
     for line in lines:
         line = line.strip()
         if not line or line.startswith("#"):
@@ -131,7 +135,11 @@ def main() -> int:
     store = Path(jobs_dir) / STORE_FILE
 
     now_dt = datetime.now(timezone.utc)
-    total, week = job_stats(iter_application_records(store), now_dt.timestamp())
+    try:
+        total, week = job_stats(iter_application_records(store), now_dt.timestamp())
+    except OSError as e:  # store exists but unreadable — bail, don't lock in a false 0
+        print(f"applications store unreadable ({e}) — keeping last value", file=sys.stderr)
+        return 1
 
     csv = Path(vault) / "system" / "metrics" / "metrics.csv"
     ts = day_bucket(now_dt)
