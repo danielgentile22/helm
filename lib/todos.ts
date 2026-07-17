@@ -24,7 +24,10 @@ export interface TodoItem {
 
 export const TODOS_REL = "jobs/todos.md";
 const TODOS_ABS = path.join(VAULT_ROOT, "jobs", "todos.md");
-const CHECKBOX = /^- \[( |x|X)\] (.*)$/;
+// groups: 1=indent 2=bullet 3=state char 4=text. Obsidian nests sub-tasks
+// with indentation, allows * bullets, and uses states beyond x ([/], [-]);
+// any non-space state counts as done (issue #28).
+const CHECKBOX = /^(\s*)([-*]) \[(.)\] (.*)$/;
 
 export function parseTodos(md: string): TodoItem[] {
   const items: TodoItem[] = [];
@@ -39,8 +42,8 @@ export function parseTodos(md: string): TodoItem[] {
     if (!m) continue;
     items.push({
       index: items.length,
-      done: m[1] !== " ",
-      text: m[2].replace(/\[\[([^\]]+)\]\]/g, "$1").replace(/\*\*/g, "").trim(),
+      done: m[3] !== " ",
+      text: m[4].replace(/\[\[([^\]]+)\]\]/g, "$1").replace(/\*\*/g, "").trim(),
       section,
     });
   }
@@ -58,7 +61,7 @@ export function toggleTodo(md: string, index: number, text: string, done: boolea
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(CHECKBOX);
     if (m && ++n === index) {
-      lines[i] = `- [${done ? "x" : " "}] ${m[2]}`;
+      lines[i] = `${m[1]}${m[2]} [${done ? "x" : " "}] ${m[4]}`;
       return lines.join("\n");
     }
   }

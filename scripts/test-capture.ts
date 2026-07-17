@@ -4,7 +4,7 @@
 // review #40. Pure functions, no I/O. Run: npx -y tsx scripts/test-capture.ts
 import { parseMorphyCapture } from "../lib/voiceDispatch";
 import { extractModelOverride } from "../lib/modelOverride";
-import { normalizeForSpeech } from "../lib/spokenText";
+import { capForSpeech, normalizeForSpeech } from "../lib/spokenText";
 
 let failed = 0;
 const pass = (msg: string) => console.log(`PASS  ${msg}`);
@@ -73,6 +73,18 @@ eq(speak("$4,200 total"), "4 thousand dollars total", "comma-grouped amounts sti
 eq(speak("$1 fee"), "one dollar fee", "$1 → singular dollar");
 eq(speak("$999500 raised"), "1 million dollars raised", "999,500 rounds to one million, not '1000 thousand'");
 eq(speak("$200M run rate"), "two hundred million dollars run rate", "suffix amounts untouched by the fix");
+
+// --- capForSpeech (issue #28: cap after normalization, never mid-word) --------
+{
+  eq(capForSpeech("short", 900), "short", "cap: under budget untouched");
+  const s = "First sentence here. Second sentence goes on. Third one gets cut off somewhere in";
+  eq(capForSpeech(s, 50), "First sentence here. Second sentence goes on.", "cap: cuts at last sentence boundary");
+  const noSentence = "word ".repeat(20).trim();
+  const capped = capForSpeech(noSentence, 23);
+  check(capped.length <= 23 && capped.endsWith("word"), `cap: no sentence end → last space (got ${JSON.stringify(capped)})`);
+  eq(capForSpeech("x".repeat(50), 10), "x".repeat(10), "cap: single unbroken token → hard slice");
+  eq(capForSpeech("Hello world. Next", 12), "Hello world.", "cap: terminator exactly at the cap still counts");
+}
 
 // --- summary -------------------------------------------------------------------
 console.log(failed === 0 ? `\nAll capture checks pass.` : `\n${failed} capture check(s) failed.`);
