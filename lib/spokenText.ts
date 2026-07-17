@@ -119,3 +119,21 @@ export function scrubRunSummary(s: string): string {
   t = t.replace(/\b[\w.-]+(?:[\\/][\w.-]+)+\.(?:md|json|html|csv)\b/g, "the report");
   return t.replace(/\s{2,}/g, " ").replace(/\s+([.,!?;:])/g, "$1").trim();
 }
+
+// ---------------------------------------------------------------------------
+// capForSpeech(text, max) — enforce the TTS char budget AFTER normalization
+// (number expansion can double the length) and never mid-word: back up to
+// the last sentence end, else the last space.
+// ---------------------------------------------------------------------------
+export function capForSpeech(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = text.slice(0, max);
+  const sentence = Math.max(
+    head.lastIndexOf(". "),
+    head.lastIndexOf("! "),
+    head.lastIndexOf("? ")
+  );
+  if (sentence > 0) return head.slice(0, sentence + 1);
+  const space = head.lastIndexOf(" ");
+  return space > 0 ? head.slice(0, space) : head;
+}

@@ -179,9 +179,16 @@ function newestFirst(dir: string, ext: string): string[] {
   return fs
     .readdirSync(dir)
     .filter((f) => isCleanFile(f, ext))
-    .map((f) => {
+    .flatMap((f) => {
       const p = path.join(dir, f);
-      return { p, mtime: fs.statSync(p).mtimeMs };
+      // a file deleted between readdir and stat (runner pruning, Syncthing)
+      // must drop ONE entry, not throw and blank the whole listing — an empty
+      // runs snapshot makes the next poll toast every run as newly-done
+      try {
+        return [{ p, mtime: fs.statSync(p).mtimeMs }];
+      } catch {
+        return [];
+      }
     })
     .sort((a, b) => b.mtime - a.mtime)
     .map((x) => x.p);
