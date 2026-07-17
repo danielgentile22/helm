@@ -2,12 +2,14 @@
 // chat-only route gating, report-markdown XSS, vault path traversal. Pure
 // logic against synthetic input: no server, no network, nothing written
 // outside a temp dir. Run: npx -y tsx scripts/test-security.ts
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { NextRequest } from "next/server";
 import { bodyTooLarge, checkHelmKey } from "../lib/auth";
 import { escapeHtml, mdToHtml } from "../lib/reportMd";
-import { blockedInChatOnly } from "../middleware";
+import { blockedInChatOnly, config as middlewareConfig, middleware } from "../middleware";
 
 let failed = 0;
 const pass = (msg: string) => console.log(`PASS  ${msg}`);
@@ -65,6 +67,77 @@ check(!blockedInChatOnly("/api/todos", "GET"), "chat-only allows GET /api/todos"
 check(!blockedInChatOnly("/api/chat", "POST"), "chat-only allows POST /api/chat");
 check(!blockedInChatOnly("/api/key", "GET"), "chat-only allows /api/key");
 check(!blockedInChatOnly("/chat", "GET"), "chat-only ignores non-API pages");
+
+// --- CHAT_ONLY middleware wiring (env gate + arg order + matcher scope) ----------
+// blockedInChatOnly above is the pure logic; this exercises the 2-line
+// middleware() wiring where a refactor regression would actually land.
+{
+  const call = (path: string, method: string) =>
+    middleware(new NextRequest(`http://localhost:3107${path}`, { method }));
+  const prevChatOnly = process.env.CHAT_ONLY;
+  process.env.CHAT_ONLY = "1";
+  eq(call("/api/queue", "POST").status, 404, "CHAT_ONLY=1 → middleware 404s POST /api/queue");
+  eq(call("/api/state", "GET").status, 200, "CHAT_ONLY=1 → middleware passes GET /api/state");
+  eq(call("/api/chat", "POST").status, 200, "CHAT_ONLY=1 → middleware passes POST /api/chat");
+  delete process.env.CHAT_ONLY;
+  eq(call("/api/queue", "POST").status, 200, "CHAT_ONLY unset → middleware passes POST /api/queue");
+  if (prevChatOnly !== undefined) process.env.CHAT_ONLY = prevChatOnly;
+  // matcher scope: middleware never runs at all outside its matcher, so a
+  // narrowed matcher silently unguards routes no matter what the code says.
+  eq(middlewareConfig.matcher, "/api/:path*", "middleware matcher covers all of /api");
+}
+
+// --- auth-guard route sweep (every mutating route calls checkHelmKey) ------------
+// The feared failure mode is a NEW mutating route that never calls the guard —
+// unit tests on checkHelmKey can't see that. Source-level sweep: every
+// app/api/**/route.ts exporting a mutating handler must mention checkHelmKey.
+{
+  // Intentional exceptions — route path relative to app/api, with the reason.
+  // (none today: /api/speak POST was guarded when this sweep landed)
+  const UNGUARDED_OK = new Set<string>([]);
+
+  const apiRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "app", "api");
+  const routeFiles: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, entry.name);
+      if (entry.isDirectory()) walk(p);
+      else if (entry.name === "route.ts") routeFiles.push(p);
+    }
+  };
+  walk(apiRoot);
+  check(routeFiles.length >= 8, `route sweep found the API surface (${routeFiles.length} route files)`);
+
+  // Every export form Next accepts for a handler: function decl, const
+  // (optionally type-annotated), and `export { x as POST }` aliases.
+  const MUTATING_EXPORTS = [
+    /export\s+(?:async\s+)?function\s+(POST|PUT|PATCH|DELETE)\b/g,
+    /export\s+const\s+(POST|PUT|PATCH|DELETE)\s*[:=]/g,
+    /export\s*\{[^}]*\bas\s+(POST|PUT|PATCH|DELETE)\b[^}]*\}/g,
+  ];
+  for (const file of routeFiles) {
+    const rel = relative(apiRoot, file).split(sep).join("/");
+    const route = `/api/${rel.replace(/\/route\.ts$/, "")}`;
+    const src = readFileSync(file, "utf8");
+    const verbs = new Set<string>();
+    for (const re of MUTATING_EXPORTS) for (const m of src.matchAll(re)) verbs.add(m[1]);
+    if (verbs.size === 0) continue; // read-only route — out of scope
+    if (UNGUARDED_OK.has(rel)) {
+      pass(`${route} — mutating, allowlisted exception`);
+      continue;
+    }
+    // Count CALLS, not mentions: `checkHelmKey(` never matches the import
+    // line, so a handler that keeps the import but drops the call goes red,
+    // and one guarded handler can't cover for an unguarded sibling.
+    // ponytail: call-count >= handler-count, not per-handler AST attribution —
+    // parse handler bodies if a double-call-in-one-handler false pass ever bites.
+    const calls = (src.match(/checkHelmKey\s*\(/g) ?? []).length;
+    check(
+      calls >= verbs.size,
+      `${route} — ${verbs.size} mutating handler(s) [${[...verbs].join(", ")}], ${calls} checkHelmKey call(s) (guard each, or add to UNGUARDED_OK with a reason)`
+    );
+  }
+}
 
 // --- report markdown XSS (lib/reportMd.ts) ---------------------------------------
 eq(escapeHtml('a"b\'c<d>&'), "a&quot;b&#39;c&lt;d&gt;&amp;", "escapeHtml neutralizes quotes too");

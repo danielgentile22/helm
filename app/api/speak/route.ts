@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { checkHelmKey } from "@/lib/auth";
 import { speak, ttsStatus, VoiceConfigError } from "@/lib/tts";
 
 // ---------------------------------------------------------------------------
@@ -48,6 +49,11 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  // GET stays keyless on purpose (<audio src> can't send headers, and the HUD
+  // binds loopback-only); POST has no callers today, so it takes the shared
+  // secret like every other mutating route (issue #26 sweep).
+  const auth = checkHelmKey(req.headers.get("x-helm-key"));
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   let body: { text?: string };
   try {
     body = await req.json();
