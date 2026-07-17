@@ -274,11 +274,14 @@ async function run(): Promise<void> {
     // --- queue-intent.mjs shape contract (issue #43): the launchd script must
     // produce the SAME intent the HUD's writeIntent produces — run it for real
     // into the temp vault and compare field-by-field.
+    const before = new Set(readdirSync(QUEUE));
     execFileSync(process.execPath, [join(REPO, "scripts", "queue-intent.mjs"), "plan-today", "test-vault"], {
       env: { ...process.env, VAULT_ROOT: VAULT },
     });
     const hud = JSON.parse(fsMod.readFileSync(join(QUEUE, `${id}.json`), "utf8"));
-    const mjsFile = readdirSync(QUEUE).find((f) => f.endsWith(".json") && f !== `${id}.json`);
+    // diff against the pre-run snapshot — the queue dir still holds earlier
+    // fixtures (q1/q2), so "any other .json" would grab the wrong file
+    const mjsFile = readdirSync(QUEUE).find((f) => f.endsWith(".json") && !before.has(f));
     check(!!mjsFile, "queue-intent.mjs lands an intent file");
     if (mjsFile) {
       const mjs = JSON.parse(fsMod.readFileSync(join(QUEUE, mjsFile), "utf8"));
