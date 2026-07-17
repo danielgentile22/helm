@@ -7,3 +7,11 @@ logs
 *.png
 voice-server/.venv
 voice-server/**/__pycache__
+# machine-private files (mirror .gitignore) — must never bake into the Fly image
+.helm-config.json
+docs/fly-deploy.local.md
+docs/audits
+runner/runner.log*
+runner/runner.pid
+*.tsbuildinfo
+.cate
