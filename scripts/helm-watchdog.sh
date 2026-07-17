@@ -8,7 +8,15 @@
 # ponytail: heartbeat read + one kick + one banner. Anything smarter lives in
 # runner/fleet.js, which a live runner runs itself.
 
-VAULT_ROOT="${VAULT_ROOT:-$(sed -n 's/^VAULT_ROOT=//p' "$HOME/.claude/.env" | tr -d '"' )}"
+VAULT_ROOT="${VAULT_ROOT:-$(sed -n 's/^VAULT_ROOT=//p' "$HOME/.claude/.env" 2>/dev/null | tr -d '"' )}"
+
+# Misconfigured vault = we can't judge liveness. Log and bail — kicking the
+# runner + notifying every 10 min forever helps nobody.
+if [ -z "$VAULT_ROOT" ] || [ ! -d "$VAULT_ROOT" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') VAULT_ROOT unset or missing ('$VAULT_ROOT') — fix ~/.claude/.env; watchdog idle"
+    exit 1
+fi
+
 HB="$VAULT_ROOT/system/runner-status.json"
 
 # Missing heartbeat file = runner never wrote one = dead. Otherwise compare

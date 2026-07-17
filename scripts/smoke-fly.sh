@@ -13,7 +13,7 @@ fail=0
 
 # X-HELM-KEY — same resolution as the app: env first, then ~/.claude/.env
 if [ -z "${HELM_API_KEY:-}" ] && [ -f "$HOME/.claude/.env" ]; then
-  HELM_API_KEY=$(sed -n 's/^HELM_API_KEY=//p' "$HOME/.claude/.env" | tail -1)
+  HELM_API_KEY=$(sed -n 's/^HELM_API_KEY=//p' "$HOME/.claude/.env" | tail -1 | tr -d '"')
 fi
 if [ -z "${HELM_API_KEY:-}" ]; then
   echo "HELM_API_KEY not set (env or ~/.claude/.env) — cannot smoke /api/chat"; exit 1

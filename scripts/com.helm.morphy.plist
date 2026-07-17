@@ -6,7 +6,8 @@
     <string>com.helm.morphy</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/python3</string>
+        <string>/usr/bin/env</string>
+        <string>python3</string>
         <string>__HELM_ROOT__/feeds/morphy-github.py</string>
     </array>
     <key>WorkingDirectory</key>
