@@ -81,8 +81,12 @@ The short version:
 ```bash
 npm install
 export VAULT_ROOT=/path/to/your/vault   # required — no default
-npx next dev -p 3107                     # → http://localhost:3107
+npx next dev -p 3107 -H 127.0.0.1        # → http://localhost:3107
 ```
+
+`-H 127.0.0.1` keeps the HUD loopback-only — not optional, since `/api/queue`
+feeds a runner that skips permission prompts
+([ADR 0003](docs/decisions/0003-loopback-only-bind.md)).
 
 `VAULT_ROOT` points at the folder of plain files the HUD reads and writes
 (set it in your shell or `~/.claude/.env`; see [Vault structure](#vault-structure)

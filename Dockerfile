@@ -35,8 +35,9 @@ COPY --from=build /app ./
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# CHAT_ONLY: middleware.ts 404s every API route except /api/chat + /api/key,
-# so the tailnet surface matches the "chat-only" contract above.
+# CHAT_ONLY: middleware.ts 404s every mutating API request (POST/PUT/PATCH/
+# DELETE) except /api/chat; reads (GET/HEAD/OPTIONS) and /api/key pass, so the
+# tailnet write surface matches the "chat-only" contract above (ADR 0004).
 ENV VAULT_ROOT=/data/vault \
     HUD_TZ=America/New_York \
     CLAUDE_BIN=claude \
