@@ -9,9 +9,14 @@ AGENTS="$HOME/Library/LaunchAgents"
 mkdir -p "$AGENTS"
 mkdir -p "$ROOT/logs"   # plists' StandardOutPath/StandardErrorPath live here (gitignored)
 
-# Escape sed-replacement specials (\ & and the | delimiter) so paths with odd
-# characters render literally instead of corrupting the plist.
-sed_escape() { printf '%s' "$1" | sed 's/[\\&|]/\\&/g'; }
+# Paths land inside plist <string> elements: XML-escape & < > first, then
+# escape sed-replacement specials (\ & and the | delimiter) so odd paths
+# render literally instead of corrupting the plist.
+sed_escape() {
+  printf '%s' "$1" \
+    | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' \
+    | sed 's/[\\&|]/\\&/g'
+}
 ROOT_ESC="$(sed_escape "$ROOT")"
 HOME_ESC="$(sed_escape "$HOME")"
 

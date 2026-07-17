@@ -8,7 +8,7 @@
 # ponytail: heartbeat read + one kick + one banner. Anything smarter lives in
 # runner/fleet.js, which a live runner runs itself.
 
-VAULT_ROOT="${VAULT_ROOT:-$(sed -n 's/^VAULT_ROOT=//p' "$HOME/.claude/.env" 2>/dev/null | tr -d '"' )}"
+VAULT_ROOT="${VAULT_ROOT:-$(sed -n 's/^VAULT_ROOT=//p' "$HOME/.claude/.env" 2>/dev/null | tr -d '"'"'" )}"
 
 # Misconfigured vault = we can't judge liveness. Log and bail — kicking the
 # runner + notifying every 10 min forever helps nobody.
