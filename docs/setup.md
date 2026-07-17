@@ -13,6 +13,7 @@ in the repo root instead (they're inlined into the client at build).
 | Var | Purpose | Default |
 |---|---|---|
 | `VAULT_ROOT` | vault folder | **required** (no default) |
+| `HELM_API_KEY` | shared secret every write route requires (sent as `X-HELM-KEY`) | unset — **writes return 503** |
 | `CLAUDE_PROJECTS_DIR` | transcript root the token feed scans | `~/.claude/projects` |
 | `JOBS_DIR` | folder holding `applications.jsonl` (job feed) | `$VAULT_ROOT/jobs` |
 | `AGENDA_SYNC_MIN` | calendar-agenda refresh cadence (minutes) | `30` |
@@ -32,6 +33,17 @@ in the repo root instead (they're inlined into the client at build).
 | `WAKE_WORD` / `WAKE_MODEL` | opt-in hands-free wake (`on`/`off`) + openWakeWord model name | `off` / unset (push-to-talk) |
 | `NEXT_PUBLIC_OBSIDIAN_VAULT` | Obsidian vault name for deep links | unset (link hidden) |
 | `NEXT_PUBLIC_VOICE_WS` | wake-event websocket | `ws://127.0.0.1:3108/events` |
+
+Enable writes (queue, voice, todos, chat) by generating the key once:
+
+```bash
+echo "HELM_API_KEY=$(openssl rand -hex 32)" >> ~/.claude/.env
+```
+
+The HUD's own pages fetch it from `/api/key`; anything else (curl, scripts)
+must send it as an `X-HELM-KEY` header. Auth is fail-closed: with the key
+unset, every write route answers 503
+([ADR 0002](decisions/0002-fail-closed-shared-key-auth.md)).
 
 ⚠️ `ANTHROPIC_API_KEY` belongs in the `~/.claude/.env` FILE only — set as a
 system-wide env var it flips your interactive `claude` CLI from

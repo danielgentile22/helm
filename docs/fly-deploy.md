@@ -80,9 +80,14 @@ so a VM-authored intent must never reach it — a prompt-injected chat turn coul
 otherwise enqueue arbitrary agentic work on the Mac. Both sides carry a
 `.stignore` (the VM's is written by `entrypoint.sh` on every boot; the Mac's
 lives at the vault root — the Mac copy is the one that holds if the VM is ever
-compromised). The image also sets `CHAT_ONLY=1`, which 404s every API route
-except `/api/chat` + `/api/key` (middleware.ts), so the VM exposes no
-queue/voice write surface to the tailnet in the first place.
+compromised). The image also sets `CHAT_ONLY=1`, a **method-based** gate
+(middleware.ts): every mutating API request (POST/PUT/PATCH/DELETE) 404s
+except `/api/chat`; GET/HEAD/OPTIONS pass on **all** routes, and `/api/key`
+is exempt. So the tailnet read surface is every GET route — the phone renders
+every tab read-only, including `/api/report` (vault markdown) and
+`/api/transcript` — while the write surface (`/api/queue`, `/api/voice*`)
+that Syncthing could carry back to the Mac runner stays unreachable. See
+[ADR 0004](decisions/0004-method-based-remote-write-lockout.md).
 
 ### 6. Smoke test
 ```bash
