@@ -7,6 +7,7 @@ set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 AGENTS="$HOME/Library/LaunchAgents"
 mkdir -p "$AGENTS"
+mkdir -p "$ROOT/logs"   # plists' StandardOutPath/StandardErrorPath live here (gitignored)
 
 for tpl in "$ROOT"/scripts/com.helm.*.plist; do
   name="$(basename "$tpl")"

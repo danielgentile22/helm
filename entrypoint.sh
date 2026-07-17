@@ -41,7 +41,8 @@ echo "tailnet IP: $(tailscale ip -4 2>/dev/null || echo '?')"
 # chat turn could otherwise enqueue work the Mac runner executes with
 # --dangerously-skip-permissions. The Mac's vault carries the same .stignore,
 # which is the enforcement that survives a compromised VM.
-printf '/system/queue\n/system/runs\n' > /data/vault/.stignore
+printf '/system/queue\n/system/runs\n' > /data/vault/.stignore \
+  || { echo ".stignore write failed — refusing to start syncthing without it"; exit 1; }
 syncthing serve --no-browser --home=/data/syncthing --gui-address="0.0.0.0:8384" &
 SYNCTHING_PID=$!
 
