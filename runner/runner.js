@@ -109,7 +109,10 @@ const CLAUDE_BIN = IS_WINDOWS ? "claude.exe" : "claude";
 const CLAUDE_MODEL = env("HELM_MODEL") || env("AGENTIC_OS_MODEL") || "claude-opus-4-8";
 // Per-run override — voice asks may carry args.model ("use opus" spoken in
 // the ask). Allowlist only; anything else falls back to CLAUDE_MODEL.
-const MODEL_ALLOWLIST = new Set([
+// Exported for test-skill-contract.ts: must equal lib/chat.ts MODEL_ALLOWLIST
+// and the lib/modelOverride.ts MODEL_PHRASES ids, or "use opus" silently
+// downgrades while the voice ack still says Opus.
+export const MODEL_ALLOWLIST = new Set([
   "claude-opus-4-8",
   "claude-fable-5",
   "claude-sonnet-4-6",

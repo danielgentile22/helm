@@ -8,7 +8,9 @@
 // Runner side re-validates against its own allowlist (defense in depth).
 // ---------------------------------------------------------------------------
 
-const MODEL_PHRASES: Record<string, { id: string; spoken: string }> = {
+// Exported for test-skill-contract.ts's allowlist contract (ids must equal
+// runner.js MODEL_ALLOWLIST and lib/chat.ts MODEL_ALLOWLIST).
+export const MODEL_PHRASES: Record<string, { id: string; spoken: string }> = {
   opus: { id: "claude-opus-4-8", spoken: "Opus" },
   fable: { id: "claude-fable-5", spoken: "Fable" },
   sonnet: { id: "claude-sonnet-4-6", spoken: "Sonnet" },
