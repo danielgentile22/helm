@@ -37,7 +37,9 @@ in the repo root instead (they're inlined into the client at build).
 Enable writes (queue, voice, todos, chat) by generating the key once:
 
 ```bash
+mkdir -p ~/.claude
 echo "HELM_API_KEY=$(openssl rand -hex 32)" >> ~/.claude/.env
+chmod 600 ~/.claude/.env
 ```
 
 The HUD's own pages fetch it from `/api/key`; anything else (curl, scripts)
