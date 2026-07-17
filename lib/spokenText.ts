@@ -128,10 +128,13 @@ export function scrubRunSummary(s: string): string {
 export function capForSpeech(text: string, max: number): string {
   if (text.length <= max) return text;
   const head = text.slice(0, max);
+  // search one char past the cap so a terminator sitting exactly AT the cap
+  // still counts ("…world. Next", max on the "." — the ". " straddles it)
+  const window = text.slice(0, max + 1);
   const sentence = Math.max(
-    head.lastIndexOf(". "),
-    head.lastIndexOf("! "),
-    head.lastIndexOf("? ")
+    window.lastIndexOf(". "),
+    window.lastIndexOf("! "),
+    window.lastIndexOf("? ")
   );
   if (sentence > 0) return head.slice(0, sentence + 1);
   const space = head.lastIndexOf(" ");

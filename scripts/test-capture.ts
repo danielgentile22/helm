@@ -83,6 +83,7 @@ eq(speak("$200M run rate"), "two hundred million dollars run rate", "suffix amou
   const capped = capForSpeech(noSentence, 23);
   check(capped.length <= 23 && capped.endsWith("word"), `cap: no sentence end → last space (got ${JSON.stringify(capped)})`);
   eq(capForSpeech("x".repeat(50), 10), "x".repeat(10), "cap: single unbroken token → hard slice");
+  eq(capForSpeech("Hello world. Next", 12), "Hello world.", "cap: terminator exactly at the cap still counts");
 }
 
 // --- summary -------------------------------------------------------------------
