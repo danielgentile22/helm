@@ -108,18 +108,33 @@ check(!blockedInChatOnly("/chat", "GET"), "chat-only ignores non-API pages");
   walk(apiRoot);
   check(routeFiles.length >= 8, `route sweep found the API surface (${routeFiles.length} route files)`);
 
-  const MUTATING = /export\s+(?:async\s+)?function\s+(POST|PUT|PATCH|DELETE)\b|export\s+const\s+(POST|PUT|PATCH|DELETE)\s*=/;
+  // Every export form Next accepts for a handler: function decl, const
+  // (optionally type-annotated), and `export { x as POST }` aliases.
+  const MUTATING_EXPORTS = [
+    /export\s+(?:async\s+)?function\s+(POST|PUT|PATCH|DELETE)\b/g,
+    /export\s+const\s+(POST|PUT|PATCH|DELETE)\s*[:=]/g,
+    /export\s*\{[^}]*\bas\s+(POST|PUT|PATCH|DELETE)\b[^}]*\}/g,
+  ];
   for (const file of routeFiles) {
     const rel = relative(apiRoot, file).split(sep).join("/");
+    const route = `/api/${rel.replace(/\/route\.ts$/, "")}`;
     const src = readFileSync(file, "utf8");
-    if (!MUTATING.test(src)) continue; // read-only route — out of scope
+    const verbs = new Set<string>();
+    for (const re of MUTATING_EXPORTS) for (const m of src.matchAll(re)) verbs.add(m[1]);
+    if (verbs.size === 0) continue; // read-only route — out of scope
     if (UNGUARDED_OK.has(rel)) {
-      pass(`/api/${rel.replace(/\/route\.ts$/, "")} — mutating, allowlisted exception`);
+      pass(`${route} — mutating, allowlisted exception`);
       continue;
     }
+    // Count CALLS, not mentions: `checkHelmKey(` never matches the import
+    // line, so a handler that keeps the import but drops the call goes red,
+    // and one guarded handler can't cover for an unguarded sibling.
+    // ponytail: call-count >= handler-count, not per-handler AST attribution —
+    // parse handler bodies if a double-call-in-one-handler false pass ever bites.
+    const calls = (src.match(/checkHelmKey\s*\(/g) ?? []).length;
     check(
-      src.includes("checkHelmKey"),
-      `/api/${rel.replace(/\/route\.ts$/, "")} — mutating handler calls checkHelmKey (or add to UNGUARDED_OK with a reason)`
+      calls >= verbs.size,
+      `${route} — ${verbs.size} mutating handler(s) [${[...verbs].join(", ")}], ${calls} checkHelmKey call(s) (guard each, or add to UNGUARDED_OK with a reason)`
     );
   }
 }
