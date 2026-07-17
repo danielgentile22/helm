@@ -11,6 +11,7 @@
 //
 // Run: npx -y tsx scripts/test-runner.ts
 import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -359,11 +360,45 @@ async function run(): Promise<void> {
   check(parsed.QUOTED === "q v", "parseEnvText strips wrapping quotes");
   check(!("noequals" in parsed), "parseEnvText skips lines without =");
   check(parsed.PAD === "spaced", "parseEnvText trims keys and values");
-  const homeEnvSrc = readFileSync(new URL("../lib/homeEnv.ts", import.meta.url), "utf8");
-  check(
-    homeEnvSrc.includes("[A-Za-z0-9_]"),
-    "lib/homeEnv.ts accepts the same mixed-case keys as runner/env.js (rule kept in sync)"
-  );
+
+  // Three-way parser contract (issue #43): runner/env.js, lib/homeEnv.ts and
+  // feeds/_metrics.py must parse the SAME fixture to the SAME map — a real
+  // divergence (not a substring grep) fails here.
+  {
+    const fixture = [
+      "FOO=bar",
+      "mixed_Case=ok",
+      "# COMMENT=skipped",
+      'QUOTED="q v"',
+      "SINGLE='sq'",
+      "noequals",
+      "PAD = spaced ",
+      "EMPTY=",
+      "EQ=a=b",
+      "TRAIL=keep  ",
+      "weird-key=skipped",
+    ].join("\n");
+    const fromRunner = parseEnvText(fixture) as Record<string, string>;
+    const { parseHomeEnvText } = await import("../lib/homeEnv");
+    const fromHud = parseHomeEnvText(fixture);
+    check(
+      JSON.stringify(fromHud) === JSON.stringify(fromRunner),
+      "lib/homeEnv.ts parses the fixture identically to runner/env.js"
+    );
+    try {
+      const py = execFileSync(
+        "python3",
+        ["-c", "import sys,json; sys.path.insert(0,'feeds'); from _metrics import parse_env_text; print(json.dumps(parse_env_text(sys.stdin.read())))"],
+        { input: fixture, cwd: new URL("..", import.meta.url).pathname, encoding: "utf8" }
+      );
+      check(
+        JSON.stringify(JSON.parse(py.trim())) === JSON.stringify(fromRunner),
+        "feeds/_metrics.py parses the fixture identically to runner/env.js"
+      );
+    } catch (e) {
+      fail(`feeds/_metrics.py parser contract could not run: ${(e as Error).message}`);
+    }
+  }
 
   // --- agendaSync spawn path (issue #56): stub feed, no claude/python/network -
   // The feed is swapped for a stub node binary. Success = the runner returns the

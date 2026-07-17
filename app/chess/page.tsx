@@ -4,15 +4,10 @@
 // goal. The rating renders as a Halo stat tile with a progress-to-goal bar,
 // next to the curated tournament log from Atlas (issue #43).
 import { useShell } from "@/components/shell/ShellContext";
-import { statTileProps } from "@/lib/vitals";
-import type { Metric } from "@/lib/vault";
+import { findMetric, statTileProps } from "@/lib/vitals";
 import StatTile from "@/components/StatTile";
 import AtlasNote from "@/components/panels/AtlasNote";
 import { fmtAge } from "@/components/panels/util";
-
-function findMetric(metrics: Metric[], source: string, metric: string): Metric | null {
-  return metrics.find((m) => m.source === source && m.metric === metric) ?? null;
-}
 
 const GOAL = 1600;
 const FLOOR = 1200;

@@ -1,6 +1,8 @@
 // Pure helpers for the System Vitals tiles. Kept out of the HUD component so a
 // plain tsx test can import them without pulling in React/three.
 
+import type { Metric } from "./vault";
+
 /**
  * Progress of a value within a floor→goal band, as a 0–100 percentage.
  *
@@ -27,6 +29,12 @@ export function ratingProgress(value: number, goal = 1600, floor = 1200): number
 
 /** Halo signal tone — drives the tile's top hairline, spark, and trend chip. */
 export type Tone = "primary" | "success" | "warning" | "info" | "danger" | "neutral";
+
+/** Look up one metric by (source, metric) — the single copy every tab page
+ *  and the router share (issue #43). */
+export function findMetric(metrics: Metric[], source: string, metric: string): Metric | null {
+  return metrics.find((m) => m.source === source && m.metric === metric) ?? null;
+}
 
 /** abbreviate a number for a tile value (1234 → "1.2K"); raw keeps it exact
  *  (a chess rating shows "1545", never "1.5K"). */
