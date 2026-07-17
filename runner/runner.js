@@ -477,6 +477,38 @@ function killTree(proc, signal) {
   }
 }
 
+// The ONE shape of a run record (issue #43) — every write site derives from
+// this and overrides only what differs. 13 fields, system/runs/<id>.json.
+export function runRecord(runId, intent, overrides = {}) {
+  const ts = new Date().toISOString();
+  return {
+    id: runId,
+    skill: intent?.skill || "(unknown)",
+    args: intent?.args || {},
+    ts_queued: intent?.ts || ts,
+    ts_started: ts,
+    ts_completed: null,
+    status: "running",
+    exit_code: null,
+    summary: "",
+    md_path: `system/runs/${runId}.md`,
+    log_path: `system/runs/${runId}.md`,
+    deliverable_path: null,
+    ...overrides,
+  };
+}
+
+// An error record that never ran: queued/started/completed collapse to one ts.
+function errorRecord(runId, intent, exitCode, summary) {
+  const rec = runRecord(runId, intent, {
+    status: "error",
+    exit_code: exitCode,
+    summary: String(summary).slice(0, 200),
+  });
+  rec.ts_completed = rec.ts_started;
+  return rec;
+}
+
 // Retire a claimed queue file into an error run record — used by the boot
 // sweep (runner died mid-run) and by loop() when processOne itself crashes.
 export function retireClaim(fileName, summary) {
@@ -489,22 +521,8 @@ export function retireClaim(fileName, summary) {
     /* unreadable — retire it anyway */
   }
   const runId = runIdFromFile(fileName); // FILENAME UUID, never intent.id (#18)
-  const ts = new Date().toISOString();
   try {
-    writeJson(join(RUNS_DIR, `${runId}.json`), {
-      id: runId,
-      skill: intent?.skill || "(unknown)",
-      args: intent?.args || {},
-      ts_queued: intent?.ts || ts,
-      ts_started: ts,
-      ts_completed: ts,
-      status: "error",
-      exit_code: -4,
-      summary: summary.slice(0, 200),
-      md_path: `system/runs/${runId}.md`,
-      log_path: `system/runs/${runId}.md`,
-      deliverable_path: null,
-    });
+    writeJson(join(RUNS_DIR, `${runId}.json`), errorRecord(runId, intent, -4, summary));
   } catch {
     /* ignore — the unlink below still stops the replay */
   }
@@ -555,21 +573,10 @@ async function processOne(fileName) {
   }
   if (lastErr || !intent) {
     const runId = runIdFromFile(fileName);
-    const ts = new Date().toISOString();
-    writeJson(join(RUNS_DIR, `${runId}.json`), {
-      id: runId,
-      skill: "(unknown)",
-      args: {},
-      ts_queued: ts,
-      ts_started: ts,
-      ts_completed: ts,
-      status: "error",
-      exit_code: -3,
-      summary: `bad intent json after 5 retries: ${lastErr?.message || "empty"}`.slice(0, 200),
-      md_path: `system/runs/${runId}.md`,
-      log_path: `system/runs/${runId}.md`,
-      deliverable_path: null,
-    });
+    writeJson(
+      join(RUNS_DIR, `${runId}.json`),
+      errorRecord(runId, null, -3, `bad intent json after 5 retries: ${lastErr?.message || "empty"}`)
+    );
     log(`${runId}: bad json — wrote error run record: ${lastErr?.message}`);
     try {
       unlinkSync(claimedPath);
@@ -608,21 +615,8 @@ async function processOne(fileName) {
   const runMdPath = join(RUNS_DIR, `${runId}.md`);
   const deliverable = deliverablePathFor({ ...intent, id: runId });
 
-  const tsStarted = new Date().toISOString();
-  const status = {
-    id: runId,
-    skill: intent.skill,
-    args: intent.args || {},
-    ts_queued: intent.ts || tsStarted,
-    ts_started: tsStarted,
-    ts_completed: null,
-    status: "running",
-    exit_code: null,
-    summary: "",
-    md_path: `system/runs/${runId}.md`,
-    log_path: `system/runs/${runId}.md`,
-    deliverable_path: deliverable,
-  };
+  const status = runRecord(runId, intent, { deliverable_path: deliverable });
+  const tsStarted = status.ts_started;
   writeJson(runJsonPath, status);
 
   const prompt = buildPrompt({ ...intent, id: runId }, deliverable);
@@ -1132,23 +1126,12 @@ export async function agendaSync(reason = "scheduled", opts = {}) {
 
 // Native skills execute in Node (direct Notion REST) instead of `claude -p`.
 async function processNative(intent, runId, queuePath) {
-  const tsStarted = new Date().toISOString();
   const runJsonPath = join(RUNS_DIR, `${runId}.json`);
   const runMdPath = join(RUNS_DIR, `${runId}.md`);
-  const status = {
-    id: runId,
-    skill: intent.skill,
-    args: intent.args || {},
-    ts_queued: intent.ts || tsStarted,
-    ts_started: tsStarted,
-    ts_completed: null,
-    status: "running",
-    exit_code: null,
-    summary: "",
-    md_path: `system/runs/${runId}.md`,
-    log_path: `system/runs/${runId}.md`,
+  const status = runRecord(runId, intent, {
     deliverable_path: "Atlas/Projects/Morphy/_board-snapshot.md",
-  };
+  });
+  const tsStarted = status.ts_started;
   writeJson(runJsonPath, status);
 
   let ok = true;

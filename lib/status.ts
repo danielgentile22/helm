@@ -33,7 +33,11 @@ export interface Status {
   fleetStale: string[];
 }
 
-const OPEN_STATUSES = ["todo", "in progress", "blocked"];
+/** the ONE "open Morphy task" definition — shared with app/morphy/page.tsx
+ *  (issue #43) */
+export function isOpenTask(status: string | undefined | null): boolean {
+  return ["todo", "in progress", "blocked"].includes((status || "").toLowerCase());
+}
 
 function openForDaniel(state: VaultState): number {
   const mp = state.morphy;
@@ -41,9 +45,7 @@ function openForDaniel(state: VaultState): number {
   // prefer the task list (same "open" definition as the objective panel);
   // fall back to open_by_assignee when tasks aren't cached
   if (mp.tasks && mp.tasks.length) {
-    return mp.tasks.filter(
-      (t) => t.assignee === "Daniel" && OPEN_STATUSES.includes((t.status || "").toLowerCase())
-    ).length;
+    return mp.tasks.filter((t) => t.assignee === "Daniel" && isOpenTask(t.status)).length;
   }
   return mp.open_by_assignee?.["Daniel"] ?? 0;
 }

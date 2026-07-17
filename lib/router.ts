@@ -3,6 +3,8 @@ import { HUD_TZ } from "./config";
 import { ALLOWED_SKILLS } from "./skills";
 import { readMorningReport, readVaultState, type VaultState, type Metric } from "./vault";
 import { recentExchanges, type Exchange } from "./voiceMemory";
+import { findMetric } from "./vitals";
+import { spokenRound } from "./spokenText";
 
 // ---------------------------------------------------------------------------
 // route(transcript) → {tier, skill?, reply}. Tier 1 = dispatch a skill to the
@@ -359,23 +361,17 @@ function matchSkill(t: string): string | null {
 }
 
 function metric(state: VaultState, source: string, name: string): Metric | null {
-  return state.metrics.find((m) => m.source === source && m.metric === name) ?? null;
+  return findMetric(state.metrics, source, name);
 }
 
 // --- spoken-friendly formatting ----------------------------------------------
 // Raw digits ("13,913") make TTS stumble; rounded magnitudes ("about 14
 // thousand") flow like a person talking — and that's the register we want.
+// Rounding lives in lib/spokenText.ts (spokenRound) — one implementation for
+// router replies and TTS normalization alike (issue #43).
 
 function spokenNum(v: number): string {
-  const x = Math.round(Math.abs(v));
-  if (x >= 1_000_000) {
-    const m = x / 1_000_000;
-    return `${m >= 10 ? Math.round(m) : Math.round(m * 10) / 10} million`;
-  }
-  // whole thousands only — "4.7 thousand" makes TTS stumble ("four…seven");
-  // the demo register is clean wave-tops, precision lives on screen
-  if (x >= 1_000) return `${Math.round(x / 1000)} thousand`;
-  return String(x);
+  return spokenRound(Math.round(Math.abs(v)));
 }
 
 function spokenTime(t: string): string {

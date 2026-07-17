@@ -25,7 +25,10 @@ const AGE_LIMIT_MIN = {
   "jobs-feed": 26 * 60,
   "morphy-github-feed": 26 * 60,
 };
-const METRIC_SOURCE = {
+// Exported so scripts/test-fleet.ts can diff these against each feed's
+// SOURCE constant — a renamed source must fail the suite, not silently
+// unwatch the feed (issue #43).
+export const METRIC_SOURCE = {
   "uscf-feed": "uscf",
   "tokens-feed": "claude_code",
   "jobs-feed": "jobs",

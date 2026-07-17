@@ -43,10 +43,14 @@ const SUFFIX: Record<string, string> = {
 // Spoken numbers get ROUNDED to clean magnitudes — "four thousand two hundred
 // dollars" reads choppy; "four thousand dollars" flows. Precision lives on
 // screen; the voice speaks in wave-tops.
-function spokenRound(n: number): string {
+// Exported: the ONE rounding implementation — the router's spokenNum()
+// delegates here (issue #43).
+export function spokenRound(n: number): string {
   if (n < 1_000) return numWords(n);
   // 999,500+ belongs to the million branch or it reads "1000 thousand"
   if (n < 999_500) return `${Math.round(n / 1_000)} thousand`; // 4,200 → "4 thousand"
+  // ≥10M drops the decimal — "14.4 million" makes TTS stumble ("four…four")
+  if (n >= 10_000_000) return `${Math.round(n / 1_000_000)} million`;
   return `${Math.round(n / 100_000) / 10} million`; // 1,437,000 → "1.4 million"
 }
 

@@ -5,16 +5,11 @@
 // curated Atlas note where Daniel tracks the search (issue #43). No runner
 // skills yet.
 import { useShell } from "@/components/shell/ShellContext";
-import { statTileProps } from "@/lib/vitals";
-import type { Metric } from "@/lib/vault";
+import { findMetric, statTileProps } from "@/lib/vitals";
 import StatTile from "@/components/StatTile";
 import AtlasNote from "@/components/panels/AtlasNote";
 import JobTodos from "@/components/panels/JobTodos";
 import { fmtAge } from "@/components/panels/util";
-
-function findMetric(metrics: Metric[], source: string, metric: string): Metric | null {
-  return metrics.find((m) => m.source === source && m.metric === metric) ?? null;
-}
 
 export default function JobsPage() {
   const { state } = useShell();

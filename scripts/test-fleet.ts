@@ -6,7 +6,7 @@
 import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deriveFleetHealth, isStuckRun, fleetCheck } from "../runner/fleet.js";
+import { deriveFleetHealth, isStuckRun, fleetCheck, METRIC_SOURCE } from "../runner/fleet.js";
 
 let failed = 0;
 const pass = (msg: string) => console.log(`PASS  ${msg}`);
@@ -379,6 +379,27 @@ async function wrapperTests() {
   );
 
   rmSync(VAULT, { recursive: true, force: true });
+
+  // --- METRIC_SOURCE ⟷ feeds' SOURCE constants (issue #43) -------------------
+  // A renamed source in a feed must fail here, not silently unwatch the feed.
+  const FEED_FILE: Record<string, string> = {
+    "uscf-feed": "uscf-rating.py",
+    "tokens-feed": "claude-tokens.py",
+    "jobs-feed": "job-applications.py",
+    "morphy-github-feed": "morphy-github.py",
+  };
+  check(
+    JSON.stringify(Object.keys(METRIC_SOURCE).sort()) === JSON.stringify(Object.keys(FEED_FILE).sort()),
+    "every METRIC_SOURCE producer has a known feed file (update FEED_FILE when adding a feed)"
+  );
+  for (const [producer, file] of Object.entries(FEED_FILE)) {
+    const src = readFileSync(new URL(`../feeds/${file}`, import.meta.url), "utf8");
+    const m = src.match(/^SOURCE = "([^"]+)"$/m);
+    check(
+      !!m && m[1] === (METRIC_SOURCE as Record<string, string>)[producer],
+      `fleet.js METRIC_SOURCE[${producer}]="${(METRIC_SOURCE as Record<string, string>)[producer]}" matches feeds/${file} SOURCE="${m?.[1]}"`
+    );
+  }
 }
 
 wrapperTests()
