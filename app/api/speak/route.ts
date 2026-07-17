@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { checkHelmKey } from "@/lib/auth";
 import { speak, ttsStatus, VoiceConfigError } from "@/lib/tts";
+import { capForSpeech, normalizeForSpeech } from "@/lib/spokenText";
 
 // ---------------------------------------------------------------------------
 // GET /api/speak?text=...  → audio/mpeg stream (used as <audio src> so the
@@ -17,7 +18,10 @@ export const dynamic = "force-dynamic";
 const MAX_CHARS = 900;
 
 async function stream(text: string): Promise<Response> {
-  const trimmed = text.trim().slice(0, MAX_CHARS);
+  // normalize BEFORE capping — number expansion ("$4,200" → words) grows the
+  // text, and slicing the raw input truncated number-heavy briefings mid-word
+  // (speak() re-normalizes; that's a no-op on already-normalized text)
+  const trimmed = capForSpeech(normalizeForSpeech(text.trim()), MAX_CHARS);
   if (!trimmed) return NextResponse.json({ error: "empty text" }, { status: 400 });
   try {
     const out = await speak(trimmed);

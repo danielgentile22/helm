@@ -8,6 +8,7 @@
 //
 // Run: npx -y tsx scripts/test-vault.ts
 import { mkdirSync, writeFileSync, readdirSync, unlinkSync, rmSync, utimesSync } from "node:fs";
+import fsMod from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -198,6 +199,27 @@ async function run(): Promise<void> {
     const queue = vault.readQueue();
     check(queue.length === 2, `conflict copy doesn't double-count a queued intent (got ${queue.length})`);
     check(queue[0]?.id === "q1" && queue[1]?.id === "q2", "queue keeps oldest-first order");
+
+    // --- issue #28: a file deleted between readdir and stat drops ONE entry,
+    // never the whole listing (stale-toast burst regression)
+    const realStat = fsMod.statSync;
+    (fsMod as any).statSync = (p: any, ...rest: any[]) => {
+      if (String(p).endsWith("run-c.json")) {
+        const e: any = new Error("ENOENT: vanished mid-scan");
+        e.code = "ENOENT";
+        throw e;
+      }
+      return realStat(p, ...rest);
+    };
+    try {
+      const survivors = vault.readRecentRuns();
+      check(
+        survivors.length === 2 && survivors.some((r) => r.id === "run-a") && survivors.some((r) => r.id === "run-b"),
+        `stat ENOENT on one run drops that entry only (got ${survivors.length} entries)`
+      );
+    } finally {
+      (fsMod as any).statSync = realStat;
+    }
   }
 
   // --- voiceMemory: a conflict copy frozen at "running" is not a phantom run --

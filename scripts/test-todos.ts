@@ -42,6 +42,31 @@ Some prose that is not a todo.
 }
 check(parseTodos("- [X] shouty").length === 1 && parseTodos("- [X] shouty")[0].done, "parse: capital X counts as done");
 
+// --- issue #28: indented sub-tasks, * bullets, non-x states -------------------
+{
+  const VARIANTS = `## Variants
+- [ ] parent task
+  - [ ] indented sub-task
+\t- [x] tab-indented done sub-task
+* [ ] star bullet
+- [/] in-progress state
+- [-] cancelled state
+`;
+  const items = parseTodos(VARIANTS);
+  eq(items.length, 6, "parse: sub-tasks, * bullets, and non-x states all count");
+  eq(items[1].text, "indented sub-task", "parse: indented sub-task text clean");
+  check(items[2].done, "parse: tab-indented [x] → done");
+  eq(items[3].text, "star bullet", "parse: * bullet parsed");
+  check(items[4].done && items[5].done, "parse: any non-space state char → done");
+
+  const t1 = toggleTodo(VARIANTS, 1, "indented sub-task", true);
+  check(t1 !== null && t1.includes("  - [x] indented sub-task"), "toggle: preserves indentation");
+  const t2 = toggleTodo(VARIANTS, 3, "star bullet", true);
+  check(t2 !== null && t2.includes("* [x] star bullet"), "toggle: preserves * bullet");
+  const t3 = toggleTodo(VARIANTS, 4, "in-progress state", false);
+  check(t3 !== null && t3.includes("- [ ] in-progress state"), "toggle: unchecking a [/] state → [ ]");
+}
+
 // --- toggle ------------------------------------------------------------------
 {
   const items = parseTodos(MD);
