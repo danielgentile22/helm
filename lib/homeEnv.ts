@@ -12,14 +12,25 @@ import os from "os";
 
 let loaded = false;
 
+// The parsing rule, pure — identical to runner/env.js parseEnvText() and
+// feeds/_metrics.py parse_env_text(); the three-way contract test in
+// scripts/test-runner.ts diffs all three over one fixture (issue #43).
+export function parseHomeEnvText(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=(.*)$/);
+    if (m) out[m[1]] = m[2].trim().replace(/^["']|["']$/g, "");
+  }
+  return out;
+}
+
 export function loadHomeEnv() {
   if (loaded) return;
   loaded = true;
   const file = path.join(os.homedir(), ".claude", ".env");
   try {
-    for (const line of fs.readFileSync(file, "utf-8").split(/\r?\n/)) {
-      const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)\s*$/);
-      if (m && !(m[1] in process.env)) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+    for (const [k, v] of Object.entries(parseHomeEnvText(fs.readFileSync(file, "utf-8")))) {
+      if (!(k in process.env)) process.env[k] = v;
     }
   } catch {
     // no home env file — process.env may still have the keys

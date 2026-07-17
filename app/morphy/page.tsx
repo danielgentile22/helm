@@ -7,18 +7,13 @@
 // (state.morphy) — the HUD never calls Notion.
 import { useShell } from "@/components/shell/ShellContext";
 import { deckSkillsForTab } from "@/lib/tabs";
-import { statTileProps } from "@/lib/vitals";
-import type { Metric } from "@/lib/vault";
+import { findMetric, statTileProps } from "@/lib/vitals";
+import { isOpenTask } from "@/lib/status";
 import StatTile from "@/components/StatTile";
 import Deck from "@/components/panels/Deck";
 import TaskAdd from "@/components/panels/TaskAdd";
 import { fmtAge, fmtAgo, SectionTitle } from "@/components/panels/util";
 
-function findMetric(metrics: Metric[], source: string, metric: string): Metric | null {
-  return metrics.find((m) => m.source === source && m.metric === metric) ?? null;
-}
-
-const OPEN = ["todo", "in progress", "blocked"];
 
 export default function MorphyPage() {
   const { state, status, isPhone } = useShell();
@@ -38,7 +33,7 @@ export default function MorphyPage() {
   const pct = total > 0 ? Math.min(100, (done / total) * 100) : 0;
   const tasks = mp?.tasks ?? [];
   const openTasksFor = (who: string) =>
-    tasks.filter((t) => OPEN.includes((t.status || "").toLowerCase()) && t.assignee === who);
+    tasks.filter((t) => isOpenTask(t.status) && t.assignee === who);
   const danielOpen = openTasksFor("Daniel");
 
   // board glance

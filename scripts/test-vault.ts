@@ -9,8 +9,12 @@
 // Run: npx -y tsx scripts/test-vault.ts
 import { mkdirSync, writeFileSync, readdirSync, unlinkSync, rmSync, utimesSync } from "node:fs";
 import fsMod from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 // lib/config resolves VAULT_ROOT at module load — point it at a throwaway
 // vault BEFORE the dynamic imports below.
@@ -266,6 +270,34 @@ async function run(): Promise<void> {
     const files = readdirSync(QUEUE);
     check(files.includes(`${id}.json`), "writeIntent lands the intent file");
     check(!files.some((f) => f.includes(".tmp-")), "writeIntent leaves no temp file behind (write-then-rename)");
+
+    // --- queue-intent.mjs shape contract (issue #43): the launchd script must
+    // produce the SAME intent the HUD's writeIntent produces — run it for real
+    // into the temp vault and compare field-by-field.
+    const before = new Set(readdirSync(QUEUE));
+    execFileSync(process.execPath, [join(REPO, "scripts", "queue-intent.mjs"), "plan-today", "test-vault"], {
+      env: { ...process.env, VAULT_ROOT: VAULT },
+    });
+    const hud = JSON.parse(fsMod.readFileSync(join(QUEUE, `${id}.json`), "utf8"));
+    // diff against the pre-run snapshot — the queue dir still holds earlier
+    // fixtures (q1/q2), so "any other .json" would grab the wrong file
+    const mjsFile = readdirSync(QUEUE).find((f) => f.endsWith(".json") && !before.has(f));
+    check(!!mjsFile, "queue-intent.mjs lands an intent file");
+    if (mjsFile) {
+      const mjs = JSON.parse(fsMod.readFileSync(join(QUEUE, mjsFile), "utf8"));
+      check(
+        JSON.stringify(Object.keys(mjs).sort()) === JSON.stringify(Object.keys(hud).sort()),
+        `queue-intent.mjs intent has the same keys as writeIntent (${Object.keys(mjs).sort()})`
+      );
+      check(mjsFile === `${mjs.id}.json`, "queue-intent.mjs filename is the intent id (runner replay guard)");
+      check(
+        mjs.skill === "plan-today" && mjs.source === "test-vault" &&
+          typeof mjs.ts === "string" && !Number.isNaN(Date.parse(mjs.ts)) &&
+          JSON.stringify(mjs.args) === "{}",
+        "queue-intent.mjs field values match the writeIntent contract"
+      );
+      check(!readdirSync(QUEUE).some((f) => f.includes(".tmp-")), "queue-intent.mjs leaves no temp file (write-then-rename)");
+    }
   }
 
   rmSync(VAULT, { recursive: true, force: true });

@@ -15,7 +15,7 @@
  * then ~/.claude/.env — the same precedence the runner uses.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 // Same env resolution as the runner: process.env first, then ~/.claude/.env.
@@ -43,6 +43,13 @@ mkdirSync(queueDir, { recursive: true });
 
 const id = randomUUID();
 const intent = { id, skill, args: {}, ts: new Date().toISOString(), source };
-writeFileSync(join(queueDir, `${id}.json`), JSON.stringify(intent, null, 2), "utf8");
+// atomic write-then-rename, same contract as writeIntent() in lib/skills.ts —
+// the runner fs.watch()es this dir and must never see a torn intent (the temp
+// name fails its UUID_JSON_RE, so it's invisible until renamed). The shape
+// match is enforced by a contract test in scripts/test-vault.ts (issue #43).
+const dest = join(queueDir, `${id}.json`);
+const tmp = `${dest}.tmp-${process.pid}`;
+writeFileSync(tmp, JSON.stringify(intent, null, 2), "utf8");
+renameSync(tmp, dest);
 
 console.log(`[queue-intent] queued ${skill} (${id}) source=${source} → ${queueDir}`);

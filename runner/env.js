@@ -8,16 +8,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
+// The rule (identical in lib/homeEnv.ts and feeds/_metrics.py — the three-way
+// contract test in scripts/test-runner.ts diffs all three over one fixture):
+// mixed-case word keys, # comments skipped, value trimmed, one quote pair
+// stripped.
 export function parseEnvText(text) {
   const out = {};
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#") || !line.includes("=")) continue;
-    const idx = line.indexOf("=");
-    out[line.slice(0, idx).trim()] = line
-      .slice(idx + 1)
-      .trim()
-      .replace(/^["']|["']$/g, "");
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=(.*)$/);
+    if (m) out[m[1]] = m[2].trim().replace(/^["']|["']$/g, "");
   }
   return out;
 }

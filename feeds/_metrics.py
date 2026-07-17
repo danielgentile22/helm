@@ -20,14 +20,27 @@ from pathlib import Path
 CSV_HEADER = "timestamp,source,metric,value,status,error\n"
 
 
+def parse_env_text(text: str) -> dict:
+    """The .env parsing rule, pure — mixed-case keys, comments skipped, one
+    quote pair stripped. Kept behaviorally identical to runner/env.js
+    parseEnvText() and lib/homeEnv.ts parseHomeEnvText(); the three-way
+    contract test in scripts/test-runner.ts runs all three over one fixture
+    and diffs the outputs (issue #43)."""
+    out = {}
+    for line in text.splitlines():
+        m = re.match(r"^\s*([A-Za-z0-9_]+)\s*=(.*)$", line)
+        if m:
+            out[m.group(1)] = re.sub(r"^[\"']|[\"']$", "", m.group(2).strip())
+    return out
+
+
 def load_home_env() -> None:
     """Mirror the runner/HUD loader: ~/.claude/.env, real env wins."""
     f = Path.home() / ".claude" / ".env"
     try:
-        for line in f.read_text().splitlines():
-            m = re.match(r"^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$", line)
-            if m and m.group(1) not in os.environ:
-                os.environ[m.group(1)] = m.group(2).strip().strip("\"'")
+        for k, v in parse_env_text(f.read_text()).items():
+            if k not in os.environ:
+                os.environ[k] = v
     except FileNotFoundError:
         pass
 

@@ -6,7 +6,7 @@
 // no deck, no voice/audio).
 import { useShell } from "@/components/shell/ShellContext";
 import { deckSkillsForTab } from "@/lib/tabs";
-import type { Metric } from "@/lib/vault";
+import { findMetric } from "@/lib/vitals";
 import StatTile from "@/components/StatTile";
 import Orb from "@/components/panels/Orb";
 import Deck from "@/components/panels/Deck";
@@ -16,10 +16,6 @@ import Documents from "@/components/panels/Documents";
 import Feed from "@/components/panels/Feed";
 import AudioMeter from "@/components/panels/AudioMeter";
 import { fmtAge } from "@/components/panels/util";
-
-function findMetric(metrics: Metric[], source: string, metric: string): Metric | null {
-  return metrics.find((m) => m.source === source && m.metric === metric) ?? null;
-}
 
 export default function TodayPage() {
   const { state, isPhone } = useShell();
