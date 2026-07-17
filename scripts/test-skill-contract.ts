@@ -181,6 +181,25 @@ async function run(): Promise<void> {
     }
   }
 
+  // 8b. Model allowlist (issue #26): the same id set lives in runner.js,
+  //     lib/chat.ts, and lib/modelOverride.ts. A rename that misses one copy
+  //     silently downgrades the model while the spoken ack claims otherwise.
+  {
+    const { MODEL_ALLOWLIST: runnerModels } = await import("../runner/runner.js");
+    const { MODEL_ALLOWLIST: chatModels } = await import("../lib/chat");
+    const { MODEL_PHRASES } = await import("../lib/modelOverride");
+    const phraseModels = new Set(Object.values(MODEL_PHRASES).map((p) => p.id));
+    const show = (s: Set<string>) => [...s].sort().join(", ");
+    const sameSet = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every((x) => b.has(x));
+    if (!sameSet(runnerModels, chatModels)) {
+      fail(`model allowlists diverge: runner.js {${show(runnerModels)}} vs lib/chat.ts {${show(chatModels)}}`);
+    } else if (!sameSet(runnerModels, phraseModels)) {
+      fail(`model allowlists diverge: runner.js {${show(runnerModels)}} vs lib/modelOverride.ts {${show(phraseModels)}}`);
+    } else {
+      pass(`model allowlist identical across runner.js, lib/chat.ts, lib/modelOverride.ts (${runnerModels.size} ids)`);
+    }
+  }
+
   // 8. Version (issue #44): package.json is the one version source. The
   //    heartbeat must read PKG_VERSION (never a hardcoded literal).
   const runnerSrc = readFileSync(join(root, "runner", "runner.js"), "utf8");
