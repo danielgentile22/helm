@@ -125,6 +125,15 @@ async function run(): Promise<void> {
     runOutcome(0, "not-written.md", null).missing,
     "a missing deliverable still reports missing, not stale"
   );
+  // Same byte length, different content — a metadata (mtime:size) stamp would
+  // call this untouched on a coarse-timestamp filesystem; the hash doesn't.
+  writeFileSync(preExisting, "AAAA", "utf8");
+  const sameSizeStamp = deliverableStamp("daily-note.md");
+  writeFileSync(preExisting, "BBBB", "utf8");
+  check(
+    runOutcome(0, "daily-note.md", sameSizeStamp).status === "ok",
+    "a same-length rewrite is ok (content hash, not mtime+size)"
+  );
 
   // --- finalizeRunMd: frontmatter status is finalized, body untouched ---------
   const md =

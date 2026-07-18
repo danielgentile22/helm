@@ -16,7 +16,7 @@
  */
 
 import { spawn, execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -453,17 +453,19 @@ export function summaryFromOutput(stdoutText) {
 //
 // existsSync alone is vacuous for the MERGE skills (plan-today/plan-tomorrow):
 // today's daily note usually pre-exists, so a run that wrote NOTHING still
-// passed. Pass the pre-run stamp (see deliverableStamp) and an unchanged file
-// counts as not-written. Comparing stamps, not clocks — a Syncthing peer with a
-// fast clock can hand us a future mtime, and coarse-resolution filesystems
-// would trip a `mtime >= startTime` test on a legitimate write.
+// passed. Pass the pre-run stamp and byte-identical content afterwards counts
+// as not-written. Content hash, not mtime: a Syncthing peer with a fast clock
+// hands us future mtimes, and a coarse-resolution filesystem would trip a
+// `mtime >= startTime` test on a legitimate write. Deliverables are markdown
+// notes — hashing one costs nothing next to the `claude -p` run that made it.
 export function deliverableStamp(deliverable) {
   if (!deliverable) return null;
   try {
-    const s = statSync(join(VAULT_ROOT, deliverable));
-    return `${s.mtimeMs}:${s.size}`;
+    return createHash("sha256").update(readFileSync(join(VAULT_ROOT, deliverable))).digest("hex");
   } catch {
-    return null; // absent pre-run — any existing file afterwards is a fresh write
+    // Absent (or unreadable) pre-run — a file present afterwards reads as a
+    // fresh write. Errs toward success, same as the old existsSync-only check.
+    return null;
   }
 }
 
@@ -471,9 +473,8 @@ export function runOutcome(code, deliverable, beforeStamp) {
   if (code === 0 && deliverable) {
     const after = deliverableStamp(deliverable);
     if (after === null) return { status: "error", missing: true, stale: false };
-    // ponytail: same mtime AND same size is treated as untouched. A rewrite
-    // that lands byte-identical inside one mtime tick reads as ok — the safe
-    // direction, and what the old existsSync-only check did anyway.
+    // A byte-identical rewrite is indistinguishable from no write at all, and
+    // under a "the deliverable must change" contract both are a failed run.
     if (beforeStamp && after === beforeStamp) {
       return { status: "error", missing: false, stale: true };
     }
@@ -1375,6 +1376,21 @@ function main() {
         /* someone else already cleaned it */
       }
     }
+  }
+  // Stale takeover is unlink-then-create, so a racing runner that judged the
+  // SAME stale pidfile can delete the lock we just won and take it. Nothing in
+  // node's stdlib gives us a real advisory lock, so settle it after the fact:
+  // whoever's pid is NOT in the file lost and exits. Exactly one survives.
+  // ponytail: re-read once — the losing runner writes before it starts work.
+  try {
+    const owner = parseInt(readFileSync(PIDFILE, "utf8").trim(), 10);
+    if (owner !== process.pid) {
+      log(`lost the pidfile race to pid ${owner} — exiting this one (pid ${process.pid})`);
+      process.exit(0);
+    }
+  } catch {
+    log(`pidfile vanished right after acquisition — exiting (pid ${process.pid})`);
+    process.exit(0);
   }
   process.on("exit", () => {
     try {
