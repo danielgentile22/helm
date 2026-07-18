@@ -24,6 +24,12 @@ export const ALLOWED_SKILLS = new Set([
   "morphy-task-add", // create a task on the board (args: title/assignee/priority)
 ]);
 
+/** Skills the runner executes in-process (REST), never through `claude -p`.
+ *  Mirror of runner.js NATIVE_SKILLS — scripts/test-skill-contract.ts asserts
+ *  the two agree. Callers use it to know a run spends no model tokens (so a
+ *  spoken "use opus" has nothing to apply to). */
+export const NATIVE_SKILLS = new Set(["morphy-sync", "morphy-task-add"]);
+
 export function writeIntent(
   skill: string,
   source: string,

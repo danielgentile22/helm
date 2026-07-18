@@ -50,6 +50,11 @@ export const PKG_VERSION = JSON.parse(
 const _env = loadEnvFile();
 const env = (k) => process.env[k] || _env[k];
 
+// The other person on the shared Morphy board. Must match lib/config.ts's
+// COLLABORATOR_NAME (same env var) — the runner writes the open_by_assignee
+// key the HUD and router read back.
+const COLLABORATOR_NAME = env("HUD_COLLABORATOR_NAME") || "Collaborator";
+
 const VAULT_ROOT = env("VAULT_ROOT");
 if (!VAULT_ROOT) {
   console.error(
@@ -860,7 +865,7 @@ const STATUS_KEYS = {
 
 export function morphyCounts(tasks) {
   const counts = { idea: 0, todo: 0, in_progress: 0, blocked: 0, done: 0 };
-  const open_by_assignee = { Daniel: 0, Michael: 0, Both: 0, Unassigned: 0 };
+  const open_by_assignee = { Daniel: 0, [COLLABORATOR_NAME]: 0, Both: 0, Unassigned: 0 };
   for (const t of tasks) {
     const key = STATUS_KEYS[(t.status || "").toLowerCase()] || "todo";
     counts[key]++;
@@ -922,7 +927,7 @@ export function failedSyncState(prev, reason) {
     // reads them ungated and would render stale board data as current. But keep
     // the last-good task list under a private key so the NEXT successful sync
     // can still diff against it and report what changed during the outage
-    // (delta + Michael-added-a-card notification). Chains across a failure run.
+    // (delta + collaborator-added-a-card notification). Chains across a failure run.
     tasks_baseline: prev?.tasks ?? prev?.tasks_baseline,
   };
 }
@@ -1010,7 +1015,7 @@ async function morphySync(reason = "scheduled") {
     `morphy-sync (${reason}): ${tasks.length} tasks, ${open_total} open, ${ideas_awaiting} ideas, +${delta.added.length}/-${delta.closed.length}`
   );
 
-  // Notify only on the background cadence — that's "Michael changed the board
+  // Notify only on the background cadence — that's "the collaborator changed the board
   // while I was away." Skip startup (delta vs a possibly-stale cache) and the
   // user-initiated syncs (after-add / on-demand), where Daniel made the change.
   if (reason === "scheduled" && (delta.added.length || delta.closed.length)) {

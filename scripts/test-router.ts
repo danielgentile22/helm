@@ -77,12 +77,12 @@ const morphyBoard = state({
     total: 4,
     counts: { idea: 1, todo: 2, in_progress: 1, blocked: 0, done: 0 },
     open_total: 3,
-    open_by_assignee: { Daniel: 2, Michael: 1, Both: 0, Unassigned: 0 },
+    open_by_assignee: { Daniel: 2, Collaborator: 1, Both: 0, Unassigned: 0 },
     ideas_awaiting: 1,
-    delta: { since: null, added: [{ name: "Email the AR rep", addedBy: "Michael" }], closed: [] },
+    delta: { since: null, added: [{ name: "Email the AR rep", addedBy: "Collaborator" }], closed: [] },
     tasks: [
       { id: "1", name: "Slice B", status: "Todo", assignee: "Daniel", addedBy: "Daniel", priority: "High", due: null },
-      { id: "2", name: "Call the landowner", status: "In progress", assignee: "Michael", addedBy: "Michael", priority: "Med", due: null },
+      { id: "2", name: "Call the landowner", status: "In progress", assignee: "Collaborator", addedBy: "Collaborator", priority: "Med", due: null },
       { id: "3", name: "Auto-emailing", status: "Idea", assignee: "Unassigned", addedBy: "Daniel", priority: "Low", due: null },
     ],
   },
@@ -297,11 +297,36 @@ const CASES: Case[] = [
     want: "tier 2 morphy board status",
   },
   {
-    name: "michael's plate",
-    transcript: "what's on michael's plate",
+    name: "collaborator's plate",
+    transcript: "what's on collaborator's plate",
     state: morphyBoard,
-    expect: (r) => r.tier === 2 && /michael/i.test(r.reply) && r.panels?.includes("morphy") === true,
-    want: "tier 2 michael's open tasks",
+    expect: (r) =>
+      r.tier === 2 && /collaborator/i.test(r.reply) && r.panels?.includes("morphy") === true,
+    want: "tier 2 collaborator's open tasks",
+  },
+  // #46: the schedule branch sits above the Morphy branch and used to answer
+  // every "what's next" with the next calendar item, board question or not
+  {
+    name: "what's next on the morphy board is a BOARD question",
+    transcript: "what's next on the morphy board",
+    state: morphyBoard,
+    expect: (r) => r.tier === 2 && r.panels?.includes("morphy") === true,
+    want: "tier 2 morphy answer, not the schedule",
+  },
+  {
+    name: "plural 'ideas' also defers to the board",
+    transcript: "what's next, any ideas on morphy",
+    state: morphyBoard,
+    expect: (r) => r.tier === 2 && r.panels?.includes("morphy") === true,
+    want: "tier 2 morphy ideas, not the schedule",
+  },
+  // ...but the guard must stay narrow: an explicit calendar ask that happens to
+  // contain a subject-ish word is still a schedule question
+  {
+    name: "'run schedule' is still the schedule",
+    transcript: "what's next on my run schedule",
+    expect: (r) => r.tier === 2 && r.panels?.includes("schedule") === true,
+    want: "tier 2 schedule answer",
   },
 ];
 
@@ -358,6 +383,34 @@ check("composed decline", no1.tier === 2 && no1.reply === "Standing by.", `tier 
 
 const no2 = rulesRoute("no thanks", state(), offerExchange(morningOffer));
 check("plain decline", no2.tier === 2 && no2.reply === "Standing by.", `tier ${no2.tier} "${no2.reply}"`, 'tier 2 "Standing by."');
+
+// #46: a bare "okay" answering a standing offer used to fall past the offer
+// branch into smalltalk's "Standing by." — the offer silently evaporated
+const ok1 = rulesRoute("okay", state(), offerExchange(morningOffer));
+check("bare okay after an offer dispatches", ok1.tier === 1 && ok1.skill === "morning-report", `tier ${ok1.tier} skill=${ok1.skill}`, "tier 1 morning-report");
+
+// ...but with NO offer standing, "okay" is still just an ack
+const ok2 = rulesRoute("okay", state(), []);
+check("bare okay with no offer is smalltalk", ok2.tier === 2 && /standing by/i.test(ok2.reply), `tier ${ok2.tier} — "${ok2.reply}"`, 'tier 2 "Standing by."');
+
+// #46: inFlightGuard stripped whichever alias matched FIRST, not the alias of
+// the skill it's guarding. Here morphy-sync is in flight and the sentence also
+// says "inbox" — stripping "inbox" leaves the morphy words in the residue and
+// mis-sizes a bare re-ask (2 words) as a real background ask (3+).
+const morphyRunning = state({
+  runs: [{ ...briefRunning.runs[0], id: "r2", skill: "morphy-sync" }],
+});
+const guarded = inFlightGuard(
+  { tier: 1, skill: "morphy-sync", reply: "on it", engine: "rules" },
+  "sync morphy once the inbox brief lands",
+  morphyRunning
+);
+check(
+  "in-flight guard strips the GUARDED skill's alias",
+  guarded.tier === 2 && /already running/.test(guarded.reply),
+  `tier ${guarded.tier} — "${guarded.reply}"`,
+  "tier 2 already-running"
+);
 
 // a stale offer (>3 min) must not dispatch on a bare "yes"
 const stale = rulesRoute("yes", state(), offerExchange(morningOffer, 4 * 60 * 1000));

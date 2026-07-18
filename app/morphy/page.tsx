@@ -1,7 +1,7 @@
 "use client";
 
 // Morphy — the consulting board. All Morphy state in one place: the objective
-// (open TODOs), the need-me detail (what Michael moved since the last sync +
+// (open TODOs), the need-me detail (what the collaborator moved since the last sync +
 // what's open for me), the GitHub repo activity as stat tiles, and the board
 // glance. Actions: Morphy Sync (desktop) + Task Add. Reads the runner's cache
 // (state.morphy) — the HUD never calls Notion.
@@ -13,6 +13,10 @@ import StatTile from "@/components/StatTile";
 import Deck from "@/components/panels/Deck";
 import TaskAdd from "@/components/panels/TaskAdd";
 import { fmtAge, fmtAgo, SectionTitle } from "@/components/panels/util";
+
+// client-side, so NEXT_PUBLIC_ (inlined at build) — keep in step with
+// HUD_COLLABORATOR_NAME, which is what the runner and router use server-side.
+const COLLABORATOR = process.env.NEXT_PUBLIC_COLLABORATOR_NAME || "Collaborator";
 
 
 export default function MorphyPage() {
@@ -38,8 +42,8 @@ export default function MorphyPage() {
 
   // board glance
   const ba = mp?.open_by_assignee ?? {};
-  const rows = (["Daniel", "Michael", "Both", "Unassigned"] as const).filter(
-    (k) => k === "Daniel" || k === "Michael" || (ba[k] ?? 0) > 0
+  const rows = ["Daniel", COLLABORATOR, "Both", "Unassigned"].filter(
+    (k) => k === "Daniel" || k === COLLABORATOR || (ba[k] ?? 0) > 0
   );
   const added = mp?.delta?.added ?? [];
   const closed = mp?.delta?.closed ?? [];
@@ -80,7 +84,7 @@ export default function MorphyPage() {
               daniel <b>{danielOpen.length}</b>
             </span>
             <span>
-              michael <b>{openTasksFor("Michael").length}</b>
+              {COLLABORATOR.toLowerCase()} <b>{openTasksFor(COLLABORATOR).length}</b>
             </span>
           </div>
         </section>

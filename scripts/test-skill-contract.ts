@@ -62,6 +62,17 @@ async function run(): Promise<void> {
     if (!ALLOWED_SKILLS.has(skill)) fail(`native skill "${skill}" is missing from ALLOWED_SKILLS`);
   }
 
+  // 2b. lib/skills.ts mirrors runner.js NATIVE_SKILLS — voiceDispatch reads the
+  //     lib copy to decide whether a spoken model override can apply at all.
+  //     Drift here makes HELM promise Opus on a run that never spawns a model.
+  const { NATIVE_SKILLS: libNative } = await import("../lib/skills");
+  const nativeDrift = [
+    ...[...NATIVE_SKILLS].filter((s) => !libNative.has(s)).map((s) => `${s} missing from lib`),
+    ...[...libNative].filter((s) => !NATIVE_SKILLS.has(s)).map((s) => `${s} missing from runner`),
+  ];
+  if (nativeDrift.length) fail(`NATIVE_SKILLS drift: ${nativeDrift.join(", ")}`);
+  else pass(`NATIVE_SKILLS mirrored in lib/skills.ts (${libNative.size})`);
+
   // 3. weekly-review specifically satisfies the contract and lands in the
   //    reports trail (slice-10 acceptance criterion).
   if (!ALLOWED_SKILLS.has("weekly-review")) {
