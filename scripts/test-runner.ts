@@ -40,6 +40,7 @@ async function run(): Promise<void> {
     pickNext,
     summaryFromOutput,
     runOutcome,
+    deliverableStamp,
     finalizeRunMd,
     writeJson,
     retireClaim,
@@ -105,19 +106,24 @@ async function run(): Promise<void> {
   // daily note the run never touched must not count as success.
   const preExisting = join(VAULT, "daily-note.md");
   writeFileSync(preExisting, "yesterday's note", "utf8");
-  const startedMs = Date.now() + 60_000; // run "started" after the file was written
-  const staleOutcome = runOutcome(0, "daily-note.md", startedMs);
+  const beforeStamp = deliverableStamp("daily-note.md");
+  const staleOutcome = runOutcome(0, "daily-note.md", beforeStamp);
   check(
     staleOutcome.status === "error" && staleOutcome.stale,
     "exit 0 with a pre-existing, untouched deliverable is an error (vacuous MERGE guard)"
   );
+  writeFileSync(preExisting, "today's merged note", "utf8"); // the run writes it
   check(
-    runOutcome(0, "daily-note.md", Date.now() - 60_000).status === "ok",
-    "a deliverable written during the run is ok"
+    runOutcome(0, "daily-note.md", beforeStamp).status === "ok",
+    "a deliverable rewritten during the run is ok"
   );
   check(
-    runOutcome(0, "not-written.md", Date.now()).missing,
-    "a missing deliverable still reports missing (not stale) with a start time"
+    runOutcome(0, "daily-note.md", deliverableStamp("no-such-file.md")).status === "ok",
+    "a deliverable that did not exist pre-run is ok once it lands"
+  );
+  check(
+    runOutcome(0, "not-written.md", null).missing,
+    "a missing deliverable still reports missing, not stale"
   );
 
   // --- finalizeRunMd: frontmatter status is finalized, body untouched ---------

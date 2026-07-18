@@ -453,20 +453,29 @@ export function summaryFromOutput(stdoutText) {
 //
 // existsSync alone is vacuous for the MERGE skills (plan-today/plan-tomorrow):
 // today's daily note usually pre-exists, so a run that wrote NOTHING still
-// passed. With startedMs, the file must also have been touched during the run.
-// ponytail: 1s slack absorbs clock/mtime granularity jitter.
-export function runOutcome(code, deliverable, startedMs) {
+// passed. Pass the pre-run stamp (see deliverableStamp) and an unchanged file
+// counts as not-written. Comparing stamps, not clocks — a Syncthing peer with a
+// fast clock can hand us a future mtime, and coarse-resolution filesystems
+// would trip a `mtime >= startTime` test on a legitimate write.
+export function deliverableStamp(deliverable) {
+  if (!deliverable) return null;
+  try {
+    const s = statSync(join(VAULT_ROOT, deliverable));
+    return `${s.mtimeMs}:${s.size}`;
+  } catch {
+    return null; // absent pre-run — any existing file afterwards is a fresh write
+  }
+}
+
+export function runOutcome(code, deliverable, beforeStamp) {
   if (code === 0 && deliverable) {
-    const abs = join(VAULT_ROOT, deliverable);
-    if (!existsSync(abs)) return { status: "error", missing: true, stale: false };
-    if (startedMs) {
-      try {
-        if (statSync(abs).mtimeMs < startedMs - 1000) {
-          return { status: "error", missing: false, stale: true };
-        }
-      } catch {
-        return { status: "error", missing: true, stale: false };
-      }
+    const after = deliverableStamp(deliverable);
+    if (after === null) return { status: "error", missing: true, stale: false };
+    // ponytail: same mtime AND same size is treated as untouched. A rewrite
+    // that lands byte-identical inside one mtime tick reads as ok — the safe
+    // direction, and what the old existsSync-only check did anyway.
+    if (beforeStamp && after === beforeStamp) {
+      return { status: "error", missing: false, stale: true };
     }
   }
   return { status: code === 0 ? "ok" : "error", missing: false, stale: false };
@@ -688,7 +697,7 @@ args: ${argsJson}
   );
 
   const out = []; // stdout only — the spoken summary is derived from this
-  const startedMs = Date.now(); // deliverable mtime must land after this (see runOutcome)
+  const beforeStamp = deliverableStamp(deliverable); // unchanged after the run = never written
   let stalled = false; // set by the stall watchdog — triggers the one retry below
   await new Promise((resolve) => {
     // --dangerously-skip-permissions: headless `claude -p` runs non-interactive,
@@ -779,7 +788,7 @@ args: ${argsJson}
           status.status = "error";
           status.summary = spawnErrMsg.slice(0, 200);
         } else {
-          const outcome = runOutcome(code, deliverable, startedMs);
+          const outcome = runOutcome(code, deliverable, beforeStamp);
           status.status = outcome.status;
           status.summary = outcome.missing
             ? `exited ok but deliverable missing: ${deliverable}`.slice(0, 200)
@@ -1326,12 +1335,13 @@ function main() {
         log(`pidfile lock failed (${e.message}) — exiting (pid ${process.pid})`);
         process.exit(0);
       }
-      let otherPid = NaN;
+      let raw = "";
       try {
-        otherPid = parseInt(readFileSync(PIDFILE, "utf8").trim(), 10);
+        raw = readFileSync(PIDFILE, "utf8").trim();
       } catch {
-        /* unreadable — treat as stale */
+        /* unreadable — handled as unparseable below */
       }
+      const otherPid = parseInt(raw, 10);
       if (
         Number.isInteger(otherPid) &&
         otherPid !== process.pid &&
@@ -1341,8 +1351,26 @@ function main() {
         log(`another runner alive at pid ${otherPid} — exiting this one (pid ${process.pid})`);
         process.exit(0);
       }
+      // An unparseable pidfile is either real corruption (power loss) or a
+      // racing runner's lock caught mid-write. Only the aged one is safe to
+      // clear — evicting the in-flight lock would let both runners boot.
+      if (!Number.isInteger(otherPid)) {
+        let ageMs = 0;
+        try {
+          ageMs = Date.now() - statSync(PIDFILE).mtimeMs;
+        } catch {
+          /* vanished — the retry below re-races cleanly */
+        }
+        if (ageMs < 5000) {
+          log(`pidfile is being written by another runner — exiting this one (pid ${process.pid})`);
+          process.exit(0);
+        }
+      }
       try {
-        unlinkSync(PIDFILE); // stale — drop it and retry the atomic create once
+        // Stale — drop it and retry the atomic create once. Re-read first: if
+        // a racing runner already replaced it with its own live lock, the
+        // content no longer matches and unlinking would evict that lock.
+        if (readFileSync(PIDFILE, "utf8").trim() === raw) unlinkSync(PIDFILE);
       } catch {
         /* someone else already cleaned it */
       }
