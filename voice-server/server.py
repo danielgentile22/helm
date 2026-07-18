@@ -4,8 +4,8 @@ on :3108.
 
 The standalone voice process the handoff reserved (Next API routes stay
 stateless; this holds the warm models). lib/tts.ts and lib/stt.ts
-auto-detect it via /health and fall back to ElevenLabs when it's not
-running.
+auto-detect it via /health; there is no cloud fallback — when it's down
+they throw VoiceConfigError and the routes return 503.
 
 GET  /health         -> {"ok": true, "voice": "...", "stt": {...}}
 GET  /speak?text=... -> audio/wav, streamed sentence-by-sentence so the
