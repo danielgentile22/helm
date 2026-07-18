@@ -16,7 +16,7 @@
  */
 
 import { spawn, execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -450,11 +450,36 @@ export function summaryFromOutput(stdoutText) {
 
 // Exit code 0 alone doesn't make a run "ok" — the promised deliverable has to
 // actually be on disk, or the success banner points at a 404.
-export function runOutcome(code, deliverable) {
-  if (code === 0 && deliverable && !existsSync(join(VAULT_ROOT, deliverable))) {
-    return { status: "error", missing: true };
+//
+// existsSync alone is vacuous for the MERGE skills (plan-today/plan-tomorrow):
+// today's daily note usually pre-exists, so a run that wrote NOTHING still
+// passed. Pass the pre-run stamp and byte-identical content afterwards counts
+// as not-written. Content hash, not mtime: a Syncthing peer with a fast clock
+// hands us future mtimes, and a coarse-resolution filesystem would trip a
+// `mtime >= startTime` test on a legitimate write. Deliverables are markdown
+// notes — hashing one costs nothing next to the `claude -p` run that made it.
+export function deliverableStamp(deliverable) {
+  if (!deliverable) return null;
+  try {
+    return createHash("sha256").update(readFileSync(join(VAULT_ROOT, deliverable))).digest("hex");
+  } catch {
+    // Absent (or unreadable) pre-run — a file present afterwards reads as a
+    // fresh write. Errs toward success, same as the old existsSync-only check.
+    return null;
   }
-  return { status: code === 0 ? "ok" : "error", missing: false };
+}
+
+export function runOutcome(code, deliverable, beforeStamp) {
+  if (code === 0 && deliverable) {
+    const after = deliverableStamp(deliverable);
+    if (after === null) return { status: "error", missing: true, stale: false };
+    // A byte-identical rewrite is indistinguishable from no write at all, and
+    // under a "the deliverable must change" contract both are a failed run.
+    if (beforeStamp && after === beforeStamp) {
+      return { status: "error", missing: false, stale: true };
+    }
+  }
+  return { status: code === 0 ? "ok" : "error", missing: false, stale: false };
 }
 
 // Rewrite the run .md's `status: running` frontmatter on completion so the
@@ -483,13 +508,17 @@ function killTree(proc, signal) {
 }
 
 // The ONE shape of a run record (issue #43) — every write site derives from
-// this and overrides only what differs. 13 fields, system/runs/<id>.json.
+// this and overrides only what differs. 14 fields, system/runs/<id>.json.
 export function runRecord(runId, intent, overrides = {}) {
   const ts = new Date().toISOString();
   return {
     id: runId,
     skill: intent?.skill || "(unknown)",
     args: intent?.args || {},
+    // Who queued this (voice/chat/deck/schedule/…). Writers set it on the
+    // intent; carrying it here is what makes it readable — "why did this run"
+    // is otherwise unanswerable once the queue file is consumed.
+    source: intent?.source || "unknown",
     ts_queued: intent?.ts || ts,
     ts_started: ts,
     ts_completed: null,
@@ -669,6 +698,7 @@ args: ${argsJson}
   );
 
   const out = []; // stdout only — the spoken summary is derived from this
+  const beforeStamp = deliverableStamp(deliverable); // unchanged after the run = never written
   let stalled = false; // set by the stall watchdog — triggers the one retry below
   await new Promise((resolve) => {
     // --dangerously-skip-permissions: headless `claude -p` runs non-interactive,
@@ -745,6 +775,12 @@ args: ${argsJson}
       clearTimeout(timer);
       clearTimeout(drainTimer);
       if (stallTimer) clearInterval(stallTimer);
+      // Detach the pipes BEFORE writing the closing fence — the 'exit'+drain
+      // path can finalize while a grandchild still holds stdout open, and a
+      // late chunk would otherwise be appended after the fence (and never
+      // reach the already-computed spoken summary).
+      proc.stdout?.removeAllListeners("data");
+      proc.stderr?.removeAllListeners("data");
       try {
         const tsCompleted = new Date().toISOString();
         status.exit_code = spawnErrMsg ? -2 : code ?? -1;
@@ -753,11 +789,13 @@ args: ${argsJson}
           status.status = "error";
           status.summary = spawnErrMsg.slice(0, 200);
         } else {
-          const outcome = runOutcome(code, deliverable);
+          const outcome = runOutcome(code, deliverable, beforeStamp);
           status.status = outcome.status;
           status.summary = outcome.missing
             ? `exited ok but deliverable missing: ${deliverable}`.slice(0, 200)
-            : summaryFromOutput(out.join("")).slice(0, 200);
+            : outcome.stale
+              ? `exited ok but deliverable was never written: ${deliverable}`.slice(0, 200)
+              : summaryFromOutput(out.join("")).slice(0, 200);
         }
         try {
           writeJson(runJsonPath, status);
@@ -1286,9 +1324,25 @@ export function pidLooksLikeRunner(pid) {
 // below so the module can be IMPORTED (by the skill-contract test) without
 // acquiring the lock, writing the heartbeat, or starting any loops/spawns.
 function main() {
-  if (existsSync(PIDFILE)) {
+  // exists-then-write is a TOCTOU race: two runners booting together both see
+  // no pidfile and both run. `wx` makes the create atomic — exactly one wins;
+  // the loser only proceeds after proving the holder is dead (and unlinking).
+  for (let attempt = 0; ; attempt++) {
     try {
-      const otherPid = parseInt(readFileSync(PIDFILE, "utf8").trim(), 10);
+      writeFileSync(PIDFILE, String(process.pid), { encoding: "utf8", flag: "wx" });
+      break;
+    } catch (e) {
+      if (e.code !== "EEXIST" || attempt > 0) {
+        log(`pidfile lock failed (${e.message}) — exiting (pid ${process.pid})`);
+        process.exit(0);
+      }
+      let raw = "";
+      try {
+        raw = readFileSync(PIDFILE, "utf8").trim();
+      } catch {
+        /* unreadable — handled as unparseable below */
+      }
+      const otherPid = parseInt(raw, 10);
       if (
         Number.isInteger(otherPid) &&
         otherPid !== process.pid &&
@@ -1298,11 +1352,46 @@ function main() {
         log(`another runner alive at pid ${otherPid} — exiting this one (pid ${process.pid})`);
         process.exit(0);
       }
-    } catch {
-      /* stale pidfile — overwrite */
+      // An unparseable pidfile is either real corruption (power loss) or a
+      // racing runner's lock caught mid-write. Only the aged one is safe to
+      // clear — evicting the in-flight lock would let both runners boot.
+      if (!Number.isInteger(otherPid)) {
+        let ageMs = 0;
+        try {
+          ageMs = Date.now() - statSync(PIDFILE).mtimeMs;
+        } catch {
+          /* vanished — the retry below re-races cleanly */
+        }
+        if (ageMs < 5000) {
+          log(`pidfile is being written by another runner — exiting this one (pid ${process.pid})`);
+          process.exit(0);
+        }
+      }
+      try {
+        // Stale — drop it and retry the atomic create once. Re-read first: if
+        // a racing runner already replaced it with its own live lock, the
+        // content no longer matches and unlinking would evict that lock.
+        if (readFileSync(PIDFILE, "utf8").trim() === raw) unlinkSync(PIDFILE);
+      } catch {
+        /* someone else already cleaned it */
+      }
     }
   }
-  writeFileSync(PIDFILE, String(process.pid), "utf8");
+  // Stale takeover is unlink-then-create, so a racing runner that judged the
+  // SAME stale pidfile can delete the lock we just won and take it. Nothing in
+  // node's stdlib gives us a real advisory lock, so settle it after the fact:
+  // whoever's pid is NOT in the file lost and exits. Exactly one survives.
+  // ponytail: re-read once — the losing runner writes before it starts work.
+  try {
+    const owner = parseInt(readFileSync(PIDFILE, "utf8").trim(), 10);
+    if (owner !== process.pid) {
+      log(`lost the pidfile race to pid ${owner} — exiting this one (pid ${process.pid})`);
+      process.exit(0);
+    }
+  } catch {
+    log(`pidfile vanished right after acquisition — exiting (pid ${process.pid})`);
+    process.exit(0);
+  }
   process.on("exit", () => {
     try {
       const cur = parseInt(readFileSync(PIDFILE, "utf8").trim(), 10);

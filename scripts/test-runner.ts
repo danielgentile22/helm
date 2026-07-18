@@ -40,6 +40,7 @@ async function run(): Promise<void> {
     pickNext,
     summaryFromOutput,
     runOutcome,
+    deliverableStamp,
     finalizeRunMd,
     writeJson,
     retireClaim,
@@ -101,6 +102,38 @@ async function run(): Promise<void> {
   check(runOutcome(0, "present.md").status === "ok", "exit 0 with the deliverable on disk is ok");
   check(runOutcome(1, "present.md").status === "error", "non-zero exit is an error");
   check(runOutcome(0, null).status === "ok", "exit 0 with no deliverable expected is ok");
+  // issue #47: existsSync alone is vacuous for the MERGE skills — a pre-existing
+  // daily note the run never touched must not count as success.
+  const preExisting = join(VAULT, "daily-note.md");
+  writeFileSync(preExisting, "yesterday's note", "utf8");
+  const beforeStamp = deliverableStamp("daily-note.md");
+  const staleOutcome = runOutcome(0, "daily-note.md", beforeStamp);
+  check(
+    staleOutcome.status === "error" && staleOutcome.stale,
+    "exit 0 with a pre-existing, untouched deliverable is an error (vacuous MERGE guard)"
+  );
+  writeFileSync(preExisting, "today's merged note", "utf8"); // the run writes it
+  check(
+    runOutcome(0, "daily-note.md", beforeStamp).status === "ok",
+    "a deliverable rewritten during the run is ok"
+  );
+  check(
+    runOutcome(0, "daily-note.md", deliverableStamp("no-such-file.md")).status === "ok",
+    "a deliverable that did not exist pre-run is ok once it lands"
+  );
+  check(
+    runOutcome(0, "not-written.md", null).missing,
+    "a missing deliverable still reports missing, not stale"
+  );
+  // Same byte length, different content — a metadata (mtime:size) stamp would
+  // call this untouched on a coarse-timestamp filesystem; the hash doesn't.
+  writeFileSync(preExisting, "AAAA", "utf8");
+  const sameSizeStamp = deliverableStamp("daily-note.md");
+  writeFileSync(preExisting, "BBBB", "utf8");
+  check(
+    runOutcome(0, "daily-note.md", sameSizeStamp).status === "ok",
+    "a same-length rewrite is ok (content hash, not mtime+size)"
+  );
 
   // --- finalizeRunMd: frontmatter status is finalized, body untouched ---------
   const md =
