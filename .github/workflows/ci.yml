@@ -21,3 +21,8 @@ jobs:
           VAULT_ROOT: ${{ github.workspace }}/demo-vault
           HUD_TZ: America/New_York
       - run: npx tsc --noEmit
+      # Catches build-breaking changes here instead of at `fly deploy`.
+      - run: npx next build
+        env:
+          VAULT_ROOT: ${{ github.workspace }}/demo-vault
+          HUD_TZ: America/New_York

@@ -4,30 +4,29 @@
 // `npx tsx scripts/test-router.ts` or `python3 feeds/test_calendar_agenda.py`.
 
 import { spawnSync } from "node:child_process";
+import { readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const NODE_CHECKS = ["runner/runner.js", "runner/notify.js", "runner/fleet.js"];
-const TS_SUITES = [
-  "test-security", "test-todos", "test-router", "test-skill-contract",
-  "test-runner", "test-vault", "test-demo-vault", "test-tabs", "test-tz",
-  "test-status", "test-fleet", "test-callouts", "test-notify", "test-vitals",
-  "test-core", "test-audio", "test-deck", "test-obsidian", "test-chat",
-  "test-capture", "test-voiceclient",
-];
-const PY_SUITES = [
-  "voice-server/test_server.py", "feeds/test_claude_tokens.py",
-  "feeds/test_job_applications.py", "feeds/test_morphy_github.py",
-  "feeds/test_uscf_rating.py", "feeds/test_calendar_agenda.py",
-];
+// Discovered, never listed — a new test-*.ts / test_*.py runs the moment it
+// exists. Paths are relative to the repo root so `npm test` works from anywhere.
+const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const find = (dir, re) =>
+  readdirSync(join(root, dir)).filter((f) => re.test(f)).sort().map((f) => `${dir}/${f}`);
+
+const NODE_CHECKS = find("runner", /\.js$/);
+const TS_SUITES = find("scripts", /^test-.*\.ts$/);
+const PY_SUITES = [...find("voice-server", /^test_.*\.py$/), ...find("feeds", /^test_.*\.py$/)];
 
 const suites = [
   ...NODE_CHECKS.map((f) => ({ name: `node --check ${f}`, cmd: "node", args: ["--check", f] })),
-  ...TS_SUITES.map((s) => ({ name: s, cmd: "npx", args: ["tsx", `scripts/${s}.ts`] })),
+  ...TS_SUITES.map((f) => ({ name: f, cmd: "npx", args: ["tsx", f] })),
   ...PY_SUITES.map((f) => ({ name: f, cmd: "python3", args: [f] })),
 ];
 
 const failed = [];
 for (const { name, cmd, args } of suites) {
-  const r = spawnSync(cmd, args, { stdio: "inherit" });
+  const r = spawnSync(cmd, args, { stdio: "inherit", cwd: root });
   const ok = r.status === 0;
   if (!ok) failed.push(name);
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}`);

@@ -67,7 +67,7 @@ render + (re)install them with `scripts/install-launchd.sh`.
   voice-server/feed suites; needs `python3` on PATH; no API spend) and
   `npx tsc --noEmit`. Run both after touching `lib/`.
 
-## Security perimeter (issue #36 — don't quietly widen it)
+## Security perimeter (don't quietly widen it)
 
 - **`HELM_API_KEY`** (in `~/.claude/.env`) is the shared secret behind every
   state-changing route (`/api/queue`, `/api/voice`, `/api/voice/text`,
@@ -112,8 +112,8 @@ render + (re)install them with `scripts/install-launchd.sh`.
 - Two HUD tabs = double audio. Browser autoplay needs one click/keypress.
 - Next dev can hang after webpack cache corruption: kill node on 3107,
   delete `.next/`, restart.
-- The agenda tile is a deterministic feed (`feeds/calendar-agenda.py`, issue
-  #56), NOT an LLM — the runner spawns it, validates its `system/agenda.json`
+- The agenda tile is a deterministic feed (`feeds/calendar-agenda.py`), NOT an
+  LLM — the runner spawns it, validates its `system/agenda.json`
   write, and falls back to a typed `ok:false` on garbage/timeout. Google OAuth
   creds live at `~/.claude/helm-gcal-{client,token}.json` (never the vault/repo);
   an `auth:` reason means re-run `python3 feeds/calendar-agenda.py --auth`. The
