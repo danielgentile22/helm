@@ -14,7 +14,6 @@ in the repo root instead (they're inlined into the client at build).
 |---|---|---|
 | `VAULT_ROOT` | vault folder | **required** (no default) |
 | `HELM_API_KEY` | shared secret every write route requires (sent as `X-HELM-KEY`) | unset — **writes return 503** |
-| `CLAUDE_PROJECTS_DIR` | transcript root the token feed scans | `~/.claude/projects` |
 | `JOBS_DIR` | folder holding `applications.jsonl` (job feed) | `$VAULT_ROOT/jobs` |
 | `AGENDA_SYNC_MIN` | calendar-agenda refresh cadence (minutes) | `30` |
 | `PYTHON_BIN` | interpreter the runner spawns the calendar feed with | `/usr/local/bin/python3` |

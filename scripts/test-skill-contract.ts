@@ -155,7 +155,9 @@ async function run(): Promise<void> {
   // 7. Machine record (issue #44): .helm-config.json is authoritative by
   //    CLAUDE.md instruction, so its skills array and launchdAgents list must
   //    match ALLOWED_SKILLS and the versioned scripts/*.plist inventory.
-  //    The file is gitignored (machine-local) — skip on a fresh clone.
+  //    The file is gitignored (machine-local) — skip on a fresh clone. It stays
+  //    Mac-only by design (issue #45): the record describes THIS machine's
+  //    wiring, so there is nothing for CI to compare against.
   const { existsSync } = await import("node:fs");
   const cfgPath = join(root, ".helm-config.json");
   if (!existsSync(cfgPath)) {

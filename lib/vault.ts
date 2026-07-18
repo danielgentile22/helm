@@ -269,7 +269,7 @@ export function readRunnerStatus(): RunnerStatus | null {
     max_concurrent: Number(j.max_concurrent ?? 0),
     pending: Number(j.pending ?? 0),
     heartbeat_age_s: age,
-    alive: age !== null && age < 120, // heartbeat every ~30s; 2min = dead
+    alive: age !== null && age < 120, // runner writes every 15s; 2min = dead
   };
 }
 

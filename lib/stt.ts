@@ -4,8 +4,9 @@ import { VOICE_SERVER_URL } from "./config";
 // ---------------------------------------------------------------------------
 // transcribe(audio) → text. The ONE place STT vendors live — mirrors the
 // speak() rule in lib/tts.ts. Engine: local faster-whisper in the
-// voice-server on :3108 (GPU, ~100ms, no network). The ElevenLabs Scribe
-// cloud fallback was removed 2026-06-12 alongside the TTS one.
+// voice-server on :3108 (CUDA if available, CPU int8 otherwise; no network).
+// The ElevenLabs Scribe cloud fallback was removed 2026-06-12 alongside the
+// TTS one.
 // ---------------------------------------------------------------------------
 
 const LOCAL_URL = VOICE_SERVER_URL;
