@@ -1,5 +1,5 @@
 import { homeEnv } from "./homeEnv";
-import { HUD_TZ } from "./config";
+import { HUD_TZ, COLLABORATOR_NAME } from "./config";
 import { ALLOWED_SKILLS } from "./skills";
 import { readMorningReport, readVaultState, type VaultState, type Metric } from "./vault";
 import { recentExchanges, type Exchange } from "./voiceMemory";
@@ -68,6 +68,19 @@ export const SKILL_ALIASES: [RegExp, string][] = [
 ];
 
 export const QUESTION_START = /^(what|how|is|are|was|did|when|who|where|why|any|do i|does|tell me)\b/;
+
+// The collaborator's name is config, not source (see config.ts) — build the
+// matcher from it. Escaped: a name is user data and could carry regex chars.
+const COLLAB_RE = new RegExp(
+  `\\b${COLLABORATOR_NAME.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`
+);
+// Subjects that own a later stateAnswer branch AND plausibly appear in a
+// "what's next" — the schedule branch sits above them and would otherwise
+// answer every one with the next calendar item. Kept deliberately narrow: the
+// focus and last-run branches need their own phrasing ("what's the focus",
+// "last run"), so listing them here only cost real schedule questions like
+// "what's next on my run schedule".
+const SUBJECT_RE = new RegExp(`\\b(morphy|ideas?)\\b|${COLLAB_RE.source}`);
 // The full ~25s rundown fires ONLY on deliberate whole-utterance triggers —
 // "give me the rundown", "brief me", "good morning". The old wide net (~20
 // loose phrasings) hijacked specific questions ("what's going on with the
@@ -152,7 +165,10 @@ export function inFlightGuard(r: RouteResult, transcript: string, state: VaultSt
   const t = transcript.toLowerCase();
   if (RERUN_RE.test(t)) return r; // explicit repeat — let it through
   const name = r.skill.replace(/-/g, " ");
-  const alias = SKILL_ALIASES.find(([re]) => re.test(t))?.[0];
+  // the alias of the GUARDED skill, not whichever alias fires first — "once
+  // the inbox brief lands, sync morphy" guarded on morphy-sync used to strip
+  // "inbox", leaving the morphy words in the residue and mis-sizing the ask
+  const alias = SKILL_ALIASES.find(([re, skill]) => skill === r.skill && re.test(t))?.[0];
   const residue = t
     .replace(alias ?? /$^/, " ")
     .replace(/[^a-z0-9\s]/g, " ")
@@ -184,8 +200,11 @@ export function inFlightGuard(r: RouteResult, transcript: string, state: VaultSt
 // must dispatch that skill. The offer is recovered from the LAST exchange in
 // convo memory (fresh within 3 min), so this stays stateless per-request.
 
+// "ok"/"okay" is an affirm ONLY here — the offer branch bails when no offer is
+// standing, so a bare "okay" out of the blue still falls through to smalltalk's
+// "Standing by." Without it, answering an offer with "ok" was swallowed there.
 const AFFIRM_RE =
-  /^(yes|yeah|yep|sure|absolutely|go ahead|do it|let'?s do it|please do|yes please|go for it|sounds good)( please)?,?( helm)?$/;
+  /^(yes|yeah|yep|sure|ok|okay|absolutely|go ahead|do it|let'?s do it|please do|yes please|go for it|sounds good)( please)?,?( helm)?$/;
 const DECLINE_RE =
   /^(no|nope|nah|not (right )?now|not yet|later|maybe later|hold off|skip it)( thanks| thank you)?,?( helm)?$/;
 
@@ -713,7 +732,9 @@ function stateAnswer(t: string, state: VaultState): StateAnswer | null {
     };
   }
   // what'?s — the normalizer KEEPS apostrophes; whisper emits "What's next?"
-  if (/schedule|next today|what'?s next|whats next|next up/.test(t)) {
+  // "what's next" is only about the CALENDAR when no other subject is named —
+  // "what's next on the Morphy board" was answering with the next meeting.
+  if (/schedule|next today|what'?s next|whats next|next up/.test(t) && !SUBJECT_RE.test(t)) {
     const d = state.daily;
     if (!d || d.schedule.length === 0) return { text: "Nothing's on the schedule.", panels: ["schedule"] };
     const next = d.isToday ? nextScheduleItem(state) : null;
@@ -746,7 +767,7 @@ function stateAnswer(t: string, state: VaultState): StateAnswer | null {
   // Morphy board questions. A bare "sync/refresh morphy" is a COMMAND — let it
   // fall through to matchSkill (morphy-sync); only answer here for queries.
   const isMorphySync = /\b(sync|refresh)\b/.test(t) && /morphy/.test(t);
-  if ((/morphy/.test(t) || /michael/.test(t)) && !isMorphySync) {
+  if ((/morphy/.test(t) || COLLAB_RE.test(t)) && !isMorphySync) {
     const mp = state.morphy;
     if (!mp || mp.ok === false) {
       return {
@@ -757,13 +778,15 @@ function stateAnswer(t: string, state: VaultState): StateAnswer | null {
       };
     }
     const open = (mp.tasks ?? []).filter((x) => x.status !== "Done");
-    // "what's on Michael's plate" → his open tasks
-    if (/michael/.test(t)) {
-      const his = open.filter((x) => x.assignee === "Michael" || x.assignee === "Both");
+    // "what's on <collaborator>'s plate" → their open tasks
+    if (COLLAB_RE.test(t)) {
+      const theirs = open.filter(
+        (x) => x.assignee === COLLABORATOR_NAME || x.assignee === "Both"
+      );
       return {
-        text: his.length
-          ? `Michael has ${his.length} open: ${listOut(his.slice(0, 4).map((x) => x.name))}.`
-          : "Michael has nothing open on the board right now.",
+        text: theirs.length
+          ? `${COLLABORATOR_NAME} has ${theirs.length} open: ${listOut(theirs.slice(0, 4).map((x) => x.name))}.`
+          : `${COLLABORATOR_NAME} has nothing open on the board right now.`,
         panels: ["morphy"],
       };
     }
@@ -885,6 +908,11 @@ function warmHaiku() {
   const key = homeEnv("ANTHROPIC_API_KEY");
   // VOICE_NO_WARMUP: tests import this module — they must not ping the API
   if (haikuWarmed || !key || process.env.VOICE_NO_WARMUP) return;
+  // Only `auto` benefits: rules answer the utterance while the ping opens the
+  // connection, so the NEXT ask that falls through is warm. local/rules never
+  // call Haiku, and VOICE_ROUTER=haiku calls it on this very request — warming
+  // there just races a paid call it can't help.
+  if ((homeEnv("VOICE_ROUTER") || "auto").toLowerCase() !== "auto") return;
   haikuWarmed = true;
   fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -902,7 +930,10 @@ function warmHaiku() {
     haikuWarmed = false; // network blip — retry on a later call
   });
 }
-warmHaiku(); // module load = first voice API hit — warm while rules still answer
+// NOT called at module load: `next build` imports this module to collect page
+// data and would fire a real API request per build. route() warms it on the
+// first utterance instead — still off the critical path, since rules answer
+// while the ping is in flight.
 
 async function haikuRoute(
   transcript: string,
@@ -935,7 +966,18 @@ async function haikuRoute(
   const text = json.content?.find((c) => c.type === "text")?.text ?? "";
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) return null;
-  return validateRouted(JSON.parse(m[0]) as RoutedJson, "haiku");
+  // A model that wraps the JSON in prose (or emits two objects) makes the
+  // greedy match unparseable. That's a formatting quirk, not an outage — bounce
+  // to the next engine instead of throwing into engineFail(), where it would
+  // log identically to a dead network and hide the real cause.
+  let parsed: RoutedJson;
+  try {
+    parsed = JSON.parse(m[0]) as RoutedJson;
+  } catch {
+    console.error(`[router] haiku returned unparseable JSON — falling through: ${m[0].slice(0, 200)}`);
+    return null;
+  }
+  return validateRouted(parsed, "haiku");
 }
 
 // --- local engine -----------------------------------------------------------

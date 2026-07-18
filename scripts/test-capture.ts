@@ -1,5 +1,5 @@
 // Voice parser sweep — parseMorphyCapture (spoken capture → the shared
-// Notion board Michael co-edits) and extractModelOverride (which model
+// Notion board Collaborator co-edits) and extractModelOverride (which model
 // spends money on a run), plus the normalizeForSpeech money cases from
 // review #40. Pure functions, no I/O. Run: npx -y tsx scripts/test-capture.ts
 import { parseMorphyCapture } from "../lib/voiceDispatch";
@@ -22,7 +22,7 @@ check(parseMorphyCapture("add a task to buy milk") === null, "non-morphy task is
 check(parseMorphyCapture("add a morphy task to email the AR rep") !== null, "add a morphy task → capture");
 
 // --- question guard (issue #19): interrogative / '?' never queues a write ----
-check(parseMorphyCapture("did michael add a new task to the morphy board?") === null, "'did ... add a task ...?' is a question, not a capture");
+check(parseMorphyCapture("did collaborator add a new task to the morphy board?") === null, "'did ... add a task ...?' is a question, not a capture");
 check(parseMorphyCapture("does the morphy task list make sense?") === null, "'does ... make sense?' is a question, not a capture");
 check(parseMorphyCapture("what task did we add to morphy") === null, "leading 'what' interrogative bails");
 check(parseMorphyCapture("is there a morphy task to make the deck?") === null, "leading 'is' + '?' bails");
@@ -30,8 +30,8 @@ check(parseMorphyCapture("add a morphy task to review the vendor's proposal?") =
 
 // --- title / assignee / priority extraction ----------------------------------
 eq(
-  parseMorphyCapture("add a Morphy task to email the AR rep, assign Michael, high priority"),
-  { title: "Email the AR rep", assignee: "Michael", priority: "High" },
+  parseMorphyCapture("add a Morphy task to email the AR rep, assign Collaborator, high priority"),
+  { title: "Email the AR rep", assignee: "Collaborator", priority: "High" },
   "canonical spoken capture"
 );
 eq(
@@ -73,6 +73,12 @@ eq(speak("$4,200 total"), "4 thousand dollars total", "comma-grouped amounts sti
 eq(speak("$1 fee"), "one dollar fee", "$1 → singular dollar");
 eq(speak("$999500 raised"), "1 million dollars raised", "999,500 rounds to one million, not '1000 thousand'");
 eq(speak("$200M run rate"), "two hundred million dollars run rate", "suffix amounts untouched by the fix");
+// #46: lowercase suffixes fell through to the plain-money rule — "$5m" was
+// spoken as "five dollars" with a stray "m" left behind
+eq(speak("$5m deal"), "five million dollars deal", "lowercase m suffix");
+eq(speak("$1.5b valuation"), "one point five billion dollars valuation", "lowercase b suffix");
+eq(speak("$10k retainer"), "ten thousand dollars retainer", "lowercase k suffix");
+eq(speak("$1.5billion round"), "one point five billion dollars round", "spelled-out suffix still wins over bare b");
 
 // --- capForSpeech (issue #28: cap after normalization, never mid-word) --------
 {

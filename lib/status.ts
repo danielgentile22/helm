@@ -17,7 +17,7 @@ export interface Status {
   morphy: {
     /** board is currently syncing (last sync didn't fail); null board = true */
     syncing: boolean;
-    /** cards Michael added since the last sync you saw */
+    /** cards the collaborator added since the last sync you saw */
     added: number;
     /** cards closed since the last sync */
     closed: number;
@@ -70,7 +70,8 @@ export function deriveStatus(state: VaultState): Status {
     .filter((p) => p.stale)
     .map((p) => p.reason || p.id);
 
-  // things that actually want Daniel: his open cards, whatever Michael just
+  // things that actually want Daniel: his open cards, whatever the
+  // collaborator just
   // added, and any failed run. Queue depth and "busy" are activity, not need.
   const needMeCount = openForYou + added + failedRuns;
 

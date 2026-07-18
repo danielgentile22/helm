@@ -58,7 +58,11 @@ export function normalizeForSpeech(text: string): string {
   let t = text;
 
   // $200M / $1.5B / $10k → "two hundred million dollars"
-  t = t.replace(/\$\s?(\d+(?:\.\d+)?)\s?(k|K|[mM]illion|[bB]illion|[tT]rillion|M|B|T)\b/g, (_, num: string, suf: string) => {
+  // Suffix alternation is ORDERED: the spelled-out forms must be tried before
+  // the bare letters, or "$1.5billion" matches "b" and leaves "illion".
+  // Lowercase letters included — "$5m" is how people type it, and without them
+  // the plain-money rule below spoke it as "five dollars" + a stray "m".
+  t = t.replace(/\$\s?(\d+(?:\.\d+)?)\s?([kK]|[mM]illion|[bB]illion|[tT]rillion|[mMbBtT])\b/g, (_, num: string, suf: string) => {
     const scale = SUFFIX[suf[0].toLowerCase()];
     return `${decimalWords(num)} ${scale} dollars`;
   });

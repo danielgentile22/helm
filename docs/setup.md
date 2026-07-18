@@ -21,6 +21,7 @@ in the repo root instead (they're inlined into the client at build).
 | `GCAL_TOKEN` | stored Google refresh token (calendar feed) | `~/.claude/helm-gcal-token.json` |
 | `HUD_TZ` | IANA timezone for "today" (HUD + runner) | `America/New_York` |
 | `HUD_USER_NAME` | how voice notes refer to you | `User` |
+| `HUD_COLLABORATOR_NAME` | the other person on the Morphy board — must match the Notion Assignee value verbatim | `Collaborator` |
 | `HELM_MODEL` | model for background `claude -p` runs | `claude-opus-4-8` |
 | `ANTHROPIC_API_KEY` | enables Haiku intent routing (~$0.002/ask) | unset (optional) |
 | `VOICE_ROUTER` | force router engine: `auto`/`rules`/`haiku`/`local` | `auto` |
@@ -32,6 +33,7 @@ in the repo root instead (they're inlined into the client at build).
 | `WAKE_WORD` / `WAKE_MODEL` | opt-in hands-free wake (`on`/`off`) + openWakeWord model name | `off` / unset (push-to-talk) |
 | `NEXT_PUBLIC_OBSIDIAN_VAULT` | Obsidian vault name for deep links | unset (link hidden) |
 | `NEXT_PUBLIC_VOICE_WS` | wake-event websocket | `ws://127.0.0.1:3108/events` |
+| `NEXT_PUBLIC_COLLABORATOR_NAME` | client-side copy of `HUD_COLLABORATOR_NAME` (Morphy tab labels) — keep the two in step | `Collaborator` |
 
 Enable writes (queue, voice, todos, chat) by generating the key once:
 

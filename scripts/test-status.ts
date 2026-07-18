@@ -92,10 +92,10 @@ const queued = (n: number): QueueEntry[] =>
   check(s.healthy === true, "busy is activity, not ill-health");
 }
 
-// --- Morphy delta present (Michael added / closed) -------------------------
+// --- Morphy delta present (Collaborator added / closed) -------------------------
 {
   const mp = morphy({
-    delta: { since: null, added: [{ name: "A", addedBy: "Michael" }, { name: "B", addedBy: "Michael" }], closed: ["C"] },
+    delta: { since: null, added: [{ name: "A", addedBy: "Collaborator" }, { name: "B", addedBy: "Collaborator" }], closed: ["C"] },
   });
   const s = deriveStatus(state({ runner: runner(), morphy: mp }));
   check(s.morphy.added === 2, "counts 2 added since last sync");
@@ -110,7 +110,7 @@ const queued = (n: number): QueueEntry[] =>
       { id: "1", name: "mine todo", status: "Todo", assignee: "Daniel", addedBy: null, priority: null, due: null },
       { id: "2", name: "mine blocked", status: "Blocked", assignee: "Daniel", addedBy: null, priority: null, due: null },
       { id: "3", name: "mine done", status: "Done", assignee: "Daniel", addedBy: null, priority: null, due: null },
-      { id: "4", name: "his", status: "Todo", assignee: "Michael", addedBy: null, priority: null, due: null },
+      { id: "4", name: "his", status: "Todo", assignee: "Collaborator", addedBy: null, priority: null, due: null },
     ],
   });
   const s = deriveStatus(state({ runner: runner(), morphy: mp }));
@@ -120,7 +120,7 @@ const queued = (n: number): QueueEntry[] =>
 
 // --- open-for-you falls back to open_by_assignee when no task list ----------
 {
-  const mp = morphy({ open_by_assignee: { Daniel: 3, Michael: 1 } });
+  const mp = morphy({ open_by_assignee: { Daniel: 3, Collaborator: 1 } });
   const s = deriveStatus(state({ runner: runner(), morphy: mp }));
   check(s.morphy.openForYou === 3, "falls back to open_by_assignee[Daniel]");
 }
