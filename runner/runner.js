@@ -450,11 +450,26 @@ export function summaryFromOutput(stdoutText) {
 
 // Exit code 0 alone doesn't make a run "ok" — the promised deliverable has to
 // actually be on disk, or the success banner points at a 404.
-export function runOutcome(code, deliverable) {
-  if (code === 0 && deliverable && !existsSync(join(VAULT_ROOT, deliverable))) {
-    return { status: "error", missing: true };
+//
+// existsSync alone is vacuous for the MERGE skills (plan-today/plan-tomorrow):
+// today's daily note usually pre-exists, so a run that wrote NOTHING still
+// passed. With startedMs, the file must also have been touched during the run.
+// ponytail: 1s slack absorbs clock/mtime granularity jitter.
+export function runOutcome(code, deliverable, startedMs) {
+  if (code === 0 && deliverable) {
+    const abs = join(VAULT_ROOT, deliverable);
+    if (!existsSync(abs)) return { status: "error", missing: true, stale: false };
+    if (startedMs) {
+      try {
+        if (statSync(abs).mtimeMs < startedMs - 1000) {
+          return { status: "error", missing: false, stale: true };
+        }
+      } catch {
+        return { status: "error", missing: true, stale: false };
+      }
+    }
   }
-  return { status: code === 0 ? "ok" : "error", missing: false };
+  return { status: code === 0 ? "ok" : "error", missing: false, stale: false };
 }
 
 // Rewrite the run .md's `status: running` frontmatter on completion so the
@@ -483,13 +498,17 @@ function killTree(proc, signal) {
 }
 
 // The ONE shape of a run record (issue #43) — every write site derives from
-// this and overrides only what differs. 13 fields, system/runs/<id>.json.
+// this and overrides only what differs. 14 fields, system/runs/<id>.json.
 export function runRecord(runId, intent, overrides = {}) {
   const ts = new Date().toISOString();
   return {
     id: runId,
     skill: intent?.skill || "(unknown)",
     args: intent?.args || {},
+    // Who queued this (voice/chat/deck/schedule/…). Writers set it on the
+    // intent; carrying it here is what makes it readable — "why did this run"
+    // is otherwise unanswerable once the queue file is consumed.
+    source: intent?.source || "unknown",
     ts_queued: intent?.ts || ts,
     ts_started: ts,
     ts_completed: null,
@@ -669,6 +688,7 @@ args: ${argsJson}
   );
 
   const out = []; // stdout only — the spoken summary is derived from this
+  const startedMs = Date.now(); // deliverable mtime must land after this (see runOutcome)
   let stalled = false; // set by the stall watchdog — triggers the one retry below
   await new Promise((resolve) => {
     // --dangerously-skip-permissions: headless `claude -p` runs non-interactive,
@@ -745,6 +765,12 @@ args: ${argsJson}
       clearTimeout(timer);
       clearTimeout(drainTimer);
       if (stallTimer) clearInterval(stallTimer);
+      // Detach the pipes BEFORE writing the closing fence — the 'exit'+drain
+      // path can finalize while a grandchild still holds stdout open, and a
+      // late chunk would otherwise be appended after the fence (and never
+      // reach the already-computed spoken summary).
+      proc.stdout?.removeAllListeners("data");
+      proc.stderr?.removeAllListeners("data");
       try {
         const tsCompleted = new Date().toISOString();
         status.exit_code = spawnErrMsg ? -2 : code ?? -1;
@@ -753,11 +779,13 @@ args: ${argsJson}
           status.status = "error";
           status.summary = spawnErrMsg.slice(0, 200);
         } else {
-          const outcome = runOutcome(code, deliverable);
+          const outcome = runOutcome(code, deliverable, startedMs);
           status.status = outcome.status;
           status.summary = outcome.missing
             ? `exited ok but deliverable missing: ${deliverable}`.slice(0, 200)
-            : summaryFromOutput(out.join("")).slice(0, 200);
+            : outcome.stale
+              ? `exited ok but deliverable was never written: ${deliverable}`.slice(0, 200)
+              : summaryFromOutput(out.join("")).slice(0, 200);
         }
         try {
           writeJson(runJsonPath, status);
@@ -1286,9 +1314,24 @@ export function pidLooksLikeRunner(pid) {
 // below so the module can be IMPORTED (by the skill-contract test) without
 // acquiring the lock, writing the heartbeat, or starting any loops/spawns.
 function main() {
-  if (existsSync(PIDFILE)) {
+  // exists-then-write is a TOCTOU race: two runners booting together both see
+  // no pidfile and both run. `wx` makes the create atomic — exactly one wins;
+  // the loser only proceeds after proving the holder is dead (and unlinking).
+  for (let attempt = 0; ; attempt++) {
     try {
-      const otherPid = parseInt(readFileSync(PIDFILE, "utf8").trim(), 10);
+      writeFileSync(PIDFILE, String(process.pid), { encoding: "utf8", flag: "wx" });
+      break;
+    } catch (e) {
+      if (e.code !== "EEXIST" || attempt > 0) {
+        log(`pidfile lock failed (${e.message}) — exiting (pid ${process.pid})`);
+        process.exit(0);
+      }
+      let otherPid = NaN;
+      try {
+        otherPid = parseInt(readFileSync(PIDFILE, "utf8").trim(), 10);
+      } catch {
+        /* unreadable — treat as stale */
+      }
       if (
         Number.isInteger(otherPid) &&
         otherPid !== process.pid &&
@@ -1298,11 +1341,13 @@ function main() {
         log(`another runner alive at pid ${otherPid} — exiting this one (pid ${process.pid})`);
         process.exit(0);
       }
-    } catch {
-      /* stale pidfile — overwrite */
+      try {
+        unlinkSync(PIDFILE); // stale — drop it and retry the atomic create once
+      } catch {
+        /* someone else already cleaned it */
+      }
     }
   }
-  writeFileSync(PIDFILE, String(process.pid), "utf8");
   process.on("exit", () => {
     try {
       const cur = parseInt(readFileSync(PIDFILE, "utf8").trim(), 10);

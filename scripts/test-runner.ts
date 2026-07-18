@@ -101,6 +101,24 @@ async function run(): Promise<void> {
   check(runOutcome(0, "present.md").status === "ok", "exit 0 with the deliverable on disk is ok");
   check(runOutcome(1, "present.md").status === "error", "non-zero exit is an error");
   check(runOutcome(0, null).status === "ok", "exit 0 with no deliverable expected is ok");
+  // issue #47: existsSync alone is vacuous for the MERGE skills — a pre-existing
+  // daily note the run never touched must not count as success.
+  const preExisting = join(VAULT, "daily-note.md");
+  writeFileSync(preExisting, "yesterday's note", "utf8");
+  const startedMs = Date.now() + 60_000; // run "started" after the file was written
+  const staleOutcome = runOutcome(0, "daily-note.md", startedMs);
+  check(
+    staleOutcome.status === "error" && staleOutcome.stale,
+    "exit 0 with a pre-existing, untouched deliverable is an error (vacuous MERGE guard)"
+  );
+  check(
+    runOutcome(0, "daily-note.md", Date.now() - 60_000).status === "ok",
+    "a deliverable written during the run is ok"
+  );
+  check(
+    runOutcome(0, "not-written.md", Date.now()).missing,
+    "a missing deliverable still reports missing (not stale) with a start time"
+  );
 
   // --- finalizeRunMd: frontmatter status is finalized, body untouched ---------
   const md =
