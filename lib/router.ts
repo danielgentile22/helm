@@ -74,10 +74,13 @@ export const QUESTION_START = /^(what|how|is|are|was|did|when|who|where|why|any|
 const COLLAB_RE = new RegExp(
   `\\b${COLLABORATOR_NAME.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`
 );
-// Subjects that own a later stateAnswer branch. A "what's next" that names one
-// of them is about THAT thing, not the calendar — the schedule branch sits
-// above them and would otherwise answer first.
-const SUBJECT_RE = new RegExp(`\\b(morphy|idea|run|focus)\\b|${COLLAB_RE.source}`);
+// Subjects that own a later stateAnswer branch AND plausibly appear in a
+// "what's next" — the schedule branch sits above them and would otherwise
+// answer every one with the next calendar item. Kept deliberately narrow: the
+// focus and last-run branches need their own phrasing ("what's the focus",
+// "last run"), so listing them here only cost real schedule questions like
+// "what's next on my run schedule".
+const SUBJECT_RE = new RegExp(`\\b(morphy|ideas?)\\b|${COLLAB_RE.source}`);
 // The full ~25s rundown fires ONLY on deliberate whole-utterance triggers —
 // "give me the rundown", "brief me", "good morning". The old wide net (~20
 // loose phrasings) hijacked specific questions ("what's going on with the
@@ -905,9 +908,11 @@ function warmHaiku() {
   const key = homeEnv("ANTHROPIC_API_KEY");
   // VOICE_NO_WARMUP: tests import this module — they must not ping the API
   if (haikuWarmed || !key || process.env.VOICE_NO_WARMUP) return;
-  // don't pay for (or leak a request on) an engine this box never calls
-  const pref = (homeEnv("VOICE_ROUTER") || "auto").toLowerCase();
-  if (pref === "local" || pref === "rules") return;
+  // Only `auto` benefits: rules answer the utterance while the ping opens the
+  // connection, so the NEXT ask that falls through is warm. local/rules never
+  // call Haiku, and VOICE_ROUTER=haiku calls it on this very request — warming
+  // there just races a paid call it can't help.
+  if ((homeEnv("VOICE_ROUTER") || "auto").toLowerCase() !== "auto") return;
   haikuWarmed = true;
   fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",

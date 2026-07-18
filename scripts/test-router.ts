@@ -313,6 +313,21 @@ const CASES: Case[] = [
     expect: (r) => r.tier === 2 && r.panels?.includes("morphy") === true,
     want: "tier 2 morphy answer, not the schedule",
   },
+  {
+    name: "plural 'ideas' also defers to the board",
+    transcript: "what's next, any ideas on morphy",
+    state: morphyBoard,
+    expect: (r) => r.tier === 2 && r.panels?.includes("morphy") === true,
+    want: "tier 2 morphy ideas, not the schedule",
+  },
+  // ...but the guard must stay narrow: an explicit calendar ask that happens to
+  // contain a subject-ish word is still a schedule question
+  {
+    name: "'run schedule' is still the schedule",
+    transcript: "what's next on my run schedule",
+    expect: (r) => r.tier === 2 && r.panels?.includes("schedule") === true,
+    want: "tier 2 schedule answer",
+  },
 ];
 
 let failed = 0;

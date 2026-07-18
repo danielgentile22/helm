@@ -46,4 +46,7 @@ export const USER_NAME = homeEnv("HUD_USER_NAME") ?? "User";
  *  Lives in env, never in source: this repo is public and the demo vault ships
  *  pseudonyms. Client components read NEXT_PUBLIC_COLLABORATOR_NAME instead
  *  (inlined at build) — keep the two in step. */
-export const COLLABORATOR_NAME = homeEnv("HUD_COLLABORATOR_NAME") ?? "Collaborator";
+// `||` and a trim, not `??`: a blank line in ~/.claude/.env yields "", and an
+// empty name compiles to the regex \b\b — which matches nearly everything and
+// would route half the schedule questions into the Morphy branch.
+export const COLLABORATOR_NAME = homeEnv("HUD_COLLABORATOR_NAME")?.trim() || "Collaborator";

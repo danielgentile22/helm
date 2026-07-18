@@ -1,14 +1,21 @@
 import { route, QUESTION_START, type Reveal } from "./router";
-import { writeIntent } from "./skills";
+import { writeIntent, NATIVE_SKILLS } from "./skills";
 import { extractModelOverride } from "./modelOverride";
 import { conversationContext, rememberExchange } from "./voiceMemory";
-import { USER_NAME, COLLABORATOR_NAME } from "./config";
+import { COLLABORATOR_NAME } from "./config";
 
-// Who a spoken "assign X" can name. Both names are config (config.ts), so the
-// pattern is built, not literal; escaped because a name is user data.
+// The board owner is "Daniel" verbatim — it's a Notion select-option value the
+// runner and lib/status.ts both match on, NOT a display name. Deliberately not
+// HUD_USER_NAME: that's how voice prompts address you and defaults to "User",
+// which would write an assignee the board schema doesn't have.
+const BOARD_OWNER = "Daniel";
+
+// Who a spoken "assign X" can name. The collaborator's name is config
+// (config.ts), so the pattern is built, not literal; escaped because a
+// configured name is user data and could carry regex metacharacters.
 const reEsc = (s: string) => s.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const ASSIGNEE_RE = new RegExp(
-  `\\b(?:assign(?:ed)?(?:\\s+to)?|for)\\s+(${reEsc(USER_NAME)}|${reEsc(COLLABORATOR_NAME)}|both|me|myself)\\b`,
+  `\\b(?:assign(?:ed)?(?:\\s+to)?|for)\\s+(${reEsc(BOARD_OWNER)}|${reEsc(COLLABORATOR_NAME)}|both|me|myself)\\b`,
   "i"
 );
 
@@ -41,7 +48,7 @@ export function parseMorphyCapture(
   raw: string
 ): { title: string; assignee: string; priority: string } | null {
   const low = raw.toLowerCase().trim();
-  // A capture is an imperative — never a question. "did michael add a task to
+  // A capture is an imperative — never a question. "did she add a task to
   // the morphy board?" matches the three-word gate below but must not queue a
   // Notion write. Reuse the router's interrogative test + a raw '?' check.
   if (QUESTION_START.test(low) || raw.includes("?")) return null;
@@ -61,8 +68,8 @@ export function parseMorphyCapture(
   if (am) {
     const who = am[1].toLowerCase();
     assignee =
-      who === "me" || who === "myself" || who === USER_NAME.toLowerCase()
-        ? USER_NAME
+      who === "me" || who === "myself" || who === BOARD_OWNER.toLowerCase()
+        ? BOARD_OWNER
         : who === "both"
           ? "Both"
           : COLLABORATOR_NAME;
@@ -116,7 +123,7 @@ export async function dispatchTranscript(
       title: capture.title,
       assignee: capture.assignee,
       priority: capture.priority,
-      addedBy: USER_NAME,
+      addedBy: BOARD_OWNER,
     });
     const who = capture.assignee === "Unassigned" ? "" : `, assigned to ${capture.assignee}`;
     const reply = `Adding a Morphy task: ${capture.title}${who}.`;
@@ -145,9 +152,16 @@ export async function dispatchTranscript(
   let reply = result.reply;
   if (result.tier === 1 && result.skill) {
     // a spoken "use opus" applies to skill dispatches too — the runner's
-    // modelFor() reads args.model for ANY intent, so just pass it through
-    queued = writeIntent(result.skill, source, override ? { model: override.model } : {});
-    if (override) reply = `${reply.replace(/\s*$/, "")} Running it on ${override.spoken}.`;
+    // modelFor() reads args.model for ANY intent it spawns. Native skills are
+    // the exception: the runner runs them in-process over REST and returns
+    // before modelFor(), so passing (or announcing) a model there would be a lie
+    const native = NATIVE_SKILLS.has(result.skill);
+    const applies = override && !native;
+    queued = writeIntent(result.skill, source, applies ? { model: override!.model } : {});
+    if (applies) reply = `${reply.replace(/\s*$/, "")} Running it on ${override!.spoken}.`;
+    else if (override) {
+      reply = `${reply.replace(/\s*$/, "")} That one I do myself, so there's no model to put on ${override.spoken}.`;
+    }
   } else if (result.tier === 3 && ask.split(/\s+/).length >= 3) {
     // open-ended ask → headless claude -p via the runner (voice-ask skill);
     // completion is announced like any other run. Word guard keeps noise

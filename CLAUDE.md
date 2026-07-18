@@ -101,6 +101,17 @@ render + (re)install them with `scripts/install-launchd.sh`.
 - `HUD_TZ` (lib/config.ts) ⟷ the runner's `HUD_TZ` — both default
   America/New_York (matching .helm-config.json); change them TOGETHER or
   "today" splits across two dates. test-skill-contract.ts asserts they match.
+- `NATIVE_SKILLS` in `runner/runner.js` ⟷ the mirror in `lib/skills.ts` —
+  voiceDispatch reads the lib copy to decide whether a spoken "use opus" can
+  apply. Drift makes HELM promise a model on a run that never spawns one
+  (guarded by scripts/test-skill-contract.ts).
+- `HUD_COLLABORATOR_NAME` (lib/config.ts + runner/runner.js) ⟷
+  `NEXT_PUBLIC_COLLABORATOR_NAME` (app/morphy, TaskAdd) — one fact, two env
+  vars, same shape as `NEXT_PUBLIC_VOICE_WS`. Both must equal the Notion
+  Assignee value verbatim; disagreement silently mis-buckets board tasks. The
+  board OWNER stays the literal "Daniel" (a select-option value, not a display
+  name) in runner.js, lib/status.ts, and lib/voiceDispatch.ts — don't swap it
+  for `HUD_USER_NAME`, which defaults to "User".
 
 ## Editing gotchas
 

@@ -22,7 +22,7 @@ check(parseMorphyCapture("add a task to buy milk") === null, "non-morphy task is
 check(parseMorphyCapture("add a morphy task to email the AR rep") !== null, "add a morphy task → capture");
 
 // --- question guard (issue #19): interrogative / '?' never queues a write ----
-check(parseMorphyCapture("did michael add a new task to the morphy board?") === null, "'did ... add a task ...?' is a question, not a capture");
+check(parseMorphyCapture("did collaborator add a new task to the morphy board?") === null, "'did ... add a task ...?' is a question, not a capture");
 check(parseMorphyCapture("does the morphy task list make sense?") === null, "'does ... make sense?' is a question, not a capture");
 check(parseMorphyCapture("what task did we add to morphy") === null, "leading 'what' interrogative bails");
 check(parseMorphyCapture("is there a morphy task to make the deck?") === null, "leading 'is' + '?' bails");
