@@ -38,7 +38,7 @@ const sel = (p) => p?.select?.name ?? null;
 const txt = (rich) => (rich || []).map((r) => r.plain_text).join("").trim();
 
 // Board text (task names AND the Assignee/Status/Priority/Added-by select
-// options) is co-edited by Michael / an API client and flows verbatim into
+// options) is co-edited by the collaborator / an API client and flows verbatim into
 // files that skip-permissions sessions are *instructed* to read
 // (morphy-state.json, the board snapshot -> the morning-report/weekly-review
 // prompts). Replace every Unicode control char (\p{Cc} covers C0, DEL, and C1

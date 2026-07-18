@@ -75,8 +75,8 @@ export interface MorphyTask {
   id: string;
   name: string;
   status: string; // Idea | Todo | In progress | Blocked | Done
-  assignee: string; // Daniel | Michael | Both | Unassigned
-  addedBy: string | null; // Daniel | Michael | HELM
+  assignee: string; // Daniel | <collaborator> | Both | Unassigned
+  addedBy: string | null; // Daniel | <collaborator> | HELM
   priority: string | null; // High | Med | Low
   due: string | null;
 }

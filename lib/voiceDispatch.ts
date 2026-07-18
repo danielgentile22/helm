@@ -2,6 +2,15 @@ import { route, QUESTION_START, type Reveal } from "./router";
 import { writeIntent } from "./skills";
 import { extractModelOverride } from "./modelOverride";
 import { conversationContext, rememberExchange } from "./voiceMemory";
+import { USER_NAME, COLLABORATOR_NAME } from "./config";
+
+// Who a spoken "assign X" can name. Both names are config (config.ts), so the
+// pattern is built, not literal; escaped because a name is user data.
+const reEsc = (s: string) => s.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const ASSIGNEE_RE = new RegExp(
+  `\\b(?:assign(?:ed)?(?:\\s+to)?|for)\\s+(${reEsc(USER_NAME)}|${reEsc(COLLABORATOR_NAME)}|both|me|myself)\\b`,
+  "i"
+);
 
 // ---------------------------------------------------------------------------
 // Shared transcript → intent dispatch. Two front doors call this:
@@ -25,9 +34,9 @@ export interface VoicePayload {
 }
 
 // Voice capture of a Morphy task — e.g. "add a Morphy task to email the AR rep,
-// assign Michael, high priority". Parsed deterministically (no model spend) and
-// queued as a native morphy-task-add intent the runner writes to Notion. Spoken
-// asks default Added-by to Daniel (he's the one talking).
+// assign <collaborator>, high priority". Parsed deterministically (no model
+// spend) and queued as a native morphy-task-add intent the runner writes to
+// Notion. Spoken asks default Added-by to the user (they're the one talking).
 export function parseMorphyCapture(
   raw: string
 ): { title: string; assignee: string; priority: string } | null {
@@ -48,15 +57,15 @@ export function parseMorphyCapture(
   let work = raw;
 
   let assignee = "Unassigned";
-  const am = work.match(/\b(?:assign(?:ed)?(?:\s+to)?|for)\s+(daniel|michael|both|me|myself)\b/i);
+  const am = work.match(ASSIGNEE_RE);
   if (am) {
     const who = am[1].toLowerCase();
     assignee =
-      who === "me" || who === "myself"
-        ? "Daniel"
+      who === "me" || who === "myself" || who === USER_NAME.toLowerCase()
+        ? USER_NAME
         : who === "both"
           ? "Both"
-          : who.charAt(0).toUpperCase() + who.slice(1);
+          : COLLABORATOR_NAME;
     work = work.replace(am[0], " ");
   }
 
@@ -107,7 +116,7 @@ export async function dispatchTranscript(
       title: capture.title,
       assignee: capture.assignee,
       priority: capture.priority,
-      addedBy: "Daniel",
+      addedBy: USER_NAME,
     });
     const who = capture.assignee === "Unassigned" ? "" : `, assigned to ${capture.assignee}`;
     const reply = `Adding a Morphy task: ${capture.title}${who}.`;
@@ -135,7 +144,10 @@ export async function dispatchTranscript(
   let queued: string | null = null;
   let reply = result.reply;
   if (result.tier === 1 && result.skill) {
-    queued = writeIntent(result.skill, source);
+    // a spoken "use opus" applies to skill dispatches too — the runner's
+    // modelFor() reads args.model for ANY intent, so just pass it through
+    queued = writeIntent(result.skill, source, override ? { model: override.model } : {});
+    if (override) reply = `${reply.replace(/\s*$/, "")} Running it on ${override.spoken}.`;
   } else if (result.tier === 3 && ask.split(/\s+/).length >= 3) {
     // open-ended ask → headless claude -p via the runner (voice-ask skill);
     // completion is announced like any other run. Word guard keeps noise
@@ -148,6 +160,13 @@ export async function dispatchTranscript(
     if (override && queued) {
       reply = `On it — running this one on ${override.spoken}. I'll speak up when it lands.`;
     }
+  }
+
+  // tier 2 answers straight from the vault snapshot — no model runs, so an
+  // override has nothing to apply to. Say so rather than swallow it, or the
+  // user thinks they got an Opus answer.
+  if (override && result.tier === 2) {
+    reply = `${reply.replace(/\s*$/, "")} That one came from your vault, so there was no model to put on ${override.spoken}.`;
   }
 
   const spokenReply = queued || result.tier !== 3 ? reply : "I didn't catch enough to act on.";

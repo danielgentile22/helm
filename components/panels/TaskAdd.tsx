@@ -4,7 +4,10 @@ import { useState } from "react";
 import { useShell } from "@/components/shell/ShellContext";
 import { SectionTitle } from "./util";
 
-const ASSIGNEES = ["Daniel", "Michael", "Both", "Unassigned"];
+// client-side, so NEXT_PUBLIC_ (inlined at build) — keep in step with
+// HUD_COLLABORATOR_NAME, which is what the runner and router use server-side.
+const COLLABORATOR = process.env.NEXT_PUBLIC_COLLABORATOR_NAME || "Collaborator";
+const ASSIGNEES = ["Daniel", COLLABORATOR, "Both", "Unassigned"];
 const PRIORITIES = ["High", "Med", "Low"];
 
 // Jot a Morphy task — the one action available on phone (and a desktop

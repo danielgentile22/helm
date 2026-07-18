@@ -40,3 +40,10 @@ export const VOICE_SERVER_URL = homeEnv("VOICE_SERVER_URL") ?? "http://127.0.0.1
 
 /** How the voice prompts refer to you ("<name>: <what you said>"). */
 export const USER_NAME = homeEnv("HUD_USER_NAME") ?? "User";
+
+/** The other person on the shared Morphy board — must match the Notion
+ *  "Assignee"/"Added by" values verbatim (that's what the runner filters on).
+ *  Lives in env, never in source: this repo is public and the demo vault ships
+ *  pseudonyms. Client components read NEXT_PUBLIC_COLLABORATOR_NAME instead
+ *  (inlined at build) — keep the two in step. */
+export const COLLABORATOR_NAME = homeEnv("HUD_COLLABORATOR_NAME") ?? "Collaborator";

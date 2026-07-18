@@ -31,9 +31,15 @@ const suites = [
   ...PY_SUITES.map((f) => ({ name: f, cmd: "python3", args: [f] })),
 ];
 
+// Identity names are config (HUD_USER_NAME / HUD_COLLABORATOR_NAME) and appear
+// verbatim in assertions — pin them so the suites are hermetic against whatever
+// this machine's ~/.claude/.env holds. Run a suite directly and you inherit
+// your own env instead; export these two first if a name-dependent case fails.
+const env = { ...process.env, HUD_USER_NAME: "Daniel", HUD_COLLABORATOR_NAME: "Collaborator" };
+
 const failed = [];
 for (const { name, cmd, args } of suites) {
-  const r = spawnSync(cmd, args, { stdio: "inherit", cwd: root });
+  const r = spawnSync(cmd, args, { stdio: "inherit", cwd: root, env });
   const ok = r.status === 0;
   if (!ok) failed.push(name);
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}`);
