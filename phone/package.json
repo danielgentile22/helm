@@ -1,0 +1,17 @@
+{
+  "name": "helm2",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Drive Claude Code on the always-on Mac from a phone. Tailnet-only, passkey-gated.",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.268"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}
