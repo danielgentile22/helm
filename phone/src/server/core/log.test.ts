@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, writeFile, mkdir, rm, truncate } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -184,7 +185,7 @@ test("I2: a subscriber sees an event only once it is on disk; subscribe-before-r
   const unsub = log.subscribe((ev) => {
     seen.push(ev);
     // Synchronous check that the line is already in the file.
-    const text = require("node:fs").readFileSync(join(dir, "events.jsonl"), "utf8") as string;
+    const text = readFileSync(join(dir, "events.jsonl"), "utf8");
     onDiskAtEmit.push(text.includes(`"seq":${ev.seq},`));
   });
 
@@ -195,7 +196,7 @@ test("I2: a subscriber sees an event only once it is on disk; subscribe-before-r
   unsub();
   await log.append(queued("d")); // after unsubscribe: must not be seen
 
-  assert.ok(onDiskAtEmit.every(Boolean), "emitted before on disk");
+  assert.deepEqual(onDiskAtEmit, [true, true, true], "emitted before on disk");
   assert.deepEqual(seen.map((e) => e.seq), [2, 3, 4]);
 
   // Merge the way sse.ts does: replay then buffered minus already-sent.
