@@ -45,6 +45,9 @@ export interface ThreadHead {
   readonly queued: readonly Extract<ThreadEvent, { kind: "input.queued" }>[];
   /** Recent clientMsgIds for send() idempotency (last 64 turn boundaries). */
   readonly recentClientMsgIds: ReadonlyMap<ClientMsgId, Seq>;
+  /** From the last turn.ended, for ThreadSummary. */
+  readonly lastTurnEndedAt: string | null;
+  readonly contextTokens: number | null;
 }
 
 export type Unsubscribe = () => void;
@@ -52,11 +55,11 @@ export type Unsubscribe = () => void;
 const RECENT_IDS = 64;
 const FILE = "events.jsonl";
 
-const emptyHead: ThreadHead = { lastSeq: 0, sessionId: null, openTurn: null, queued: [], recentClientMsgIds: new Map() };
+const emptyHead: ThreadHead = { lastSeq: 0, sessionId: null, openTurn: null, queued: [], recentClientMsgIds: new Map(), lastTurnEndedAt: null, contextTokens: null };
 
 /** Pure: the head after one more event. */
 function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
-  let { sessionId, openTurn, queued, recentClientMsgIds } = h;
+  let { sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, contextTokens } = h;
   switch (ev.kind) {
     case "session.bound":
       sessionId = ev.sessionId;
@@ -79,12 +82,14 @@ function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
     case "turn.ended":
       openTurn = null;
       if (ev.sessionId) sessionId = ev.sessionId;
+      lastTurnEndedAt = ev.ts;
+      if (ev.usage) contextTokens = ev.usage.contextTokens;
       break;
     case "thread.archived":
       queued = [];
       break;
   }
-  return { lastSeq: ev.seq, sessionId, openTurn, queued, recentClientMsgIds };
+  return { lastSeq: ev.seq, sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, contextTokens };
 }
 
 type DeltaBody = Extract<ThreadEventBody, { kind: "assistant.text" | "assistant.thinking" }>;
@@ -283,7 +288,13 @@ export class LogRegistry {
     let p = this.logs.get(threadId);
     if (!p) {
       p = ThreadLog.open(threadId, join(this.threadsRoot, threadId)).then((log) => {
-        for (const l of this.openListeners) l(log);
+        for (const l of this.openListeners) {
+          try {
+            l(log);
+          } catch (err) {
+            console.error(`[log] ${threadId}: onOpen listener threw`, err);
+          }
+        }
         return log;
       });
       p.catch(() => this.logs.delete(threadId));

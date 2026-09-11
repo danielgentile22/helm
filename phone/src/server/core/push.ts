@@ -41,8 +41,8 @@ export class PushService {
    * thread created after boot is covered too.
    */
   watch(log: ThreadLog): void {
-    // TODO: log.subscribe(ev => { if (shouldNotify(ev, log.subscriberCount())) void this.fireAll(payloadFor(threadId, config, ev)) })
-    throw new Error("not implemented");
+    // TODO(push PR): log.subscribe(ev => { if (shouldNotify(ev, log.subscriberCount())) void this.fireAll(payloadFor(threadId, config, ev)) })
+    void log;
   }
 
   private fireAll(payload: PushPayload): Promise<void> {

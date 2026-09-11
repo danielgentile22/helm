@@ -23,12 +23,19 @@ export class Mirror {
 
   /** Subscribe; on every turn.ended, render the turn (from turn.started to turn.ended) and append. */
   watch(log: ThreadLog): void {
-    throw new Error("not implemented");
+    // TODO(mirror PR): not yet implemented; a no-op so the server boots.
+    void log;
   }
 
-  /** Catch up a thread's mirror from its last marker. Called by LogRegistry.recoverAll at boot. */
-  resume(log: ThreadLog): Promise<void> {
-    throw new Error("not implemented");
+  /** Catch up a thread's mirror from its last marker. Called at boot after recoverAll. */
+  async resume(log: ThreadLog): Promise<void> {
+    // TODO(mirror PR)
+    void log;
+  }
+
+  /** Delete mirror notes older than the retention window (30 days). The log is canon, so this is lossless. */
+  async prune(): Promise<void> {
+    // TODO(mirror PR)
   }
 }
 

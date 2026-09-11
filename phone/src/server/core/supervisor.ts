@@ -139,9 +139,10 @@ export class Supervisor {
     return { session: s.tag, openTurn: s.tag === "running" ? s.turnId : null };
   }
 
-  /** Kill every live process (SIGTERM group, SIGKILL after 10 s). Called on SIGTERM/launchd stop. */
+  /** Kill every live process (SIGTERM group, SIGKILL after 10 s) and wait for every drain loop to settle, so no append follows. Called on SIGTERM/launchd stop. */
   async shutdown(): Promise<void> {
     await Promise.all([...this.states.keys()].map((id) => this.killLive(id)));
+    await Promise.all([...this.draining.values()]);
   }
 
   private async killLive(threadId: ThreadId): Promise<void> {
