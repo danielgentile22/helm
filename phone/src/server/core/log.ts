@@ -142,12 +142,14 @@ export class ThreadLog {
   /**
    * Append one event. Serialized per instance; resolves after the line is on
    * disk (one write of the whole line). Emits to live subscribers after the
-   * write lands (I2). Returns the minted event.
+   * write lands (I2). Returns the minted event. A body may be a function of
+   * the seq being minted, for events whose body names their own position
+   * (turn.started carries `t:<seq>`).
    */
-  append<B extends ThreadEventBody>(body: B): Promise<Extract<ThreadEvent, { kind: B["kind"] }>> {
+  append<B extends ThreadEventBody>(body: B | ((seq: Seq) => B)): Promise<Extract<ThreadEvent, { kind: B["kind"] }>> {
     const run = this.queue.then(async () => {
       const seq = (this.head.lastSeq + 1) as Seq;
-      const ev = { seq, ts: new Date().toISOString(), ...body } as ThreadEvent;
+      const ev = { seq, ts: new Date().toISOString(), ...(typeof body === "function" ? body(seq) : body) } as ThreadEvent;
       const line = Buffer.from(JSON.stringify(ev) + "\n");
       await appendFile(this.path, line);
       this.head = advance(this.head, ev);
