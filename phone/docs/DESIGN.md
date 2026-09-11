@@ -138,17 +138,23 @@ so all the fallbacks were deleted:
   honoring "never write application state into the vault".
 - We accept no log compaction and no blob GC in v1. Non-goals, not gaps.
 
-## Open questions
+## Decisions on the open questions (Daniel, 2026-09-11)
 
-1. `~/.helm2` is canon for thread history and sits outside the vault's backup story. Does it
-   need its own backup before the migration to the always-on desktop?
-2. `inbox/chats/` has no retention policy. The mirror is regenerable from the log, so pruning
-   is lossless. Prune at 30 days like morning reports, or keep indefinitely like research?
-   alternative: flag a turn in the UI when its tool calls touched that path. Visibility, not a
-   wall. Worth the noise?
-4. Should uploads stage under the thread's cwd instead of `~/.helm2`, so moving one into the
-   vault is a same-filesystem rename rather than a copy?
-5. One passkey set, or per-device revocation in the UI from day one?
+1. **Backup of `~/.helm2`.** Nightly sync to an off-machine location, to be chosen later. The
+   vault needs the same and the two share one destination. Not a blocker for the build; a
+   blocker for the desktop migration.
+   tailnet. The CLAUDE.md instruction is the only guard.
+3. **`inbox/chats/` retention.** Prune at 30 days, matching morning reports.
+4. **Uploads.** Stage under the thread's working directory in an ignored `.helm2-uploads/`
+   folder, so moving a file into the vault is a same-filesystem rename.
+5. **Passkeys.** One credential set in the first version, stored as a list keyed by device so
+   per-device revocation is a later UI addition and not a schema change.
+6. **Remote.** Private GitHub repo, branch and PR workflow as usual.
+7. **Host.** The MacBook is the interim host with launchd `KeepAlive` and `caffeinate -dims`.
+   Tailscale must be running on whichever host serves.
+
+Still open: whether Tailscale stays the network layer or is replaced. See the security options
+note in the decision record.
 
 ## Next implementation step
 
