@@ -18,8 +18,10 @@
  * SSE_HEARTBEAT_MS; `retry: 1000`.
  */
 
+import { LIMITS } from "../../shared/protocol";
 import type { Cursor, SyncFrame, ThreadEvent, ThreadId } from "../../shared/protocol";
-import type { ThreadLog } from "../core/log";
+import type { LogRegistry, ThreadLog } from "../core/log";
+import { parseCursor } from "../core/ids";
 import type { Supervisor } from "../core/supervisor";
 
 export interface SseSink {
@@ -30,25 +32,82 @@ export interface SseSink {
   readonly closed: Promise<void>;
 }
 
-/** Runs until the client disconnects. Never throws to the route; errors close the sink. */
-export function streamThread(log: ThreadLog, supervisor: Supervisor, after: Cursor, sink: SseSink): Promise<void> {
-  throw new Error("not implemented");
+export interface StreamOptions {
+  readonly heartbeatMs?: number;
 }
+
+/** Runs until the client disconnects. Never throws to the route; errors close the sink. */
+export async function streamThread(log: ThreadLog, supervisor: Supervisor, after: Cursor, sink: SseSink, opts: StreamOptions = {}): Promise<void> {
+  let lastSent: Cursor = after;
+  let live = false;
+  const buffer: ThreadEvent[] = [];
+  const forward = (ev: ThreadEvent): void => {
+    if (ev.seq <= lastSent) return;
+    lastSent = ev.seq;
+    sink.event(ev);
+  };
+  const unsub = log.subscribe((ev) => (live ? forward(ev) : buffer.push(ev)));
+  const heartbeat = setInterval(() => sink.comment("hb"), opts.heartbeatMs ?? LIMITS.SSE_HEARTBEAT_MS);
+  try {
+    for await (const ev of log.read(after)) forward(ev);
+    for (const ev of buffer) forward(ev);
+    buffer.length = 0;
+    live = true;
+    const head = log.getHead();
+    sink.control("sync", { headSeq: head.lastSeq, ...supervisor.status(log.threadId), queuedCount: head.queued.length });
+    await sink.closed;
+  } catch (err) {
+    console.error(`[sse ${log.threadId}] stream failed`, err);
+  } finally {
+    clearInterval(heartbeat);
+    unsub();
+    sink.close();
+  }
+}
+
+const GLOBAL_KINDS = new Set<ThreadEvent["kind"]>(["thread.created", "thread.config", "thread.archived", "turn.started", "turn.ended", "input.queued"]);
 
 /**
  * GET /api/events   (global, not persisted)
- * Fan-in of thread.* and turn.started/turn.ended from every open log, each
- * tagged with threadId, for the thread list badge. Clients re-fetch
- * GET /api/threads on reconnect instead of replaying; this stream has no cursor.
+ * Fan-in of thread.* and turn boundaries from every open log, each tagged
+ * with threadId, for the thread list badge. Clients re-fetch GET /api/threads
+ * on reconnect instead of replaying; this stream has no cursor.
  */
-export function streamGlobal(
-  subscribeAll: (listener: (threadId: ThreadId, ev: ThreadEvent) => void) => () => void,
+export async function streamGlobal(
+  logs: LogRegistry,
   sink: { event(threadId: ThreadId, ev: ThreadEvent): void; comment(text: string): void; readonly closed: Promise<void> },
+  opts: StreamOptions = {},
 ): Promise<void> {
-  throw new Error("not implemented");
+  const unsubs: (() => void)[] = [];
+  const attach = (log: ThreadLog): void => {
+    unsubs.push(log.subscribe((ev) => GLOBAL_KINDS.has(ev.kind) && sink.event(log.threadId, ev)));
+  };
+  const heartbeat = setInterval(() => sink.comment("hb"), opts.heartbeatMs ?? LIMITS.SSE_HEARTBEAT_MS);
+  try {
+    unsubs.push(logs.onOpen(attach));
+    for (const log of await logs.openLogs()) attach(log);
+    await sink.closed;
+  } finally {
+    clearInterval(heartbeat);
+    for (const u of unsubs) u();
+  }
 }
 
 /** Pure. Parse `after` query param or Last-Event-ID header into a cursor; bad input is 400. */
 export function cursorFrom(url: URL, lastEventId: string | null): { ok: true; after: Cursor } | { ok: false } {
-  throw new Error("not implemented");
+  return parseCursor(lastEventId ?? url.searchParams.get("after"));
+}
+
+// Wire formatting. Pure.
+export function formatEvent(ev: ThreadEvent): string {
+  return `id: ${ev.seq}\ndata: ${JSON.stringify(ev)}\n\n`;
+}
+export function formatControl(name: "sync", frame: SyncFrame): string {
+  return `event: ${name}\ndata: ${JSON.stringify(frame)}\n\n`;
+}
+export function formatComment(text: string): string {
+  return `: ${text}\n\n`;
+}
+export function formatGlobalEvent(threadId: ThreadId, ev: ThreadEvent): string {
+  return `data: ${JSON.stringify({ threadId, ...ev })}\n\n`;
 }

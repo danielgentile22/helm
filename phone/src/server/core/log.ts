@@ -292,9 +292,12 @@ export class LogRegistry {
     return p;
   }
 
-  /** Called for every log this registry opens, including ones opened after boot. Projections attach here. */
-  onOpen(listener: (log: ThreadLog) => void): void {
+  /** Called for every log this registry opens, including ones opened after boot. Projections attach here. Returns a detach function. */
+  onOpen(listener: (log: ThreadLog) => void): () => void {
     this.openListeners.add(listener);
+    return () => {
+      this.openListeners.delete(listener);
+    };
   }
 
   /** Every log already open, in open order. */
