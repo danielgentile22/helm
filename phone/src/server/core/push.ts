@@ -5,11 +5,20 @@
  * Subscriptions live in ~/.helm2/push/subscriptions.json keyed by endpoint,
  * written atomically. A 404/410 from the push service deletes the entry.
  * VAPID keys come from .env (HELM_VAPID_PUBLIC / HELM_VAPID_PRIVATE / HELM_VAPID_SUBJECT).
+ *
+ * "Nobody is watching" is read off ThreadLog.subscriberCount(). The watcher
+ * installed by watch() is itself a subscriber, so it compares against the
+ * count minus one: zero means every other listener (every open SSE stream)
+ * has gone away.
  */
 
+import webpush from "web-push";
 import type { PushPayload, ThreadEvent, ThreadId } from "../../shared/protocol";
-import type { LogRegistry, ThreadLog } from "./log";
+import { atomicWrite } from "../util/atomicWrite";
+import { lastAssistantText, type ThreadLog } from "./log";
 import type { ThreadStore } from "./thread-store";
+import { mkdir, readFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 export interface PushSubscriptionRecord {
   readonly endpoint: string;
@@ -18,22 +27,78 @@ export interface PushSubscriptionRecord {
   readonly createdAt: string;
 }
 
+/** How much of the last assistant message a notification body carries. */
+const PREVIEW_CHARS = 120;
+
+/** Status codes that mean the subscription is gone for good, not failing transiently. */
+const DEAD_CODES = new Set([404, 410]);
+
+/** One attempt to reach one endpoint. Injected in tests; web-push in production. */
+export type Send = (sub: PushSubscriptionRecord, payload: PushPayload) => Promise<unknown>;
+
+function statusCodeOf(err: unknown): number | null {
+  const code = (err as { statusCode?: unknown } | null)?.statusCode;
+  return typeof code === "number" ? code : null;
+}
+
 export class PushService {
+  /** endpoint -> record. The file is the same map, so a reload is a parse. */
+  private records = new Map<string, PushSubscriptionRecord>();
+  /** Resolves once the file has been read. Every public method awaits it. */
+  private readonly loaded: Promise<void>;
+  /** Serializes read-modify-write on the file so two changes cannot lose one. */
+  private writes: Promise<unknown> = Promise.resolve();
+  private readonly send: Send;
+
   constructor(
     private readonly file: string,
     private readonly vapid: { publicKey: string; privateKey: string; subject: string },
     private readonly threads: ThreadStore,
-  ) {}
+    deps?: { send?: Send },
+  ) {
+    this.send =
+      deps?.send ??
+      ((sub, payload) =>
+        webpush.sendNotification({ endpoint: sub.endpoint, keys: { ...sub.keys } }, JSON.stringify(payload), {
+          vapidDetails: { subject: this.vapid.subject, publicKey: this.vapid.publicKey, privateKey: this.vapid.privateKey },
+        }));
+    this.loaded = this.load();
+  }
+
+  private async load(): Promise<void> {
+    try {
+      const parsed = JSON.parse(await readFile(this.file, "utf8")) as Record<string, PushSubscriptionRecord>;
+      this.records = new Map(Object.entries(parsed));
+    } catch (err) {
+      // No file yet is the normal state before the phone first subscribes.
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") console.error(`[push] cannot read ${this.file}`, err);
+    }
+  }
 
   /** Idempotent on endpoint. */
-  subscribe(rec: PushSubscriptionRecord): Promise<void> {
-    throw new Error("not implemented");
+  async subscribe(rec: PushSubscriptionRecord): Promise<void> {
+    await this.loaded;
+    await this.mutate((records) => records.set(rec.endpoint, rec));
   }
-  unsubscribe(endpoint: string): Promise<void> {
-    throw new Error("not implemented");
+
+  async unsubscribe(endpoint: string): Promise<void> {
+    await this.loaded;
+    await this.mutate((records) => records.delete(endpoint));
   }
+
   publicKey(): string {
-    throw new Error("not implemented");
+    return this.vapid.publicKey;
+  }
+
+  /** Apply a change to the map and persist the whole map. Serialized. */
+  private mutate(change: (records: Map<string, PushSubscriptionRecord>) => void): Promise<void> {
+    const run = this.writes.then(async () => {
+      change(this.records);
+      await mkdir(dirname(this.file), { recursive: true });
+      await atomicWrite(this.file, JSON.stringify(Object.fromEntries(this.records), null, 2) + "\n");
+    });
+    this.writes = run.catch(() => undefined);
+    return run;
   }
 
   /**
@@ -41,13 +106,48 @@ export class PushService {
    * thread created after boot is covered too.
    */
   watch(log: ThreadLog): void {
-    // TODO: log.subscribe(ev => { if (shouldNotify(ev, log.subscriberCount())) void this.fireAll(payloadFor(threadId, config, ev)) })
-    throw new Error("not implemented");
+    log.subscribe((ev) => {
+      // Minus one for this watcher itself: what is left is the open SSE streams.
+      if (!shouldNotify(ev, log.subscriberCount() - 1)) return;
+      void this.notify(log, ev as Extract<ThreadEvent, { kind: "turn.ended" }>);
+    });
   }
 
-  private fireAll(payload: PushPayload): Promise<void> {
-    // TODO: for each record: web-push sendNotification; on 404/410 remove; never throw
-    throw new Error("not implemented");
+  /** Gather the preview and title the payload needs, then fire. Never throws. */
+  private async notify(log: ThreadLog, ev: Extract<ThreadEvent, { kind: "turn.ended" }>): Promise<void> {
+    try {
+      await this.loaded;
+      if (this.records.size === 0) return;
+      const events: ThreadEvent[] = [];
+      for await (const e of log.read(0)) events.push(e);
+      const preview = lastAssistantText(events, PREVIEW_CHARS);
+      const config = await this.threads.get(log.threadId);
+      await this.fireAll(payloadFor(log.threadId, config?.title ?? null, ev, preview));
+    } catch (err) {
+      console.error(`[push] ${log.threadId}: notify failed`, err);
+    }
+  }
+
+  private async fireAll(payload: PushPayload): Promise<void> {
+    const records = [...this.records.values()];
+    const dead: string[] = [];
+    await Promise.all(
+      records.map(async (rec) => {
+        try {
+          await this.send(rec, payload);
+        } catch (err) {
+          const code = statusCodeOf(err);
+          if (code !== null && DEAD_CODES.has(code)) dead.push(rec.endpoint);
+          else console.error(`[push] send to ${rec.endpoint} failed`, err);
+        }
+      }),
+    );
+    if (dead.length > 0) {
+      console.log(`[push] dropping ${dead.length} dead subscription(s)`);
+      await this.mutate((rs) => {
+        for (const endpoint of dead) rs.delete(endpoint);
+      });
+    }
   }
 }
 
@@ -55,9 +155,16 @@ export class PushService {
  * Pure. Notify on turn.ended when no SSE subscriber is attached. The SSE
  * subscriber count is the proxy for "the app is open"; heartbeats keep a
  * dead phone connection from lingering more than ~2 intervals.
+ *
+ * `liveSubscribers` excludes the push watcher's own subscription; watch()
+ * passes subscriberCount() - 1. An `orphaned` outcome is never news the
+ * phone can act on (the turn died with the server, and boot recovery, not a
+ * live append, wrote it), so it never notifies.
  */
 export function shouldNotify(ev: ThreadEvent, liveSubscribers: number): boolean {
-  throw new Error("not implemented");
+  if (ev.kind !== "turn.ended") return false;
+  if (ev.outcome === "orphaned") return false;
+  return liveSubscribers <= 0;
 }
 
 /** Pure. Title from thread config, body from outcome plus the last text preview. */
@@ -67,5 +174,25 @@ export function payloadFor(
   ev: Extract<ThreadEvent, { kind: "turn.ended" }>,
   preview: string | null,
 ): PushPayload {
-  throw new Error("not implemented");
+  return {
+    threadId,
+    title: title ?? "Helm",
+    body: bodyFor(ev, preview),
+    seq: ev.seq,
+    url: `/t/${threadId}`,
+  };
+}
+
+function bodyFor(ev: Extract<ThreadEvent, { kind: "turn.ended" }>, preview: string | null): string {
+  switch (ev.outcome) {
+    case "ok":
+      return preview !== null && preview.length > 0 ? preview.slice(0, PREVIEW_CHARS) : "Turn finished";
+    case "error":
+      return `Error: ${ev.error ?? "unknown"}`;
+    case "interrupted":
+      return "Interrupted";
+    case "orphaned":
+      // Unreachable through shouldNotify; kept so the switch stays exhaustive.
+      return "Turn ended with the server";
+  }
 }

@@ -3,3 +3,8 @@ dist/
 *.log
 .env
 .DS_Store
+public/app.js
+public/app.js.map
+public/sw.js
+public/sw.js.map
+.claude/

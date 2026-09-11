@@ -9,38 +9,106 @@
  * (the old sidecar bug: a torn read silently forked a new session).
  */
 
+import { mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import type { CreateThreadRequest, DirEntry, ThreadConfig, ThreadConfigPatch, ThreadId } from "../../shared/protocol";
+import { atomicWrite } from "../util/atomicWrite";
+
+const UPLOADS_DIRNAME = ".helm2-uploads";
+
+async function isDir(p: string): Promise<boolean> {
+  return stat(p).then((s) => s.isDirectory(), () => false);
+}
+
+async function exists(p: string): Promise<boolean> {
+  return stat(p).then(() => true, () => false);
+}
 
 export class ThreadStore {
+  /** Read-modify-write on thread.json is serialized per store so two concurrent patches cannot lose an update. */
+  private writes: Promise<unknown> = Promise.resolve();
+
   constructor(private readonly threadsRoot: string) {}
 
+  private file(threadId: ThreadId): string {
+    return join(this.threadsRoot, threadId, "thread.json");
+  }
+
   /** Idempotent on threadId: creating an existing thread returns it unchanged (client-minted ids may be retried). */
-  create(req: CreateThreadRequest & { threadId: ThreadId }): Promise<ThreadConfig>;
-  create(req: never): Promise<ThreadConfig> {
-    // TODO: validate cwd is an absolute existing directory; mkdir threads/<id>/{uploads}; atomicWrite thread.json
-    throw new Error("not implemented");
+  async create(req: CreateThreadRequest & { threadId: ThreadId }): Promise<ThreadConfig> {
+    const existing = await this.get(req.threadId);
+    if (existing) return existing;
+    if (!isAbsolute(req.cwd) || !(await isDir(req.cwd))) throw new Error(`cwd is not an existing absolute directory: ${req.cwd}`);
+    const config: ThreadConfig = {
+      threadId: req.threadId,
+      cwd: resolve(req.cwd),
+      model: req.model,
+      effort: req.effort,
+      title: req.title ?? null,
+      createdAt: new Date().toISOString(),
+      archivedAt: null,
+    };
+    await mkdir(join(this.threadsRoot, req.threadId), { recursive: true });
+    await atomicWrite(this.file(req.threadId), JSON.stringify(config, null, 2) + "\n");
+    return config;
   }
 
-  get(threadId: ThreadId): Promise<ThreadConfig | null> {
-    throw new Error("not implemented");
+  async get(threadId: ThreadId): Promise<ThreadConfig | null> {
+    try {
+      return JSON.parse(await readFile(this.file(threadId), "utf8")) as ThreadConfig;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw err;
+    }
   }
 
-  patch(threadId: ThreadId, patch: ThreadConfigPatch): Promise<ThreadConfig> {
-    throw new Error("not implemented");
+  async patch(threadId: ThreadId, patch: ThreadConfigPatch): Promise<ThreadConfig> {
+    return this.update(threadId, patch);
   }
 
-  /** All non-archived configs, newest first. Summaries (head, preview) are joined in http/app.ts from the logs. */
-  list(opts?: { includeArchived?: boolean }): Promise<readonly ThreadConfig[]> {
-    throw new Error("not implemented");
+  async archive(threadId: ThreadId): Promise<ThreadConfig> {
+    return this.update(threadId, { archivedAt: new Date().toISOString() });
+  }
+
+  private update(threadId: ThreadId, patch: Partial<ThreadConfig>): Promise<ThreadConfig> {
+    const run = this.writes.then(async () => {
+      const current = await this.get(threadId);
+      if (!current) throw new Error(`no such thread: ${threadId}`);
+      const next: ThreadConfig = { ...current, ...patch };
+      await atomicWrite(this.file(threadId), JSON.stringify(next, null, 2) + "\n");
+      return next;
+    });
+    this.writes = run.catch(() => undefined);
+    return run;
+  }
+
+  /** All configs, newest first. Summaries (head, preview) are joined in http/app.ts from the logs. */
+  async list(opts?: { includeArchived?: boolean }): Promise<readonly ThreadConfig[]> {
+    await mkdir(this.threadsRoot, { recursive: true });
+    const out: ThreadConfig[] = [];
+    for (const entry of await readdir(this.threadsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const c = await this.get(entry.name as ThreadId);
+      if (c && (opts?.includeArchived || c.archivedAt === null)) out.push(c);
+    }
+    return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   /** Directory picker source. Lists immediate children only; caller walks. Only within allowed roots. */
-  browse(path: string, roots: readonly string[]): Promise<readonly DirEntry[]> {
-    // TODO: resolve, reject if not under any root; readdir withFileTypes; hasClaudeMd = exists(join(p,"CLAUDE.md")); isGitRepo = exists(join(p,".git"))
-    throw new Error("not implemented");
+  async browse(path: string, roots: readonly string[]): Promise<readonly DirEntry[]> {
+    const p = resolve(path);
+    if (!roots.some((r) => p === resolve(r) || p.startsWith(resolve(r) + sep))) throw new Error(`path is outside the browsable roots: ${path}`);
+    const out: DirEntry[] = [];
+    for (const entry of await readdir(p, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      const full = join(p, entry.name);
+      out.push({ name: entry.name, path: full, hasClaudeMd: await exists(join(full, "CLAUDE.md")), isGitRepo: await exists(join(full, ".git")) });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  uploadsDir(threadId: ThreadId): string {
-    throw new Error("not implemented");
+  /** Uploads stage under the thread's working directory so moving one into the vault is a rename. */
+  uploadsDir(config: Pick<ThreadConfig, "cwd">): string {
+    return join(config.cwd, UPLOADS_DIRNAME);
   }
 }

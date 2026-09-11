@@ -259,3 +259,74 @@ test("lastAssistantText returns the tail of the last turn's text, capped", () =>
   assert.equal(lastAssistantText(evs, 6), "Second");
   assert.equal(lastAssistantText([], 10), null);
 });
+
+test("hardening: multi-byte text survives replay across read chunk boundaries", async () => {
+  const dir = await freshDir();
+  const log = await writeLog(dir, [{ kind: "thread.created", config: config() }]);
+  const delta = "héllo wörld ünïcödé 日本語 🚀 ".repeat(40);
+  const live: string[] = [];
+  log.subscribe((ev) => ev.kind === "assistant.text" && live.push(ev.delta));
+  for (let i = 0; i < 150; i++) await log.append({ kind: "assistant.text", turnId: "t:1" as TurnId, blockIx: 0, delta });
+  const replayed = (await collect(log, 1 as Cursor)).map((e) => (e.kind === "assistant.text" ? e.delta : ""));
+  assert.deepEqual(replayed, live);
+  await rm(dir, { recursive: true });
+});
+
+test("hardening: degenerate files (a lone newline, blank lines, garbage) open cleanly and empty", async () => {
+  for (const content of ["\n", "\n\n", "garbage\n", "garbage", "{}\n\n"]) {
+    const dir = await freshDir();
+    await writeFile(join(dir, "events.jsonl"), content);
+    const log = await Promise.race([ThreadLog.open(threadId, dir), new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`open hung on ${JSON.stringify(content)}`)), 2000))]);
+    assert.equal(log.getHead().lastSeq, content === "{}\n\n" ? 0 : 0, JSON.stringify(content));
+    await log.append(queued("a"));
+    assert.deepEqual((await collect(log, 0)).map((e) => e.seq), [1], JSON.stringify(content));
+    await rm(dir, { recursive: true });
+  }
+});
+
+test("hardening: a torn line in the middle of the file is treated as the tear point", async () => {
+  const dir = await freshDir();
+  const log = await writeLog(dir, completeTurn);
+  const file = join(dir, "events.jsonl");
+  const lines = (await readFile(file, "utf8")).split("\n").filter(Boolean);
+  await writeFile(file, [...lines.slice(0, 3), lines[3]!.slice(0, 10), ...lines.slice(4)].join("\n") + "\n");
+  const reopened = await ThreadLog.open(log.threadId, dir);
+  const evs = await collect(reopened, 0);
+  assert.deepEqual(evs.map((e) => e.seq), [1, 2, 3, 4]);
+  assert.equal(evs[3]?.kind, "input.dropped", "the queued input from before the tear is dropped by the repair");
+  await rm(dir, { recursive: true });
+});
+
+test("hardening: a failed append leaves no stray bytes and the next append reuses the seq cleanly", async () => {
+  const dir = await freshDir();
+  const log = await writeLog(dir, [{ kind: "thread.created", config: config() }]);
+  const file = join(dir, "events.jsonl");
+  const before = await readFile(file);
+  const { chmod } = await import("node:fs/promises");
+  await chmod(file, 0o444);
+  await assert.rejects(log.append(queued("x")));
+  await chmod(file, 0o644);
+  assert.equal((await readFile(file)).equals(before), true, "no stray bytes after a failed write");
+  const ev = await log.append(queued("y"));
+  assert.equal(ev.seq, 2);
+  assert.deepEqual((await collect(log, 0)).map((e) => e.seq), [1, 2]);
+  await rm(dir, { recursive: true });
+});
+
+test("hardening: appendIf checks its predicate inside the serial queue, so concurrent duplicates cannot both pass", async () => {
+  const dir = await freshDir();
+  const log = await writeLog(dir, [{ kind: "thread.created", config: config() }]);
+  const results = await Promise.all(Array.from({ length: 5 }, () => log.appendIf((h) => !h.recentClientMsgIds.has("dup" as ClientMsgId), queued("dup"))));
+  assert.equal(results.filter(Boolean).length, 1);
+  assert.equal(log.getHead().queued.length, 1);
+  await rm(dir, { recursive: true });
+});
+
+test("hardening: a non-delta append flushes pending deltas first, so the log keeps model order without call-site discipline", async () => {
+  const dir = await freshDir();
+  const log = await ThreadLog.open(threadId, dir);
+  log.appendDelta({ kind: "assistant.text", turnId: "t:1" as TurnId, blockIx: 0, delta: "already produced" });
+  await log.append(queued("late"));
+  assert.deepEqual((await collect(log, 0)).map((e) => e.kind), ["assistant.text", "input.queued"]);
+  await rm(dir, { recursive: true });
+});
