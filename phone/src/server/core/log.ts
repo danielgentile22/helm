@@ -20,6 +20,10 @@
  *       Running open() twice is a no-op the second time.
  */
 
+import { createReadStream } from "node:fs";
+import { appendFile, mkdir, open as fsOpen, readdir, readFile, stat, truncate } from "node:fs/promises";
+import { join } from "node:path";
+import { LIMITS } from "../../shared/protocol";
 import type {
   ClaudeSessionId,
   ClientMsgId,
@@ -45,7 +49,55 @@ export interface ThreadHead {
 
 export type Unsubscribe = () => void;
 
+const RECENT_IDS = 64;
+const FILE = "events.jsonl";
+
+const emptyHead: ThreadHead = { lastSeq: 0, sessionId: null, openTurn: null, queued: [], recentClientMsgIds: new Map() };
+
+/** Pure: the head after one more event. */
+function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
+  let { sessionId, openTurn, queued, recentClientMsgIds } = h;
+  switch (ev.kind) {
+    case "session.bound":
+      sessionId = ev.sessionId;
+      break;
+    case "input.queued": {
+      queued = [...queued, ev];
+      const m = new Map(recentClientMsgIds);
+      m.set(ev.clientMsgId, ev.seq);
+      while (m.size > RECENT_IDS) m.delete(m.keys().next().value!);
+      recentClientMsgIds = m;
+      break;
+    }
+    case "input.dropped":
+      queued = queued.filter((q) => q.clientMsgId !== ev.clientMsgId);
+      break;
+    case "turn.started":
+      openTurn = ev.turnId;
+      queued = queued.filter((q) => q.clientMsgId !== ev.clientMsgId);
+      break;
+    case "turn.ended":
+      openTurn = null;
+      if (ev.sessionId) sessionId = ev.sessionId;
+      break;
+    case "thread.archived":
+      queued = [];
+      break;
+  }
+  return { lastSeq: ev.seq, sessionId, openTurn, queued, recentClientMsgIds };
+}
+
+type DeltaBody = Extract<ThreadEventBody, { kind: "assistant.text" | "assistant.thinking" }>;
+
+function deltaKey(b: DeltaBody): string {
+  return b.kind === "assistant.text" ? `${b.turnId}:${b.blockIx}` : `${b.turnId}:thinking`;
+}
+
 export class ThreadLog {
+  private queue: Promise<unknown> = Promise.resolve();
+  private readonly listeners = new Set<(ev: ThreadEvent) => void>();
+  private pendingDelta: { key: string; body: DeltaBody; timer: NodeJS.Timeout } | null = null;
+
   private constructor(
     readonly threadId: ThreadId,
     private readonly path: string,
@@ -54,62 +106,115 @@ export class ThreadLog {
 
   /**
    * Open (or create) the log and derive the head. Performs I3 and I4 repairs.
-   * Returns the same instance if already open for this thread (see LogRegistry).
+   * The registry caches instances; opening the same file twice is harmless
+   * because both repairs are idempotent.
    */
   static async open(threadId: ThreadId, dir: string): Promise<ThreadLog> {
-    // TODO:
-    //   ensure dir; open events.jsonl a+
-    //   scan backward from EOF in 64 KiB chunks:
-    //     - if the final byte is not "\n", find the last "\n" and truncate there (I3),
-    //       log a warning with the dropped byte count
-    //     - walk lines backward collecting: last seq, last session.bound / turn.ended.sessionId,
-    //       input.queued not followed by a turn.started with the same clientMsgId,
-    //       and whether the last turn.* boundary is a turn.started
-    //     - stop once we have seen a turn.ended AND 64 clientMsgIds, or hit BOF
-    //   if openTurn: append turn.ended {outcome: "orphaned", sessionId, usage: null, error: null} (I4)
-    //   for each remaining queued input: append input.dropped {reason: "restart"}
-    //   (I4 and the drop rule make open() idempotent: second run finds nothing to repair)
-    throw new Error("not implemented");
+    await mkdir(dir, { recursive: true });
+    const path = join(dir, FILE);
+    const fh = await fsOpen(path, "a");
+    await fh.close();
+
+    const bytes = await readFile(path);
+    const keep = completePrefixLength(bytes);
+    if (keep < bytes.length) {
+      console.warn(`[log] ${threadId}: truncating ${bytes.length - keep} torn bytes`);
+      await truncate(path, keep);
+    }
+
+    let head = emptyHead;
+    for (const ev of parseLines(bytes.subarray(0, keep))) head = advance(head, ev);
+    const log = new ThreadLog(threadId, path, head);
+
+    if (head.openTurn) {
+      await log.append({ kind: "turn.ended", turnId: head.openTurn, outcome: "orphaned", sessionId: head.sessionId, usage: null, error: null });
+    }
+    for (const q of head.queued) {
+      await log.append({ kind: "input.dropped", clientMsgId: q.clientMsgId, reason: "restart" });
+    }
+    return log;
   }
 
   getHead(): ThreadHead {
-    throw new Error("not implemented");
+    return this.head;
   }
 
   /**
    * Append one event. Serialized per instance; resolves after the line is on
-   * disk (fs.appendFile with the whole line as one buffer). Emits to live
-   * subscribers after resolve (I2). Returns the minted event.
+   * disk (one write of the whole line). Emits to live subscribers after the
+   * write lands (I2). Returns the minted event.
    */
   append<B extends ThreadEventBody>(body: B): Promise<Extract<ThreadEvent, { kind: B["kind"] }>> {
-    // TODO: queue = queue.then(async () => { seq = head.lastSeq + 1; line = JSON.stringify({seq, ts, ...body}) + "\n";
-    //       await appendFile(path, line); update head (sessionId on session.bound/turn.ended,
-    //       openTurn on turn.started/turn.ended, queued on input.queued/turn.started/input.dropped,
-    //       recentClientMsgIds on turn.started); emit(event); return event })
-    throw new Error("not implemented");
+    const run = this.queue.then(async () => {
+      const seq = (this.head.lastSeq + 1) as Seq;
+      const ev = { seq, ts: new Date().toISOString(), ...body } as ThreadEvent;
+      const line = Buffer.from(JSON.stringify(ev) + "\n");
+      await appendFile(this.path, line);
+      this.head = advance(this.head, ev);
+      for (const l of this.listeners) {
+        try {
+          l(ev);
+        } catch (err) {
+          console.error(`[log] ${this.threadId}: subscriber threw`, err);
+        }
+      }
+      return ev as Extract<ThreadEvent, { kind: B["kind"] }>;
+    });
+    this.queue = run.catch(() => undefined);
+    return run;
   }
 
   /**
    * Coalescing append for `assistant.text` / `assistant.thinking`: buffers deltas
    * for the same (turnId, blockIx) up to DELTA_COALESCE_MS, then appends one event.
-   * flush() is called by the supervisor before any non-delta append so ordering
-   * in the log matches ordering the model produced.
+   * A delta for a different block flushes the pending one first, so the log
+   * keeps the order the model produced. flushDeltas() is called by the
+   * supervisor before any non-delta append for the same reason.
    */
-  appendDelta(body: Extract<ThreadEventBody, { kind: "assistant.text" | "assistant.thinking" }>): void {
-    throw new Error("not implemented");
+  appendDelta(body: DeltaBody): void {
+    const key = deltaKey(body);
+    if (this.pendingDelta && this.pendingDelta.key === key) {
+      this.pendingDelta.body = { ...this.pendingDelta.body, delta: this.pendingDelta.body.delta + body.delta } as DeltaBody;
+      return;
+    }
+    this.kickDelta();
+    const timer = setTimeout(() => this.kickDelta(), LIMITS.DELTA_COALESCE_MS);
+    timer.unref();
+    this.pendingDelta = { key, body, timer };
   }
+
   flushDeltas(): Promise<void> {
-    throw new Error("not implemented");
+    this.kickDelta();
+    return this.queue.then(() => undefined);
+  }
+
+  private kickDelta(): void {
+    const p = this.pendingDelta;
+    if (!p) return;
+    clearTimeout(p.timer);
+    this.pendingDelta = null;
+    void this.append(p.body);
   }
 
   /**
-   * Stream events with seq > after, from disk, in order. Cheap: seeks by
-   * scanning forward from BOF; a personal tool with logs in the low MB does
-   * not need an index. If it ever does, add a sparse seq -> byte offset side
-   * file rebuilt on open(), and this signature does not change.
+   * Stream events with seq > after, from disk, in order. Scans forward from
+   * BOF; a personal tool with logs in the low MB does not need an index.
+   * A trailing partial line (a write in flight) is never yielded.
    */
-  read(after: Cursor): AsyncIterable<ThreadEvent> {
-    throw new Error("not implemented");
+  async *read(after: Cursor): AsyncIterable<ThreadEvent> {
+    const stream = createReadStream(this.path);
+    let carry = "";
+    for await (const chunk of stream) {
+      carry += (chunk as Buffer).toString("utf8");
+      let nl: number;
+      while ((nl = carry.indexOf("\n")) >= 0) {
+        const line = carry.slice(0, nl);
+        carry = carry.slice(nl + 1);
+        if (line.length === 0) continue;
+        const ev = JSON.parse(line) as ThreadEvent;
+        if (ev.seq > after) yield ev;
+      }
+    }
   }
 
   /**
@@ -118,12 +223,45 @@ export class ThreadLog {
    * handoff; dedupe on seq to get a duplicate-free one (see http/sse.ts).
    */
   subscribe(listener: (ev: ThreadEvent) => void): Unsubscribe {
-    throw new Error("not implemented");
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   /** Number of live subscribers. push.ts uses "0" as "nobody is watching". */
   subscriberCount(): number {
-    throw new Error("not implemented");
+    return this.listeners.size;
+  }
+}
+
+/** Length of the prefix that ends on the last complete, parseable line. */
+function completePrefixLength(bytes: Buffer): number {
+  let end = bytes.length;
+  while (end > 0) {
+    if (bytes[end - 1] !== 0x0a) {
+      end = bytes.lastIndexOf(0x0a, end - 1) + 1;
+      continue;
+    }
+    const start = bytes.lastIndexOf(0x0a, end - 2) + 1;
+    try {
+      JSON.parse(bytes.subarray(start, end - 1).toString("utf8"));
+      return end;
+    } catch {
+      end = start;
+    }
+  }
+  return 0;
+}
+
+function* parseLines(bytes: Buffer): Iterable<ThreadEvent> {
+  const text = bytes.toString("utf8");
+  let from = 0;
+  let nl: number;
+  while ((nl = text.indexOf("\n", from)) >= 0) {
+    const line = text.slice(from, nl);
+    from = nl + 1;
+    if (line.length > 0) yield JSON.parse(line) as ThreadEvent;
   }
 }
 
@@ -133,18 +271,66 @@ export class ThreadLog {
  * serial append queue and the subscriber list.
  */
 export class LogRegistry {
+  private readonly logs = new Map<ThreadId, Promise<ThreadLog>>();
+  private readonly openListeners = new Set<(log: ThreadLog) => void>();
+
   constructor(private readonly threadsRoot: string) {}
+
   /** Opens on first use; later calls return the same instance. */
   get(threadId: ThreadId): Promise<ThreadLog> {
-    throw new Error("not implemented");
+    let p = this.logs.get(threadId);
+    if (!p) {
+      p = ThreadLog.open(threadId, join(this.threadsRoot, threadId)).then((log) => {
+        for (const l of this.openListeners) l(log);
+        return log;
+      });
+      p.catch(() => this.logs.delete(threadId));
+      this.logs.set(threadId, p);
+    }
+    return p;
   }
+
+  /** Called for every log this registry opens, including ones opened after boot. Projections attach here. */
+  onOpen(listener: (log: ThreadLog) => void): void {
+    this.openListeners.add(listener);
+  }
+
+  /** Every log already open, in open order. */
+  async openLogs(): Promise<readonly ThreadLog[]> {
+    return Promise.all([...this.logs.values()]);
+  }
+
   /** Run open() over every thread directory at boot so I3/I4 repairs happen before any client attaches. */
-  recoverAll(): Promise<readonly ThreadId[]> {
-    throw new Error("not implemented");
+  async recoverAll(): Promise<readonly ThreadId[]> {
+    await mkdir(this.threadsRoot, { recursive: true });
+    const ids: ThreadId[] = [];
+    for (const entry of await readdir(this.threadsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const dir = join(this.threadsRoot, entry.name);
+      const hasLog = await stat(join(dir, FILE)).then(() => true, () => false);
+      const hasConfig = await stat(join(dir, "thread.json")).then(() => true, () => false);
+      if (!hasLog && !hasConfig) continue;
+      const id = entry.name as ThreadId;
+      await this.get(id);
+      ids.push(id);
+    }
+    return ids;
   }
 }
 
 /** Fold used by projections that need the last assistant text or the title; pure. */
 export function lastAssistantText(events: Iterable<ThreadEvent>, maxChars: number): string | null {
-  throw new Error("not implemented");
+  let turn: TurnId | null = null;
+  let text = "";
+  for (const ev of events) {
+    if (ev.kind !== "assistant.text") continue;
+    if (ev.turnId !== turn) {
+      turn = ev.turnId;
+      text = "";
+    }
+    text += ev.delta;
+  }
+  if (turn === null) return null;
+  const trimmed = text.trim();
+  return trimmed.length > maxChars ? trimmed.slice(0, maxChars) : trimmed;
 }
