@@ -5,13 +5,16 @@
   "type": "module",
   "description": "Drive Claude Code on the always-on Mac from a phone. Tailnet-only, passkey-gated.",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "dev": "node --import tsx src/server/main.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.268"
   },
   "devDependencies": {
-    "typescript": "^5.6.0",
-    "@types/node": "^22.0.0"
+    "@types/node": "^22.0.0",
+    "tsx": "^4.23.13",
+    "typescript": "^5.6.0"
   }
 }
