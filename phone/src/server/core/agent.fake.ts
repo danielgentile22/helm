@@ -45,6 +45,10 @@ export class FakeSession implements AgentSession {
   private current: { turnId: TurnId; ended: boolean; settle: () => void; onInterrupt: () => void } | null = null;
   private dead = false;
 
+  get alive(): boolean {
+    return !this.dead && !this.out.isEnded;
+  }
+
   constructor(readonly spawnOpts: SpawnOptions, private readonly script: FakeScript, sessionId: ClaudeSessionId) {
     this.sessionId = sessionId;
     this.out.push({ kind: "session.bound", sessionId });

@@ -25,6 +25,9 @@ async function exists(p: string): Promise<boolean> {
 }
 
 export class ThreadStore {
+  /** Read-modify-write on thread.json is serialized per store so two concurrent patches cannot lose an update. */
+  private writes: Promise<unknown> = Promise.resolve();
+
   constructor(private readonly threadsRoot: string) {}
 
   private file(threadId: ThreadId): string {
@@ -67,12 +70,16 @@ export class ThreadStore {
     return this.update(threadId, { archivedAt: new Date().toISOString() });
   }
 
-  private async update(threadId: ThreadId, patch: Partial<ThreadConfig>): Promise<ThreadConfig> {
-    const current = await this.get(threadId);
-    if (!current) throw new Error(`no such thread: ${threadId}`);
-    const next: ThreadConfig = { ...current, ...patch };
-    await atomicWrite(this.file(threadId), JSON.stringify(next, null, 2) + "\n");
-    return next;
+  private update(threadId: ThreadId, patch: Partial<ThreadConfig>): Promise<ThreadConfig> {
+    const run = this.writes.then(async () => {
+      const current = await this.get(threadId);
+      if (!current) throw new Error(`no such thread: ${threadId}`);
+      const next: ThreadConfig = { ...current, ...patch };
+      await atomicWrite(this.file(threadId), JSON.stringify(next, null, 2) + "\n");
+      return next;
+    });
+    this.writes = run.catch(() => undefined);
+    return run;
   }
 
   /** All configs, newest first. Summaries (head, preview) are joined in http/app.ts from the logs. */

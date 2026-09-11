@@ -238,3 +238,87 @@ async function waitFor(cond: () => Promise<boolean> | boolean, ms = 3000): Promi
   }
   throw new Error("waitFor timed out");
 }
+
+test("hardening: concurrent sends with one clientMsgId queue exactly once", async () => {
+  const h = await harness();
+  const ended = h.nextTurnEnd();
+  const results = await Promise.all(Array.from({ length: 5 }, () => h.sup.send(h.threadId, msg("same"))));
+  await ended;
+  assert.equal(results.filter((r) => r.accepted && r.state !== "duplicate").length, 1);
+  assert.equal((await h.kinds()).filter((k) => k === "input.queued").length, 1);
+  await h.cleanup();
+});
+
+test("hardening: shutdown during warming spawns nothing further and runs no turn", async () => {
+  let spawned = 0;
+  const h = await harness();
+  const slowFactory = h.agents;
+  const origSpawn = slowFactory.spawn.bind(slowFactory);
+  slowFactory.spawn = async (opts) => {
+    spawned += 1;
+    await new Promise((r) => setTimeout(r, 30));
+    return origSpawn(opts);
+  };
+  await h.sup.send(h.threadId, msg("m1"));
+  assert.equal(h.sup.status(h.threadId).session, "warming");
+  await h.sup.shutdown();
+  await new Promise((r) => setTimeout(r, 60));
+  assert.ok(spawned <= 1);
+  assert.ok(h.agents.sessions.every((s) => s.killed), "any process spawned during shutdown was killed");
+  assert.equal((await h.kinds()).filter((k) => k.startsWith("turn.")).length, 0, "no turn ran after shutdown");
+  assert.equal(h.sup.status(h.threadId).session, "cold");
+  await rm(h.home, { recursive: true });
+});
+
+test("hardening: a throw inside a turn seals it and leaves the thread cold, not wedged", async () => {
+  const h = await harness();
+  h.agents.script = () => {
+    throw new Error("script exploded synchronously");
+  };
+  h.agents.spawn = async () => ({ ...(await new FakeAgentFactory().spawn({ cwd: h.home, model, effort: "high", resume: null, additionalDirectories: [], appendSystemPrompt: "" })), send: () => { throw new Error("send exploded"); } }) as never;
+  const ended = h.nextTurnEnd();
+  await h.sup.send(h.threadId, msg("m1"));
+  const end = await ended;
+  assert.equal(end.kind === "turn.ended" && end.outcome, "error");
+  await waitFor(async () => h.sup.status(h.threadId).session === "cold");
+  await h.cleanup();
+});
+
+test("hardening: a process that dies while idle is replaced on the next send instead of burning the message", async () => {
+  const h = await harness();
+  await h.sup.send(h.threadId, msg("m1"));
+  await waitFor(async () => h.sup.status(h.threadId).session === "idle");
+  h.agents.last.out.end(); // the process exited while idle
+  const ended = h.nextTurnEnd();
+  await h.sup.send(h.threadId, msg("m2"));
+  const end = await ended;
+  assert.equal(end.kind === "turn.ended" && end.outcome, "ok");
+  assert.equal(h.agents.sessions.length, 2);
+  assert.equal(h.agents.sessions[1]!.spawnOpts.resume, "fake-session-1");
+  await h.cleanup();
+});
+
+test("hardening: reconfigure during warming still applies to the turn that starts", async () => {
+  const h = await harness();
+  const origSpawn = h.agents.spawn.bind(h.agents);
+  h.agents.spawn = async (opts) => {
+    await new Promise((r) => setTimeout(r, 30));
+    return origSpawn(opts);
+  };
+  const ended = h.nextTurnEnd();
+  await h.sup.send(h.threadId, msg("m1"));
+  await h.sup.reconfigure(h.threadId, { model: "claude-sonnet-5" as ModelId }, origin);
+  await ended;
+  const start = (await h.events()).find((e) => e.kind === "turn.started");
+  assert.equal(start?.kind === "turn.started" && start.model, "claude-sonnet-5");
+  assert.deepEqual(h.agents.last.setModelCalls, ["claude-sonnet-5"]);
+  await h.cleanup();
+});
+
+test("hardening: concurrent thread.json patches do not lose updates", async () => {
+  const h = await harness();
+  await Promise.all([h.threads.patch(h.threadId, { title: "T" }), h.threads.patch(h.threadId, { model: "claude-sonnet-5" as ModelId }), h.threads.patch(h.threadId, { effort: "low" })]);
+  const cfg = (await h.threads.get(h.threadId))!;
+  assert.deepEqual([cfg.title, cfg.model, cfg.effort], ["T", "claude-sonnet-5", "low"]);
+  await h.cleanup();
+});

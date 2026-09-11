@@ -94,6 +94,10 @@ function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
 
 type DeltaBody = Extract<ThreadEventBody, { kind: "assistant.text" | "assistant.thinking" }>;
 
+function isDelta(body: ThreadEventBody | ((seq: Seq) => ThreadEventBody)): boolean {
+  return typeof body !== "function" && (body.kind === "assistant.text" || body.kind === "assistant.thinking");
+}
+
 function deltaKey(b: DeltaBody): string {
   return b.kind === "assistant.text" ? `${b.turnId}:${b.blockIx}` : `${b.turnId}:thinking`;
 }
@@ -107,6 +111,8 @@ export class ThreadLog {
     readonly threadId: ThreadId,
     private readonly path: string,
     private head: ThreadHead,
+    /** Byte length of the clean file; a failed write is truncated back to it. */
+    private bytes: number,
   ) {}
 
   /**
@@ -121,15 +127,15 @@ export class ThreadLog {
     await fh.close();
 
     const bytes = await readFile(path);
-    const keep = completePrefixLength(bytes);
+    const { events, keep } = scan(bytes);
     if (keep < bytes.length) {
       console.warn(`[log] ${threadId}: truncating ${bytes.length - keep} torn bytes`);
       await truncate(path, keep);
     }
 
     let head = emptyHead;
-    for (const ev of parseLines(bytes.subarray(0, keep))) head = advance(head, ev);
-    const log = new ThreadLog(threadId, path, head);
+    for (const ev of events) head = advance(head, ev);
+    const log = new ThreadLog(threadId, path, head, keep);
 
     if (head.openTurn) {
       await log.append({ kind: "turn.ended", turnId: head.openTurn, outcome: "orphaned", sessionId: head.sessionId, usage: null, error: null });
@@ -152,11 +158,30 @@ export class ThreadLog {
    * (turn.started carries `t:<seq>`).
    */
   append<B extends ThreadEventBody>(body: B | ((seq: Seq) => B)): Promise<Extract<ThreadEvent, { kind: B["kind"] }>> {
+    return this.appendIf(() => true, body) as Promise<Extract<ThreadEvent, { kind: B["kind"] }>>;
+  }
+
+  /**
+   * Append only if `when(head)` holds at the moment the serial queue reaches
+   * this call; otherwise resolve null. This is how send() dedupes a retried
+   * clientMsgId without a window between check and write.
+   */
+  appendIf<B extends ThreadEventBody>(when: (head: ThreadHead) => boolean, body: B | ((seq: Seq) => B)): Promise<Extract<ThreadEvent, { kind: B["kind"] }> | null> {
+    // A non-delta append flushes pending deltas first, so the log keeps the order the model produced.
+    if (!isDelta(body)) this.kickDelta();
     const run = this.queue.then(async () => {
+      if (!when(this.head)) return null;
       const seq = (this.head.lastSeq + 1) as Seq;
       const ev = { seq, ts: new Date().toISOString(), ...(typeof body === "function" ? body(seq) : body) } as ThreadEvent;
       const line = Buffer.from(JSON.stringify(ev) + "\n");
-      await appendFile(this.path, line);
+      try {
+        await appendFile(this.path, line);
+      } catch (err) {
+        // Whatever landed is a tear nobody was told about; take it back so the next append starts clean.
+        await truncate(this.path, this.bytes).catch(() => undefined);
+        throw err;
+      }
+      this.bytes += line.length;
       this.head = advance(this.head, ev);
       for (const l of this.listeners) {
         try {
@@ -200,7 +225,7 @@ export class ThreadLog {
     if (!p) return;
     clearTimeout(p.timer);
     this.pendingDelta = null;
-    void this.append(p.body);
+    this.append(p.body).catch((err) => console.error(`[log] ${this.threadId}: delta append failed`, err));
   }
 
   /**
@@ -209,10 +234,10 @@ export class ThreadLog {
    * A trailing partial line (a write in flight) is never yielded.
    */
   async *read(after: Cursor): AsyncIterable<ThreadEvent> {
-    const stream = createReadStream(this.path);
+    const stream = createReadStream(this.path, { encoding: "utf8" });
     let carry = "";
     for await (const chunk of stream) {
-      carry += (chunk as Buffer).toString("utf8");
+      carry += chunk as string;
       let nl: number;
       while ((nl = carry.indexOf("\n")) >= 0) {
         const line = carry.slice(0, nl);
@@ -242,34 +267,36 @@ export class ThreadLog {
   }
 }
 
-/** Length of the prefix that ends on the last complete, parseable line. */
-function completePrefixLength(bytes: Buffer): number {
-  let end = bytes.length;
-  while (end > 0) {
-    if (bytes[end - 1] !== 0x0a) {
-      end = bytes.lastIndexOf(0x0a, end - 1) + 1;
-      continue;
-    }
-    const start = bytes.lastIndexOf(0x0a, end - 2) + 1;
-    try {
-      JSON.parse(bytes.subarray(start, end - 1).toString("utf8"));
-      return end;
-    } catch {
-      end = start;
-    }
-  }
-  return 0;
-}
-
-function* parseLines(bytes: Buffer): Iterable<ThreadEvent> {
+/**
+ * Scan from BOF. Returns the events up to the first line that is
+ * unterminated, unparseable, or not a ThreadEvent, and the byte length of
+ * that clean prefix. Anything after the first bad line is a tear: the
+ * writer could only have produced it by continuing past a failed write,
+ * which append() prevents by truncating back.
+ */
+function scan(bytes: Buffer): { events: ThreadEvent[]; keep: number } {
+  const events: ThreadEvent[] = [];
   const text = bytes.toString("utf8");
   let from = 0;
-  let nl: number;
-  while ((nl = text.indexOf("\n", from)) >= 0) {
+  let keepChars = 0;
+  for (;;) {
+    const nl = text.indexOf("\n", from);
+    if (nl < 0) break;
     const line = text.slice(from, nl);
+    if (line.length > 0) {
+      let ev: unknown;
+      try {
+        ev = JSON.parse(line);
+      } catch {
+        break;
+      }
+      if (typeof ev !== "object" || ev === null || typeof (ev as ThreadEvent).seq !== "number" || typeof (ev as ThreadEvent).kind !== "string") break;
+      events.push(ev as ThreadEvent);
+    }
     from = nl + 1;
-    if (line.length > 0) yield JSON.parse(line) as ThreadEvent;
+    keepChars = from;
   }
+  return { events, keep: Buffer.byteLength(text.slice(0, keepChars)) };
 }
 
 /**

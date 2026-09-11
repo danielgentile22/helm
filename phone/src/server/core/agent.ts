@@ -81,6 +81,8 @@ export type AgentEvent = Extract<
 export interface AgentSession {
   readonly pid: number | null;
   readonly sessionId: ClaudeSessionId | null;
+  /** False once the process has exited or been killed. */
+  readonly alive: boolean;
   /**
    * Push a user turn onto the streaming input. Resolves when the turn's
    * `turn.ended` has been yielded on events(). Rejects only if the session is
@@ -312,6 +314,10 @@ class SdkSession implements AgentSession {
   private prevCostUsd = 0;
   private dead = false;
   private killing: Promise<void> | null = null;
+
+  get alive(): boolean {
+    return !this.dead;
+  }
 
   constructor(opts: SpawnOptions, deps: { claudeBin?: string; env: NodeJS.ProcessEnv }) {
     const options: Options = {

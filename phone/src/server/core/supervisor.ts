@@ -23,6 +23,8 @@
 
 import type {
   ClientMsgId,
+  Effort,
+  ModelId,
   Origin,
   SendResponse,
   StagedUpload,
@@ -43,6 +45,8 @@ import type { ThreadStore } from "./thread-store";
 interface Live {
   readonly agent: AgentSession;
   readonly iter: AsyncIterator<AgentEvent>;
+  /** What the process was spawned with, so a config change during warming can be applied after. */
+  readonly spawnedWith: { model: ModelId; effort: Effort };
 }
 
 export type SessionState =
@@ -64,6 +68,7 @@ const COLD: SessionState = { tag: "cold" };
 export class Supervisor {
   private readonly states = new Map<ThreadId, SessionState>();
   private readonly draining = new Map<ThreadId, Promise<void>>();
+  private stopped = false;
 
   constructor(
     private readonly logs: LogRegistry,
@@ -86,10 +91,8 @@ export class Supervisor {
     if (!config) return { accepted: false, error: "no such thread" };
     if (config.archivedAt) return { accepted: false, error: "thread is archived" };
     const log = await this.logs.get(threadId);
-    const seen = log.getHead().recentClientMsgIds.get(args.clientMsgId);
-    if (seen !== undefined) return { accepted: true, state: "duplicate", seq: seen };
-
-    const ev = await log.append({ kind: "input.queued", clientMsgId: args.clientMsgId, text: args.text, uploads: args.uploads, origin: args.origin });
+    const ev = await log.appendIf((h) => !h.recentClientMsgIds.has(args.clientMsgId), { kind: "input.queued", clientMsgId: args.clientMsgId, text: args.text, uploads: args.uploads, origin: args.origin });
+    if (!ev) return { accepted: true, state: "duplicate", seq: log.getHead().recentClientMsgIds.get(args.clientMsgId)! };
     const tag = this.state(threadId).tag;
     const behind = log.getHead().queued.length > 1 || tag === "running";
     if (tag === "cold" || tag === "parked") this.states.set(threadId, { tag: "warming" });
@@ -111,7 +114,6 @@ export class Supervisor {
   async reconfigure(threadId: ThreadId, patch: ThreadConfigPatch, origin: Origin): Promise<void> {
     await this.threads.patch(threadId, patch);
     const log = await this.logs.get(threadId);
-    await log.flushDeltas();
     await log.append({ kind: "thread.config", patch, origin });
     const s = this.state(threadId);
     if (s.tag !== "idle" && s.tag !== "running") return;
@@ -141,8 +143,10 @@ export class Supervisor {
 
   /** Kill every live process (SIGTERM group, SIGKILL after 10 s) and wait for every drain loop to settle, so no append follows. Called on SIGTERM/launchd stop. */
   async shutdown(): Promise<void> {
+    this.stopped = true;
     await Promise.all([...this.states.keys()].map((id) => this.killLive(id)));
     await Promise.all([...this.draining.values()]);
+    await Promise.all([...this.states.keys()].map((id) => this.killLive(id)));
   }
 
   private async killLive(threadId: ThreadId): Promise<void> {
@@ -172,7 +176,7 @@ export class Supervisor {
     for (;;) {
       const config = await this.threads.get(threadId);
       const input = log.getHead().queued[0];
-      if (!config || config.archivedAt || !input) {
+      if (this.stopped || !config || config.archivedAt || !input) {
         this.settleIdle(threadId);
         return;
       }
@@ -190,7 +194,26 @@ export class Supervisor {
     this.states.set(threadId, { tag: "idle", live: s.live, parkTimer });
   }
 
+  /** Exception boundary: whatever throws inside a turn, the turn is sealed and the thread is cold, never wedged. */
   private async runTurn(threadId: ThreadId, log: ThreadLog, config: ThreadConfig, input: Extract<ThreadEvent, { kind: "input.queued" }>): Promise<void> {
+    try {
+      await this.runTurnInner(threadId, log, config, input);
+    } catch (err) {
+      console.error(`[supervisor ${threadId}] turn failed`, err);
+      const s = this.state(threadId);
+      const openTurn = log.getHead().openTurn;
+      if (openTurn) await log.append({ kind: "turn.ended", turnId: openTurn, outcome: "error", sessionId: log.getHead().sessionId, usage: null, error: `turn failed: ${err instanceof Error ? err.message : String(err)}` });
+      if (!openTurn && s.tag === "warming") {
+        // Nothing started; the queued input must still be consumed or the queue never drains.
+        const started = await log.append((seq) => ({ kind: "turn.started" as const, turnId: turnIdFor(seq), clientMsgId: input.clientMsgId, model: config.model, effort: config.effort, spawned: true }));
+        await log.append({ kind: "turn.ended", turnId: started.turnId, outcome: "error", sessionId: log.getHead().sessionId, usage: null, error: `turn failed: ${err instanceof Error ? err.message : String(err)}` });
+      }
+      await this.killLive(threadId);
+    }
+  }
+
+  private async runTurnInner(threadId: ThreadId, log: ThreadLog, initial: ThreadConfig, input: Extract<ThreadEvent, { kind: "input.queued" }>): Promise<void> {
+    let config = initial;
     if (config.title === null) {
       const title = titleFrom(input.text);
       await this.threads.patch(threadId, { title });
@@ -208,6 +231,12 @@ export class Supervisor {
       return;
     }
 
+    // Config may have changed while warming; the turn runs with the current values (S4).
+    const fresh = (await this.threads.get(threadId)) ?? config;
+    if (spawned && fresh.model !== live.spawnedWith.model) await live.agent.setModel(fresh.model);
+    if (spawned && fresh.effort !== live.spawnedWith.effort) await live.agent.setEffort(fresh.effort);
+    config = fresh;
+
     // The turn id is the seq of its own turn.started, minted inside the log's serial queue.
     const started = await log.append((seq) => ({ kind: "turn.started" as const, turnId: turnIdFor(seq), clientMsgId: input.clientMsgId, model: config.model, effort: config.effort, spawned }));
     const turnId = started.turnId;
@@ -223,7 +252,6 @@ export class Supervisor {
         log.appendDelta({ ...ev, turnId });
         continue;
       }
-      await log.flushDeltas();
       await log.append(ev.kind === "session.bound" ? ev : { ...ev, turnId });
       if (ev.kind === "turn.ended") {
         ended = true;
@@ -231,8 +259,8 @@ export class Supervisor {
       }
     }
     await sent;
+    if (ended) this.settleIdle(threadId);
     if (!ended) {
-      await log.flushDeltas();
       await log.append({ kind: "turn.ended", turnId, outcome: "error", sessionId: live.agent.sessionId ?? log.getHead().sessionId, usage: null, error: "Claude Code session exited" });
       await live.agent.kill();
       this.states.set(threadId, COLD);
@@ -243,7 +271,9 @@ export class Supervisor {
     const s = this.state(threadId);
     if (s.tag === "idle") {
       clearTimeout(s.parkTimer);
-      return { live: s.live, spawned: false };
+      if (s.live.agent.alive) return { live: s.live, spawned: false };
+      // The process died while idle; replace it rather than burn the next message on a dead one.
+      await s.live.agent.kill();
     }
     if (s.tag === "running") return { live: s.live, spawned: false };
     this.states.set(threadId, { tag: "warming" });
@@ -256,7 +286,11 @@ export class Supervisor {
         additionalDirectories: this.opts.additionalDirectories,
         appendSystemPrompt: PHONE_APPENDIX,
       });
-      return { live: { agent, iter: agent.events()[Symbol.asyncIterator]() }, spawned: true };
+      if (this.stopped) {
+        await agent.kill();
+        throw new Error("shutting down");
+      }
+      return { live: { agent, iter: agent.events()[Symbol.asyncIterator](), spawnedWith: { model: config.model, effort: config.effort } }, spawned: true };
     } catch (err) {
       this.states.set(threadId, COLD);
       throw err;
