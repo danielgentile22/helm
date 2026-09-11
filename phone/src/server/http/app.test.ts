@@ -256,3 +256,36 @@ test("parsers: send, create, patch", () => {
   assert.equal(parsePatch({ title: "  " }, catalog).ok, false);
   assert.deepEqual(parsePatch({ title: " T ", model: "m1" }, catalog), { ok: true, value: { model: "m1", title: "T" } });
 });
+
+test("the phone's view: folding the SSE frames a client receives reconstructs the transcript, from any cursor, across a crash", async () => {
+  const { emptyView, foldAll, applySync } = await import("../../client/fold");
+  const s = await buildStack(async (t) => {
+    t.thinking("plan");
+    t.text("Sure. ", 0);
+    t.tool("Bash", { command: "ls" }, "a\nb");
+    t.text("Listed.", 1);
+    t.end();
+  });
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  const live = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "List files" });
+  const frames = await live;
+  const fullView = foldAll(emptyView(THREAD as never), events(frames));
+  const shape = fullView.lines.map((l) => (l.kind === "tool" ? `tool:${l.name}:${l.isError === false ? "ok" : "?"}` : l.kind === "text" ? `text:${l.text}` : l.kind === "end" ? `end:${l.outcome}` : l.kind));
+  assert.deepEqual(shape, ["prompt", "note", "thinking", "text:Sure. ", "tool:Bash:ok", "text:Listed.", "end:ok"]);
+  assert.equal(fullView.openTurn, null);
+  assert.equal(fullView.contextTokens, 110);
+
+  // A phone that had seen up to cursor c and reconnects folds the tail onto its own view and lands on the same lines.
+  const head = fullView.headSeq;
+  for (let c = 1; c <= head; c++) {
+    const before = foldAll(emptyView(THREAD as never), events(frames).slice(0, c));
+    const tail = await readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${c}`), (fr) => fr.some((x) => x.kind === "sync"));
+    const sync = tail.find((x): x is Extract<Frame, { kind: "sync" }> => x.kind === "sync")!;
+    const after = applySync(foldAll(before, events(tail)), sync.frame);
+    assert.deepEqual(after.lines, fullView.lines, `cursor ${c}`);
+    assert.equal(after.replaying, false);
+    assert.equal(after.session, "idle");
+  }
+  await s.cleanup();
+});
