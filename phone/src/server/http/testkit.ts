@@ -66,6 +66,7 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
     agents,
     uploads,
     settings,
+    about: { version: "0.0.0-test", host: "mac.test.ts.net" },
     push: {
       publicKey: () => "vapid-public",
       subscribe: async (rec) => void pushSubs.push(rec),

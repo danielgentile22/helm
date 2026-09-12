@@ -285,6 +285,8 @@ export interface ThreadSummary {
   readonly headSeq: Cursor;
   readonly session: SyncFrame["session"];
   readonly lastTurnEndedAt: string | null;
+  /** How the last turn ended, so the thread list can mark a failure without reading events. */
+  readonly lastOutcome: TurnOutcome | null;
   readonly contextTokens: number | null;
   /** First ~120 chars of the last assistant text; for the thread list. */
   readonly preview: string | null;

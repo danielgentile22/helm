@@ -125,6 +125,7 @@ test("send and stream: SSE attached before send sees sync then the whole turn; r
   assert.equal(summary.preview, "Hello world");
   assert.equal(summary.config.title, "Say hello");
   assert.equal(summary.contextTokens, 110);
+  assert.equal(summary.lastOutcome, "ok");
   assert.equal(summary.session, "idle");
   await s.cleanup();
 });
@@ -151,6 +152,7 @@ test("crash mid-turn and reboot: the turn is sealed as orphaned, unstarted input
   const evs = events(after);
   const tail = evs.slice(-2).map((e) => (e.kind === "turn.ended" ? `${e.kind}:${e.outcome}` : e.kind === "input.dropped" ? `${e.kind}:${e.reason}` : e.kind));
   assert.deepEqual(tail, ["turn.ended:orphaned", "input.dropped:restart"]);
+  assert.equal(((await (await r.api("GET", `/api/threads/${THREAD}`)).json()) as ThreadSummary).lastOutcome, "orphaned");
   const sync = after.find((x): x is Extract<Frame, { kind: "sync" }> => x.kind === "sync")!;
   assert.equal(sync.frame.session, "cold");
   assert.equal(sync.frame.openTurn, null);
@@ -451,6 +453,15 @@ test("settings: defaults on first read, patches round-trip across a restart, bad
   assert.deepEqual(await (await r2.api("GET", "/api/settings")).json(), { theme: "dark", defaultModel: null, defaultEffort: "high", defaultCwd: join(s.home, "work", "proj") });
   assert.equal((await r2.fetch(new Request("https://mac.test.ts.net/api/settings"))).status, 401);
   await r2.cleanup();
+});
+
+test("about: version and host, behind the api door", async () => {
+  const s = await buildStack();
+  const res = await s.api("GET", "/api/about");
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { version: "0.0.0-test", host: "mac.test.ts.net" });
+  assert.equal((await s.fetch(new Request("https://mac.test.ts.net/api/about"))).status, 401);
+  await s.cleanup();
 });
 
 test("passkeys: empty before enrollment, and the mapping never leaks the credential id", async () => {

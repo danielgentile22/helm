@@ -12,6 +12,7 @@ const head = (over: Partial<ThreadHead>): ThreadHead => ({
   queued: [],
   recentClientMsgIds: new Map(),
   lastTurnEndedAt: null,
+  lastOutcome: null,
   contextTokens: null,
   activeTool: null,
   lastText: null,
