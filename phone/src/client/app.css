@@ -65,6 +65,44 @@ a { color: var(--accent); }
 .chip { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; border: 1px solid var(--hair); background: var(--surface); color: var(--ink-2); border-radius: var(--r-pill); padding: 5px 10px; font-size: var(--t-xs); transition: transform var(--d-swift) var(--e-out); }
 .chip:active { transform: scale(.96); }
 .chip b { font-weight: 600; color: var(--ink); }
+/* ---------- thread header ---------- */
+.head { position: sticky; top: 0; z-index: 3; background: var(--bg); }
+.head .topbar { position: static; border-bottom: 0; }
+.head .anchor { position: relative; flex: none; }
+.gauge { position: relative; width: 34px; height: 34px; flex: none; }
+.gauge svg { transform: rotate(-90deg); }
+.gauge .trk { stroke: var(--hair); }
+/* The animation draws the ring on mount; the transition carries it to a new reading. */
+.gauge .val { stroke: var(--accent-solid); stroke-linecap: round; animation: fill var(--d-enter) var(--e-out) both; transition: stroke-dasharray var(--d-base) var(--e-out); }
+@keyframes fill { from { stroke-dasharray: 0 100; } }
+.gauge > span { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--mono); font-size: 9px; letter-spacing: -.02em; color: var(--ink-2); }
+
+.statusbar { display: flex; align-items: center; gap: var(--s-3); padding: 5px var(--s-6); font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: .03em; color: var(--accent); background: var(--accent-soft); border-bottom: 1px solid var(--hair); animation: dropin var(--d-base) var(--e-out) both; }
+@keyframes dropin { from { transform: translateY(-100%); opacity: 0; } }
+.statusbar.cool { color: var(--cool); background: var(--cool-soft); }
+.statusbar.mute { color: var(--ink-2); background: var(--sunken); }
+.statusbar .bar { flex: 1; height: 3px; border-radius: var(--r-pill); background: color-mix(in srgb, currentColor 22%, transparent); overflow: hidden; }
+.statusbar .bar i { display: block; height: 100%; background: currentColor; border-radius: var(--r-pill); transition: width var(--d-base) linear; }
+.spin { flex: none; width: 11px; height: 11px; border-radius: var(--r-pill); border: 1.7px solid color-mix(in srgb, currentColor 28%, transparent); border-top-color: currentColor; animation: spin 800ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.menuscrim { position: fixed; inset: 0; z-index: 5; }
+.menu { position: absolute; right: 0; top: calc(100% + var(--s-3)); z-index: 6; min-width: 160px; background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-md); box-shadow: var(--shadow); overflow: hidden; animation: popin var(--d-base) var(--e-out) both; }
+@keyframes popin { from { transform: translateY(-6px); opacity: 0; } }
+.mitem { display: block; width: 100%; padding: var(--s-4) var(--s-5); text-align: left; font-size: var(--t-sm); background: transparent; border: 0; border-bottom: 1px solid var(--hair); }
+.mitem:last-child { border-bottom: 0; }
+
+.inline-error { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-3) var(--s-5); font-size: var(--t-sm); color: var(--alert); background: var(--alert-soft); }
+.inline-error .grow { flex: 1; min-width: 0; }
+.btn.danger { color: var(--alert); border-color: var(--alert); }
+
+.info { display: flex; flex-direction: column; }
+.irow { display: flex; align-items: baseline; gap: var(--s-5); padding: var(--s-4) 0; border-bottom: 1px solid var(--hair); }
+.irow:last-child { border-bottom: 0; }
+.irow .k { flex: none; width: 38%; font-size: var(--t-xs); color: var(--ink-3); }
+.irow .v { flex: 1; min-width: 0; font-family: var(--mono); font-size: var(--t-xs); overflow-wrap: anywhere; }
+.irow .v .hline { display: block; }
+
 /* ---------- transcript ---------- */
 .transcript { flex: 1; position: relative; padding: var(--s-6) var(--s-5) var(--s-8); overflow-wrap: anywhere; }
 .transcript::before { content: ""; position: absolute; left: calc(var(--s-5) + var(--rail-x)); top: 0; bottom: 0; width: 1px; background: var(--rail); }
@@ -161,12 +199,10 @@ a { color: var(--accent); }
 .composer textarea { flex: 1; resize: none; min-height: 40px; max-height: 40vh; padding: var(--s-4) var(--s-5); border-radius: var(--r-lg); border: 1px solid var(--hair); background: var(--surface); }
 .attachments { padding: 0 var(--s-5) var(--s-3); font-size: var(--t-xs); color: var(--ink-3); display: flex; gap: var(--s-4); flex-wrap: wrap; }
 .attachments span { border: 1px solid var(--hair); border-radius: var(--r-sm); padding: var(--s-1) var(--s-3); }
-.conn { font-size: var(--t-mono-xs); padding: var(--s-1) var(--s-3); border-radius: var(--r-pill); border: 1px solid var(--hair); color: var(--ink-3); white-space: nowrap; }
-.conn.live { border-color: var(--cool); }
-.conn.offline { border-color: var(--alert); }
-.conn.connecting, .conn.replaying { border-color: var(--accent); }
 .sheet { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: flex-end; z-index: 5; }
-.sheet .panel { background: var(--surface); width: 100%; max-height: 90dvh; overflow: auto; border-radius: var(--r-lg) var(--r-lg) 0 0; padding: var(--s-6) var(--s-6) calc(env(safe-area-inset-bottom) + var(--s-6)); display: flex; flex-direction: column; gap: var(--s-5); }
+.sheet .grab { width: 38px; height: 4px; margin: 0 auto var(--s-2); border-radius: var(--r-pill); background: var(--rail); }
+.sheet .panel { animation: sheetup var(--d-enter) var(--e-out) both; background: var(--surface); width: 100%; max-height: 90dvh; overflow: auto; border-radius: var(--r-lg) var(--r-lg) 0 0; padding: var(--s-6) var(--s-6) calc(env(safe-area-inset-bottom) + var(--s-6)); display: flex; flex-direction: column; gap: var(--s-5); }
+@keyframes sheetup { from { transform: translateY(100%); } }
 .sheet h2 { margin: 0; font-size: var(--t-md); }
 .field { display: flex; flex-direction: column; gap: var(--s-2); }
 .field label { font-size: var(--t-xs); color: var(--ink-3); }
@@ -200,6 +236,7 @@ a { color: var(--accent); }
    which the earlier reduced-motion block cannot, having been written before them. */
 @media (prefers-reduced-motion: reduce) {
   .turn.is-live::before { animation: none; background: var(--accent-solid); }
-  .act .now { animation: none; }
+  .act .now, .statusbar, .menu, .sheet .panel { animation: none; }
+  .spin { animation: none; }
   .caret, .think-body.is-streaming::after, .md.is-streaming > :last-child::after { animation: none; opacity: 1; }
 }

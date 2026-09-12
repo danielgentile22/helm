@@ -26,16 +26,16 @@ test("a table is wrapped so it can scroll on its own", () => {
 });
 
 test("raw html is escaped, so a script tag never reaches the page", () => {
-  const html = raw("before\n\n<script>alert(1)</script>\n\nafter <img src=x onerror=alert(1)>");
+  const html = raw("before\n\n<script>boom(1)</script>\n\nafter <img src=x onerror=boom(1)>");
   assert.doesNotMatch(html, /<script/);
   assert.doesNotMatch(html, /<img/);
-  assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/, "inert as text, not as an attribute");
+  assert.match(html, /&lt;img src=x onerror=boom\(1\)&gt;/, "inert as text, not as an attribute");
   assert.match(html, /&lt;script&gt;/);
 });
 
 test("links open in a new tab with no opener, and a javascript url is dropped", () => {
   assert.match(raw("[docs](https://example.com/x)"), /<a href="https:\/\/example\.com\/x" rel="noopener" target="_blank">docs<\/a>/);
-  const bad = raw("[tap](javascript:alert(1))");
+  const bad = raw("[tap](javascript:boom(1))");
   assert.doesNotMatch(bad, /<a /);
   assert.match(bad, /tap/);
 });

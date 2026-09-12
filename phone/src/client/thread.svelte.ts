@@ -11,7 +11,8 @@ import type { HelmClient } from "./api";
 import { addPendingPrompt, applySync, emptyView, fold, type ThreadView } from "./fold";
 import { uuid } from "./format";
 import { LABEL } from "./label";
-import { router } from "./route.svelte";
+
+const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 export type Conn = "connecting" | "replaying" | "live" | "offline";
 
@@ -20,6 +21,8 @@ export class ThreadSession {
   declare conn: Conn;
   declare summary: ThreadSummary;
   declare attachments: { uploadId: string; name: string }[];
+  /** The last send or upload failure, shown above the composer until dismissed. */
+  declare error: string | null;
 
   readonly #api: HelmClient;
   readonly #threadId: ThreadId;
@@ -30,6 +33,7 @@ export class ThreadSession {
     this.conn = $state<Conn>("connecting");
     this.summary = $state.raw(summary);
     this.attachments = $state([]);
+    this.error = $state<string | null>(null);
     this.#api = api;
     this.#threadId = threadId;
     this.#detach = api.attach(threadId, 0, {
@@ -50,17 +54,14 @@ export class ThreadSession {
     return this.view.openTurn !== null || this.view.session === "running" || this.view.session === "warming";
   }
 
-  get connLabel(): string {
-    return this.conn === "live" ? (this.view.session === "running" ? "running" : "live") : this.conn;
-  }
-
   async submit(text: string, uploadIds: string[]): Promise<void> {
     const clientMsgId = uuid();
     this.view = addPendingPrompt(this.view, clientMsgId, text, LABEL);
     try {
       await this.#api.send(this.#threadId, { clientMsgId, text, uploadIds });
+      this.error = null;
     } catch (err) {
-      alert(`Send failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.error = `Send failed: ${message(err)}`;
     }
   }
 
@@ -68,24 +69,14 @@ export class ThreadSession {
     try {
       const staged = await this.#api.upload(this.#threadId, files);
       this.attachments = [...this.attachments, ...staged.map((s) => ({ uploadId: s.uploadId, name: s.name }))];
+      this.error = null;
     } catch (err) {
-      alert(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.error = `Upload failed: ${message(err)}`;
     }
   }
 
   interrupt(): void {
     void this.#api.interrupt(this.#threadId);
-  }
-
-  async rename(): Promise<void> {
-    const t = prompt("Thread title", this.summary.config.title ?? "");
-    if (t && t.trim()) await this.#api.patchThread(this.#threadId, { title: t.trim() });
-  }
-
-  async archive(): Promise<void> {
-    if (!confirm("Archive this thread? Its process stops; history is kept.")) return;
-    await this.#api.archiveThread(this.#threadId);
-    router.navigate("/");
   }
 
   stop(): void {
