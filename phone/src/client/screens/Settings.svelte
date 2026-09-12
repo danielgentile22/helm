@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { THEMES, type Effort, type HelmSettings, type ModelChoice, type SettingsPatch } from "../../shared/protocol";
+  import { EFFORTS, THEMES, type Effort, type HelmSettings, type ModelChoice, type SettingsPatch } from "../../shared/protocol";
   import type { HelmClient } from "../api";
   import DirBrowser from "../components/DirBrowser.svelte";
   import { shortPath } from "../format";
@@ -130,11 +130,11 @@
             </select>
           </span>
         </div>
-        <div class="item" hidden={!chosen?.supportsEffort}>
+        <div class="item" hidden={chosen !== undefined && !chosen.supportsEffort}>
           <span class="t"><span class="a">Effort</span></span>
           <span class="v">
             <select aria-label="Default effort" value={value.defaultEffort} onchange={(e) => void patch("defaults", { defaultEffort: e.currentTarget.value as Effort })}>
-              {#each chosen?.efforts ?? [] as e (e)}<option value={e}>{e}</option>{/each}
+              {#each chosen?.efforts ?? EFFORTS as e (e)}<option value={e}>{e}</option>{/each}
             </select>
           </span>
         </div>

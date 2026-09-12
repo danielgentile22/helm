@@ -43,7 +43,7 @@
 
   async function load(): Promise<void> {
     try {
-      threads = await api.listThreads();
+      threads = await api.listThreads(showArchived);
       loadError = "";
     } catch (err) {
       loadError = `Could not load threads: ${err instanceof Error ? err.message : String(err)}`;
@@ -85,7 +85,11 @@
   }
 
   $effect(() => {
+    void showArchived;
     void load();
+  });
+
+  $effect(() => {
     void models(api).then((m) => (catalog = m), () => undefined);
     let pending: ReturnType<typeof setTimeout> | null = null;
     const stop = api.attachGlobal(() => {

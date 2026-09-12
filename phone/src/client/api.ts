@@ -104,8 +104,8 @@ export class HelmClient {
   about(): Promise<{ version: string; host: string }> {
     return this.call("GET", "/api/about");
   }
-  listThreads(): Promise<readonly ThreadSummary[]> {
-    return this.call("GET", "/api/threads");
+  listThreads(includeArchived = false): Promise<readonly ThreadSummary[]> {
+    return this.call("GET", includeArchived ? "/api/threads?archived=1" : "/api/threads");
   }
   getThread(threadId: ThreadId): Promise<ThreadSummary> {
     return this.call("GET", `/api/threads/${threadId}`);

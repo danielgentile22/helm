@@ -15,8 +15,8 @@ export async function createWithDefaults(api: HelmClient, settings: HelmSettings
   const cwd = cwdOverride ?? settings?.defaultCwd;
   if (!cwd) throw new Error("No working directory yet. Set a default in Settings, or use the new thread sheet to pick one.");
 
-  /* A default model the live catalog no longer offers would be rejected at the
-     HTTP boundary, so it falls through to the same fallback as no default. */
+  // A default model the live catalog no longer offers would be rejected at the
+  // HTTP boundary, so it falls through to the same fallback as no default.
   const model = (settings?.defaultModel ? catalog.find((m) => m.id === settings.defaultModel) : undefined) ?? catalog.find((m) => /opus/i.test(m.id)) ?? catalog[0];
   if (!model) throw new Error("Model catalog unavailable. Reconnect and try again.");
 

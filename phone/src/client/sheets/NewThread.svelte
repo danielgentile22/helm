@@ -10,7 +10,7 @@
 
   let ready = $state(false);
   let catalog = $state<readonly ModelChoice[]>([]);
-  /* The sheet is mounted fresh on each open, so the prefill is a starting value, not a binding. */
+  // The sheet is mounted fresh on each open, so the prefill is a starting value, not a binding.
   // svelte-ignore state_referenced_locally
   let cwd = $state(initialCwd ?? "");
   let model = $state("");

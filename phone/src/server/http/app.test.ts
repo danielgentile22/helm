@@ -37,6 +37,7 @@ test("auth doors: 401 without credentials, 401 on a bad key, 503 when unconfigur
   assert.equal((await open("/api/threads", { headers: { "x-helm-key": "nope" } })).status, 401);
   assert.equal((await open("/")).status, 200);
   assert.equal((await open("/t/abc")).status, 200);
+  assert.equal((await open("/settings")).status, 200, "the settings screen deep-links like a thread");
   assert.equal((await open("/auth/webauthn/login/options", { method: "POST" })).status, 200);
   assert.equal((await open("/auth/webauthn/register/options", { method: "POST" })).status, 401, "registration needs the key or an enroll token");
   assert.deepEqual(await (await s.api("GET", "/auth/me")).json(), { label: "curl", via: "key" });
@@ -84,6 +85,9 @@ test("threads: models from the live catalog, create is idempotent on a client id
 
   assert.equal((await s.api("DELETE", `/api/threads/${THREAD}`)).status, 204);
   assert.deepEqual(await (await s.api("GET", "/api/threads")).json(), []);
+  const archived = (await (await s.api("GET", "/api/threads?archived=1")).json()) as ThreadSummary[];
+  assert.equal(archived.length, 1, "the archived filter still lists it");
+  assert.ok(archived[0]!.config.archivedAt);
   assert.equal((await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "hi" })).status, 409);
   await s.cleanup();
 });
