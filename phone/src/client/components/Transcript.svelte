@@ -7,7 +7,7 @@
   import ThinkingBlock from "../blocks/ThinkingBlock.svelte";
   import type { Block } from "../transcript";
 
-  let { blocks, openTurn, onResend }: { blocks: readonly Block[]; openTurn: TurnId | null; onResend: (text: string) => void } = $props();
+  let { blocks, openTurn, replaying, onResend, onQuote }: { blocks: readonly Block[]; openTurn: TurnId | null; replaying: boolean; onResend: (text: string) => void; onQuote: (quoted: string) => void } = $props();
 
   interface Turn {
     key: string;
@@ -68,6 +68,25 @@
   const turns = $derived(toTurns(blocks));
 
   /**
+   * A block animates only if the log was already on screen, and live, before the render that
+   * created it: a replay appends a block at a time exactly as a live turn does, and can land
+   * whole inside one render, so what separates them is one render's distance. Both variables
+   * are plain rather than state, because the action reads them and a reactive read would
+   * re-run every element's action and fly the whole log in at once.
+   */
+  let animates = false;
+  let wasLive = false;
+  $effect.pre(() => {
+    void blocks;
+    animates = wasLive;
+    wasLive = !replaying;
+  });
+
+  function enters(node: HTMLElement): void {
+    if (animates) node.classList.add("enters");
+  }
+
+  /**
    * The code blocks arrive as injected HTML, so their copy buttons have no
    * handlers of their own; one listener on the root covers every one of them.
    */
@@ -88,13 +107,13 @@
   {#each turns as turn (turn.key)}
     <section class="turn" class:is-live={turn.turnId !== null && turn.turnId === openTurn}>
       {#each turn.blocks as { block, key, glyph } (key)}
-        <div class="blk blk-{block.kind}" data-glyph={glyph}>
+        <div class="blk blk-{block.kind}" data-glyph={glyph} use:enters>
           {#if block.kind === "prompt"}
             <PromptBlock line={block.line} {onResend} />
           {:else if block.kind === "thinking"}
             <ThinkingBlock text={block.text} collapsed={block.collapsed} streaming={block.streaming} />
           {:else if block.kind === "text"}
-            <TextBlock text={block.text} streaming={block.streaming} />
+            <TextBlock text={block.text} streaming={block.streaming} {onQuote} />
           {:else if block.kind === "activity"}
             <ActivityBlock {block} />
           {:else if block.kind === "end"}

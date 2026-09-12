@@ -112,6 +112,8 @@ a { color: var(--accent); }
 @keyframes slidein { from { transform: translateX(-14px); opacity: 0; } }
 @keyframes soft { 0%, 100% { opacity: 1; } 50% { opacity: .22; } }
 .blk { position: relative; padding-left: var(--gutter); margin-bottom: var(--s-7); }
+.blk.enters { animation: blockin var(--d-enter) var(--e-out) both; }
+@keyframes blockin { from { opacity: 0; transform: translateY(10px); } }
 /* The glyph sits on the rail and paints over it, so block identity survives with no colour at all. */
 .blk::before { content: attr(data-glyph); position: absolute; left: calc(var(--rail-x) - 8px); top: 0; width: 16px; text-align: center; font-family: var(--mono); font-size: var(--t-xs); line-height: 1.7; color: var(--ink-3); background: var(--bg); }
 .blk-prompt::before { color: var(--accent); }
@@ -195,6 +197,7 @@ a { color: var(--accent); }
 .endline .glyph { flex: none; }
 .note { font-family: var(--mono); font-size: var(--t-xs); color: var(--ink-3); }
 
+.jump { position: absolute; left: 50%; bottom: calc(100% + var(--s-4)); transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: var(--t-xs); font-weight: 600; color: var(--bg); background: var(--ink); border: 0; border-radius: var(--r-pill); box-shadow: var(--shadow); }
 .composer { position: sticky; bottom: 0; background: var(--bg); border-top: 1px solid var(--hair); padding: var(--s-4) var(--s-4) calc(env(safe-area-inset-bottom) + var(--s-4)); display: flex; gap: var(--s-4); align-items: flex-end; }
 .composer textarea { flex: 1; resize: none; min-height: 40px; max-height: 40vh; padding: var(--s-4) var(--s-5); border-radius: var(--r-lg); border: 1px solid var(--hair); background: var(--surface); }
 .attachments { padding: 0 var(--s-5) var(--s-3); font-size: var(--t-xs); color: var(--ink-3); display: flex; gap: var(--s-4); flex-wrap: wrap; }

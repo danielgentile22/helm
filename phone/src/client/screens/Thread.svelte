@@ -12,7 +12,7 @@
   import Rename from "../sheets/Rename.svelte";
   import ThreadInfo from "../sheets/ThreadInfo.svelte";
   import { ThreadSession } from "../thread.svelte";
-  import { toBlocks } from "../transcript";
+  import { jumpCount, toBlocks } from "../transcript";
   import ErrorScreen from "./ErrorScreen.svelte";
 
   let { api, threadId }: { api: HelmClient; threadId: ThreadId } = $props();
@@ -26,12 +26,27 @@
   let inputEl: HTMLTextAreaElement | null = $state(null);
   let fileEl: HTMLInputElement | null = $state(null);
   let atBottom = $state(true);
+  /** Blocks the reader has already had under their eyes. Frozen while they are scrolled up. */
+  let seenCount = $state(0);
+  let deepLinked = false;
+
+  const blocks = $derived(session ? toBlocks(session.view) : []);
+  const unseen = $derived(jumpCount(blocks, seenCount));
 
   const nearBottom = (): boolean => document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 80;
+  const toBottom = (): void => window.scrollTo(0, document.body.scrollHeight);
+
+  function follow(): void {
+    atBottom = true;
+    toBottom();
+  }
 
   $effect(() => {
     let live: ThreadSession | null = null;
     let cancelled = false;
+    seenCount = 0;
+    deepLinked = false;
+    atBottom = true;
     void (async () => {
       try {
         const summary = await api.getThread(threadId);
@@ -56,11 +71,20 @@
     return () => window.removeEventListener("scroll", onScroll);
   });
 
+  // Reads atBottom as well as the blocks, so resuming the follow catches the count up too.
   $effect(() => {
-    void session?.view.lines;
-    void tick().then(() => {
-      if (atBottom) window.scrollTo(0, document.body.scrollHeight);
-    });
+    const count = blocks.length;
+    if (!atBottom) return;
+    seenCount = count;
+    void tick().then(toBottom);
+  });
+
+  // `/t/<id>#end` is where a push notification lands: hold at the newest block once the
+  // first sync has told us the replay is complete.
+  $effect(() => {
+    if (deepLinked || !session || session.view.replaying) return;
+    deepLinked = true;
+    if (location.hash === "#end") void tick().then(follow);
   });
 
   function autogrow(): void {
@@ -78,6 +102,18 @@
     inputEl.style.height = "";
     session.attachments = [];
     await session.submit(text, ids);
+  }
+
+  /** Insert a quoted block at the caret and hand the composer back to the reader. */
+  function quote(quoted: string): void {
+    if (!inputEl) return;
+    const start = inputEl.selectionStart ?? inputEl.value.length;
+    const end = inputEl.selectionEnd ?? start;
+    inputEl.value = inputEl.value.slice(0, start) + quoted + inputEl.value.slice(end);
+    const caret = start + quoted.length;
+    inputEl.focus();
+    inputEl.setSelectionRange(caret, caret);
+    autogrow();
   }
 
   async function pickFiles(): Promise<void> {
@@ -115,7 +151,7 @@
     </header>
     <StatusBar conn={s.conn} seen={s.view.headSeq} head={s.summary.headSeq} />
     </div>
-    <Transcript blocks={toBlocks(s.view)} openTurn={s.view.openTurn} onResend={(text) => void s.submit(text, [])} />
+    <Transcript {blocks} openTurn={s.view.openTurn} replaying={s.view.replaying} onResend={(text) => void s.submit(text, [])} onQuote={quote} />
     {#if s.error}
       <div class="inline-error">
         <span class="glyph">▲</span>
@@ -127,6 +163,9 @@
       {#each s.attachments as a (a.uploadId)}<span>{a.name}</span>{/each}
     </div>
     <div class="composer">
+      {#if unseen > 0}
+        <button class="jump" onclick={follow}><span class="glyph">▾</span>{unseen} new</button>
+      {/if}
       <button class="btn" disabled={uploading} onclick={() => fileEl?.click()}>+</button>
       <textarea
         bind:this={inputEl}
