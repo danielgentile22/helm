@@ -25,7 +25,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { ModelInfo, Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { EFFORT_CEILING, LIMITS, MODEL_POLICY_DENY } from "../../shared/protocol";
+import { EFFORTS, LIMITS, MODEL_POLICY_DENY } from "../../shared/protocol";
 import type {
   ClaudeSessionId,
   Effort,
@@ -456,7 +456,7 @@ export class SdkAgentFactory implements AgentFactory {
 
 /**
  * The model picker's options: the SDK's live catalog minus anything matching
- * MODEL_POLICY_DENY, with each row's effort levels clamped to EFFORT_CEILING.
+ * MODEL_POLICY_DENY, keeping every effort level the SDK reports.
  * There is deliberately no fallback list: if the catalog cannot be read, the
  * picker shows an error rather than silently offering models that may not exist.
  */
@@ -465,7 +465,7 @@ export async function modelCatalog(factory: AgentFactory): Promise<readonly Mode
   return raw
     .filter((m) => !MODEL_POLICY_DENY.some((re) => re.test(m.id)))
     .map((m) => {
-      const efforts = EFFORT_CEILING.filter((e) => m.efforts.includes(e));
+      const efforts = EFFORTS.filter((e) => m.efforts.includes(e));
       return { id: m.id as ModelId, label: m.label, supportsEffort: m.supportsEffort && efforts.length > 0, efforts };
     });
 }

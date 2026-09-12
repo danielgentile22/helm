@@ -58,7 +58,8 @@ test("threads: models from the live catalog, create is idempotent on a client id
   const patched = await s.api("PATCH", `/api/threads/${THREAD}`, { title: "Renamed", effort: "low" });
   assert.equal(patched.status, 200);
   assert.equal(((await patched.json()) as ThreadConfig).title, "Renamed");
-  assert.equal((await s.api("PATCH", `/api/threads/${THREAD}`, { effort: "max" })).status, 400);
+  assert.equal((await s.api("PATCH", `/api/threads/${THREAD}`, { effort: "max" })).status, 200);
+  assert.equal((await s.api("PATCH", `/api/threads/${THREAD}`, { effort: "ultra" })).status, 400);
   assert.equal((await s.api("GET", `/api/threads/${uuid(9)}`)).status, 404);
 
   assert.equal((await s.api("DELETE", `/api/threads/${THREAD}`)).status, 204);
@@ -239,7 +240,7 @@ test("global stream fans in boundary events across threads", async () => {
 });
 
 test("parsers: send, create, patch", () => {
-  const catalog = [{ id: "m1", label: "M", supportsEffort: true, efforts: ["low", "medium", "high"] }] as never;
+  const catalog = [{ id: "m1", label: "M", supportsEffort: true, efforts: ["low", "medium", "high", "xhigh", "max"] }] as never;
   assert.equal(parseSend(null).ok, false);
   assert.equal(parseSend({ clientMsgId: "bad id!", text: "x" }).ok, false);
   assert.equal(parseSend({ clientMsgId: uuid(1), text: "" }).ok, false);
@@ -248,7 +249,9 @@ test("parsers: send, create, patch", () => {
   assert.equal(!big.ok && big.status, 413);
   assert.deepEqual(parseSend({ clientMsgId: uuid(1), text: "hi", label: " laptop " }), { ok: true, value: { clientMsgId: uuid(1), text: "hi", uploadIds: undefined, label: "laptop" } });
 
-  assert.deepEqual(parseCreateThread({ model: "m1" }, catalog, "/d"), { ok: true, value: { threadId: undefined, cwd: "/d", model: "m1", effort: "high", title: null } });
+  assert.deepEqual(parseCreateThread({ model: "m1" }, catalog, "/d"), { ok: true, value: { threadId: undefined, cwd: "/d", model: "m1", effort: "medium", title: null } });
+  assert.equal(parseCreateThread({ model: "m1", effort: "max" }, catalog, "/d").ok, true);
+  assert.equal(parseCreateThread({ model: "m1", effort: "ultra" }, catalog, "/d").ok, false);
   assert.equal(parseCreateThread({ model: "m1", cwd: "relative" }, catalog, "/d").ok, false);
   assert.equal(parseCreateThread({ model: "zzz" }, catalog, "/d").ok, false);
 

@@ -38,7 +38,7 @@ import { extname, join, normalize } from "node:path";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
-import { LIMITS } from "../../shared/protocol";
+import { DEFAULT_EFFORT, EFFORTS, LIMITS } from "../../shared/protocol";
 import type {
   ClientMsgId,
   CreateThreadRequest,
@@ -403,16 +403,14 @@ export function parseSend(body: unknown): Parsed<SendRequest & { clientMsgId: Cl
   return { ok: true, value: { clientMsgId, text: body.text, uploadIds, label } };
 }
 
-const EFFORTS: readonly Effort[] = ["low", "medium", "high"];
-
 export function parseCreateThread(body: unknown, catalog: readonly ModelChoice[], defaultCwd: string): Parsed<CreateThreadRequest> {
   if (!isRecord(body)) return { ok: false, status: 400, error: "body must be a JSON object" };
   const cwd = body.cwd === undefined ? defaultCwd : body.cwd;
   if (typeof cwd !== "string" || !cwd.startsWith("/")) return { ok: false, status: 400, error: "cwd must be an absolute path" };
   const model = parseModelId(body.model, catalog);
   if (!model) return { ok: false, status: 400, error: "model is not in the live catalog" };
-  const effort = body.effort === undefined ? "high" : body.effort;
-  if (!EFFORTS.includes(effort as Effort)) return { ok: false, status: 400, error: "effort must be low, medium, or high" };
+  const effort = body.effort === undefined ? DEFAULT_EFFORT : body.effort;
+  if (!EFFORTS.includes(effort as Effort)) return { ok: false, status: 400, error: `effort must be one of ${EFFORTS.join(", ")}` };
   const title = body.title === undefined || body.title === null ? null : typeof body.title === "string" ? body.title.slice(0, 120) : undefined;
   if (title === undefined) return { ok: false, status: 400, error: "title must be a string" };
   return { ok: true, value: { threadId: typeof body.threadId === "string" ? body.threadId : undefined, cwd, model, effort: effort as Effort, title } };
@@ -427,7 +425,7 @@ export function parsePatch(body: unknown, catalog: readonly ModelChoice[]): Pars
     patch.model = model;
   }
   if (body.effort !== undefined) {
-    if (!EFFORTS.includes(body.effort as Effort)) return { ok: false, status: 400, error: "effort must be low, medium, or high" };
+    if (!EFFORTS.includes(body.effort as Effort)) return { ok: false, status: 400, error: `effort must be one of ${EFFORTS.join(", ")}` };
     patch.effort = body.effort as Effort;
   }
   if (body.title !== undefined) {

@@ -51,7 +51,7 @@ export interface ModelChoice {
   readonly id: ModelId;
   readonly label: string;
   readonly supportsEffort: boolean;
-  /** Effort levels this model accepts, intersected with EFFORT_CEILING. */
+  /** Effort levels this model accepts, exactly as Claude Code reports them. */
   readonly efforts: readonly Effort[];
 }
 
@@ -62,9 +62,10 @@ export interface ModelChoice {
  */
 export const MODEL_POLICY_DENY: readonly RegExp[] = [/haiku/i];
 
-/** User policy: never above high (xhigh/max overthink and bloat diffs). */
-export type Effort = "low" | "medium" | "high";
-export const EFFORT_CEILING: readonly Effort[] = ["low", "medium", "high"];
+/** Every level Claude Code knows. The catalog offers the subset each model supports. */
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"];
+export const DEFAULT_EFFORT: Effort = "medium";
 
 export interface ThreadConfig {
   readonly threadId: ThreadId;
