@@ -2,11 +2,12 @@
   import { tick } from "svelte";
   import type { ThreadId } from "../../shared/protocol";
   import type { HelmClient } from "../api";
-  import LineView from "../components/LineView.svelte";
+  import Transcript from "../components/Transcript.svelte";
   import { fmtK, shortModel } from "../format";
   import { router } from "../route.svelte";
   import ModelEffort from "../sheets/ModelEffort.svelte";
   import { ThreadSession } from "../thread.svelte";
+  import { toBlocks } from "../transcript";
   import ErrorScreen from "./ErrorScreen.svelte";
 
   let { api, threadId }: { api: HelmClient; threadId: ThreadId } = $props();
@@ -15,11 +16,11 @@
   let failure = $state<unknown>(null);
   let sheetOpen = $state(false);
   let uploading = $state(false);
-  let transcriptEl: HTMLDivElement | null = $state(null);
   let inputEl: HTMLTextAreaElement | null = $state(null);
   let fileEl: HTMLInputElement | null = $state(null);
-  let atBottom = true;
-  let painted = false;
+  let atBottom = $state(true);
+
+  const nearBottom = (): boolean => document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 80;
 
   $effect(() => {
     let live: ThreadSession | null = null;
@@ -40,17 +41,18 @@
     };
   });
 
-  $effect.pre(() => {
-    void session?.view.lines;
-    if (!transcriptEl) return;
-    atBottom = transcriptEl.scrollHeight - transcriptEl.scrollTop - transcriptEl.clientHeight < 80 || !painted;
+  $effect(() => {
+    const onScroll = (): void => {
+      atBottom = nearBottom();
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   });
 
   $effect(() => {
     void session?.view.lines;
     void tick().then(() => {
       if (atBottom) window.scrollTo(0, document.body.scrollHeight);
-      painted = true;
     });
   });
 
@@ -100,11 +102,7 @@
       <span class="conn {s.conn}">{s.connLabel}</span>
       <button class="btn small" onclick={() => void s.archive()}>Archive</button>
     </header>
-    <div class="transcript" bind:this={transcriptEl}>
-      {#each s.view.lines as line (line)}
-        <LineView {line} onResend={(text) => void s.submit(text, [])} />
-      {/each}
-    </div>
+    <Transcript blocks={toBlocks(s.view)} openTurn={s.view.openTurn} onResend={(text) => void s.submit(text, [])} />
     <div class="attachments">
       {#each s.attachments as a (a.uploadId)}<span>{a.name}</span>{/each}
     </div>

@@ -18,6 +18,15 @@ export function fmtRelative(iso: string, now: Date): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+/** Elapsed time as the transcript writes it: 8s, 42s, 1m12s, 1h04m. */
+export function fmtDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  if (total < 60) return `${total}s`;
+  const mins = Math.floor(total / 60);
+  if (mins < 60) return `${mins}m${String(total % 60).padStart(2, "0")}s`;
+  return `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, "0")}m`;
+}
+
 export const fmtK = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 
 export const shortModel = (m: string): string => m.replace(/^claude-/, "").replace(/-\d{8}$/, "");

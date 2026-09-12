@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtRelative } from "./format";
+import { fmtDuration, fmtRelative } from "./format";
 
 /** Monday, midday UTC, so no branch flips on the test machine's timezone. */
 const now = new Date("2026-08-10T12:00:00.000Z");
@@ -38,4 +38,13 @@ test("a week or older reads as the month and day", () => {
   assert.equal(fmtRelative(ago(7 * DAY), now), "Aug 3");
   assert.equal(fmtRelative(ago(8 * DAY), now), "Aug 2");
   assert.equal(fmtRelative("2025-12-25T12:00:00.000Z", now), "Dec 25");
+});
+
+test("fmtDuration counts seconds, then minutes and seconds, then hours", () => {
+  assert.equal(fmtDuration(0), "0s");
+  assert.equal(fmtDuration(8_400), "8s");
+  assert.equal(fmtDuration(42_000), "42s");
+  assert.equal(fmtDuration(72_000), "1m12s");
+  assert.equal(fmtDuration(125_000), "2m05s");
+  assert.equal(fmtDuration(3_840_000), "1h04m");
 });

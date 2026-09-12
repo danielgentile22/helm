@@ -8,7 +8,8 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); 
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 a { color: var(--accent); }
-.screen { min-height: 100dvh; display: flex; flex-direction: column; }
+/* clip, not hidden: it stops the sideways drift without turning the screen into a scroll container, which would kill the sticky header and composer. */
+.screen { min-height: 100dvh; display: flex; flex-direction: column; overflow-x: clip; }
 .topbar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: var(--s-4); padding: calc(env(safe-area-inset-top) + var(--s-4)) var(--s-5) var(--s-4); background: var(--bg); border-bottom: 1px solid var(--hair); }
 .topbar h1 { font-size: var(--t-md); margin: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .topbar .sub { font-size: var(--t-xs); color: var(--ink-3); }
@@ -64,31 +65,98 @@ a { color: var(--accent); }
 .chip { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; border: 1px solid var(--hair); background: var(--surface); color: var(--ink-2); border-radius: var(--r-pill); padding: 5px 10px; font-size: var(--t-xs); transition: transform var(--d-swift) var(--e-out); }
 .chip:active { transform: scale(.96); }
 .chip b { font-weight: 600; color: var(--ink); }
-.transcript { flex: 1; padding: var(--s-4) var(--s-5) var(--s-5); font-family: var(--mono); font-size: var(--t-sm); line-height: var(--lh-code); overflow-wrap: anywhere; }
-.line { margin: var(--s-3) 0; white-space: pre-wrap; }
-.line.prompt { margin-top: var(--s-6); padding: var(--s-4); border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 var(--r-md) var(--r-md) 0; }
-.line.prompt .who { color: var(--ink-3); font-size: var(--t-xs); display: block; margin-bottom: var(--s-1); }
-.line.prompt.pending { opacity: .6; }
-.line.prompt.dropped { border-left-color: var(--alert); border-left-style: dashed; }
-.line.prompt .resend { margin-top: var(--s-3); }
-.line.text { }
-.line.thinking summary, .line.tool summary { cursor: pointer; color: var(--ink-3); list-style: none; }
-.line.thinking summary::before { content: "▸ "; }
-details[open] > summary::before { content: "▾ "; }
-.line.thinking .body { color: var(--ink-2); font-style: italic; padding: var(--s-2) 0 var(--s-2) var(--s-5); }
-.line.tool summary { display: flex; gap: var(--s-4); align-items: baseline; }
-.line.tool summary::before { content: "▸ "; }
-.line.tool .mark { font-family: var(--sans); font-size: var(--t-xs); padding: var(--s-1) var(--s-3); border-radius: var(--r-sm); border: 1px solid var(--hair); }
-/* The ok and err marks already carry a glyph in their text (LineView.svelte);
-   only busy needs one added, so that no mark leans on its colour alone. */
-.line.tool .mark.ok { border-color: var(--cool); color: var(--cool); }
-.line.tool .mark.err { border-color: var(--alert); color: var(--alert); }
-.line.tool .mark.busy { border-color: var(--accent); color: var(--accent); }
-.line.tool .mark.busy::before { content: "◆ "; }
-.line.tool pre { margin: var(--s-3) 0 var(--s-3) var(--s-5); padding: var(--s-4); background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-md); overflow-x: auto; font-size: var(--t-xs); max-height: 40vh; }
-.line.end { color: var(--ink-3); font-size: var(--t-xs); border-top: 1px dashed var(--hair); padding-top: var(--s-3); margin-top: var(--s-4); }
-.line.end.orphaned, .line.end.error { color: var(--alert); }
-.line.note { color: var(--ink-3); font-size: var(--t-xs); }
+/* ---------- transcript ---------- */
+.transcript { flex: 1; position: relative; padding: var(--s-6) var(--s-5) var(--s-8); overflow-wrap: anywhere; }
+.transcript::before { content: ""; position: absolute; left: calc(var(--s-5) + var(--rail-x)); top: 0; bottom: 0; width: 1px; background: var(--rail); }
+.turn { position: relative; }
+.turn.is-live::before { content: ""; position: absolute; left: calc(var(--rail-x) - 1px); top: 7px; bottom: 0; width: 3px; border-radius: 2px; background: linear-gradient(180deg, transparent, var(--accent-solid), transparent); background-size: 100% 42%; background-repeat: no-repeat; animation: railtravel var(--d-rail) linear infinite; }
+@keyframes railtravel { from { background-position: 0 -42%; } to { background-position: 0 142%; } }
+@keyframes slidein { from { transform: translateX(-14px); opacity: 0; } }
+@keyframes soft { 0%, 100% { opacity: 1; } 50% { opacity: .22; } }
+.blk { position: relative; padding-left: var(--gutter); margin-bottom: var(--s-7); }
+/* The glyph sits on the rail and paints over it, so block identity survives with no colour at all. */
+.blk::before { content: attr(data-glyph); position: absolute; left: calc(var(--rail-x) - 8px); top: 0; width: 16px; text-align: center; font-family: var(--mono); font-size: var(--t-xs); line-height: 1.7; color: var(--ink-3); background: var(--bg); }
+.blk-prompt::before { color: var(--accent); }
+.chev { flex: none; color: var(--ink-3); font-size: var(--t-xs); }
+
+.origin { display: flex; align-items: baseline; gap: var(--s-3); margin-bottom: var(--s-3); font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: .06em; color: var(--accent); }
+.origin i { font-style: normal; color: var(--ink-3); }
+/* white-space: pre-wrap, so the prompt keeps the line breaks the user typed. */
+.prompt-text { margin: 0; padding: var(--s-4) var(--s-5); font-family: var(--mono); font-size: var(--t-sm); line-height: 1.5; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--sunken); border-left: 2px solid var(--accent-solid); border-radius: 0 var(--r-md) var(--r-md) 0; }
+.attached { margin-top: var(--s-3); font-size: var(--t-xs); color: var(--ink-3); }
+.resend { margin-top: var(--s-3); }
+
+.thinking { display: inline-flex; align-items: center; gap: var(--s-3); max-width: 100%; padding: 6px var(--s-5); font-size: var(--t-sm); color: var(--ink-3); background: transparent; border: 1px dashed var(--hair); border-radius: var(--r-md); }
+.think-body { margin-top: var(--s-3); font-size: var(--t-sm); font-style: italic; line-height: var(--lh-prose); color: var(--ink-2); white-space: pre-wrap; }
+.caret, .think-body.is-streaming::after, .md.is-streaming > :last-child::after { content: ""; display: inline-block; width: 2px; height: 1.05em; vertical-align: -.17em; margin-left: 2px; background: var(--accent-solid); border-radius: 1px; animation: soft var(--d-caret) var(--e-std) infinite; }
+
+.md { font-size: var(--t-base); line-height: var(--lh-prose); color: var(--ink); }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 0 0 var(--s-4); padding-bottom: var(--s-3); font-size: var(--t-md); font-weight: 660; letter-spacing: -.015em; border-bottom: 1px solid var(--hair); }
+.md p { margin: 0 0 var(--s-5); }
+.md ul, .md ol { margin: 0 0 var(--s-5); padding-left: var(--s-6); }
+.md ul { list-style: none; }
+.md li { position: relative; margin-bottom: var(--s-3); }
+.md ul > li::before { content: ""; position: absolute; left: calc(-1 * var(--s-5)); top: .62em; width: 5px; height: 1.5px; background: var(--accent-solid); border-radius: 1px; }
+.md blockquote { margin: 0 0 var(--s-5); padding-left: var(--s-5); border-left: 2px solid var(--hair); color: var(--ink-2); }
+.md code { font-family: var(--mono); font-size: .86em; padding: 1px 5px; color: var(--accent); background: var(--sunken); border-radius: var(--r-sm); overflow-wrap: anywhere; }
+.md a { color: var(--cool); text-underline-offset: 3px; }
+.md img { max-width: 100%; }
+.md > :last-child { margin-bottom: 0; }
+
+.code { margin: 0 0 var(--s-5); background: var(--sunken); border: 1px solid var(--hair); border-radius: var(--r-md); overflow: hidden; }
+.code header { display: flex; align-items: center; gap: var(--s-4); padding: 5px var(--s-4) 5px var(--s-5); border-bottom: 1px solid var(--hair); font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.code header .copy { margin-left: auto; padding: 2px 7px; font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: .04em; text-transform: none; color: var(--ink-2); background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-sm); }
+.code pre { margin: 0; padding: var(--s-5); overflow-x: auto; -webkit-overflow-scrolling: touch; font-family: var(--mono); font-size: var(--t-xs); line-height: var(--lh-code); color: var(--ink); }
+.code code { padding: 0; background: none; color: inherit; font-size: inherit; }
+.hljs-keyword, .hljs-built_in, .hljs-literal, .hljs-type, .hljs-selector-tag { color: var(--cool); font-weight: 600; }
+.hljs-string, .hljs-regexp, .hljs-attr, .hljs-symbol, .hljs-addition, .hljs-selector-class { color: var(--accent); }
+.hljs-comment, .hljs-quote { color: var(--ink-3); font-style: italic; }
+.hljs-title, .hljs-section, .hljs-name, .hljs-strong { color: var(--ink); font-weight: 600; }
+.hljs-number, .hljs-deletion { color: var(--alert); }
+.hljs-meta, .hljs-tag, .hljs-punctuation { color: var(--ink-2); }
+.hljs-emphasis { font-style: italic; }
+
+.tablewrap { margin: 0 0 var(--s-5); overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--hair); border-radius: var(--r-md); }
+.tablewrap table { border-collapse: collapse; min-width: max-content; font-size: var(--t-sm); }
+.tablewrap th, .tablewrap td { padding: var(--s-3) var(--s-5); text-align: left; white-space: nowrap; border-bottom: 1px solid var(--hair); }
+.tablewrap tr:last-child td { border-bottom: 0; }
+
+.act { background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-md); overflow: hidden; }
+.act .ahead { display: flex; width: 100%; align-items: center; gap: var(--s-4); padding: var(--s-4) var(--s-5); text-align: left; font-family: var(--mono); font-size: var(--t-xs); color: var(--ink-2); background: transparent; border: 0; }
+.act .ahead .sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act .ahead .sum b { color: var(--ink); font-weight: 600; }
+.act .ahead .dur { flex: none; color: var(--ink-3); }
+.act .now { display: flex; align-items: center; gap: var(--s-4); padding: var(--s-4) var(--s-5); border-top: 1px solid var(--hair); background: var(--accent-soft); color: var(--accent); font-family: var(--mono); font-size: var(--t-xs); animation: slidein var(--d-enter) var(--e-out) both; }
+.act .now .dot { width: 7px; height: 7px; }
+.act .now .arg { flex: 1; min-width: 0; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trow { border-top: 1px solid var(--hair); }
+.trow .trhead { display: flex; width: 100%; align-items: center; gap: var(--s-4); padding: var(--s-3) var(--s-5); text-align: left; font-family: var(--mono); font-size: var(--t-xs); color: var(--ink-2); background: transparent; border: 0; }
+.trow .trhead .state { flex: none; width: 66px; }
+.trow .trhead .name { flex: none; color: var(--ink); }
+.trow .trhead .arg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trow .io { margin: 0 var(--s-5) var(--s-4); padding: var(--s-4); max-height: 40vh; overflow: auto; white-space: pre; font-family: var(--mono); font-size: var(--t-xs); background: var(--bg); border: 1px solid var(--hair); border-radius: var(--r-md); }
+.trow .diff, .trow > .btn { margin: 0 var(--s-5) var(--s-4); }
+
+.diff { background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-md); overflow: hidden; }
+.diff header { display: flex; align-items: center; gap: var(--s-4); padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--hair); font-family: var(--mono); font-size: var(--t-mono-xs); color: var(--ink-2); }
+.diff header .glyph { flex: none; color: var(--accent); }
+.diff header .file { flex: 1; min-width: 0; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff header .tally { flex: none; color: var(--ink-3); letter-spacing: .03em; }
+.diff .body { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.diff pre { margin: 0; min-width: max-content; font-family: var(--mono); font-size: var(--t-xs); line-height: 1.65; }
+.diff .ln { display: block; padding-right: var(--s-5); white-space: pre; }
+.diff .ln::before { content: attr(data-m); display: inline-block; width: 22px; margin-right: var(--s-4); text-align: center; color: var(--ink-3); border-right: 1px solid var(--hair); }
+.diff .add { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent-solid); }
+.diff .add::before { color: var(--accent); }
+/* Three cues on a removed line: the glyph, the indigo tint, and the strikethrough. */
+.diff .del { background: var(--cool-soft); box-shadow: inset 3px 0 0 var(--cool); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--cool) 55%, transparent); }
+.diff .del::before { color: var(--cool); text-decoration: none; }
+
+.endline { display: flex; align-items: center; gap: var(--s-3); font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: .03em; color: var(--ink-3); }
+.endline.bad { color: var(--alert); }
+.endline .glyph { flex: none; }
+.note { font-family: var(--mono); font-size: var(--t-xs); color: var(--ink-3); }
+
 .composer { position: sticky; bottom: 0; background: var(--bg); border-top: 1px solid var(--hair); padding: var(--s-4) var(--s-4) calc(env(safe-area-inset-bottom) + var(--s-4)); display: flex; gap: var(--s-4); align-items: flex-end; }
 .composer textarea { flex: 1; resize: none; min-height: 40px; max-height: 40vh; padding: var(--s-4) var(--s-5); border-radius: var(--r-lg); border: 1px solid var(--hair); background: var(--surface); }
 .attachments { padding: 0 var(--s-5) var(--s-3); font-size: var(--t-xs); color: var(--ink-3); display: flex; gap: var(--s-4); flex-wrap: wrap; }
@@ -127,3 +195,11 @@ details[open] > summary::before { content: "▾ "; }
 .seg button { border: 0; background: transparent; color: var(--ink-2); font-size: var(--t-sm); padding: var(--s-3) var(--s-4); border-radius: var(--r-pill); white-space: nowrap; }
 .seg button[aria-pressed="true"] { background: var(--accent-solid); color: var(--on-accent); font-weight: 600; }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: var(--r-md); background: transparent; color: var(--ink-2); }
+
+/* Last in the file on purpose: these override the transcript animations declared above,
+   which the earlier reduced-motion block cannot, having been written before them. */
+@media (prefers-reduced-motion: reduce) {
+  .turn.is-live::before { animation: none; background: var(--accent-solid); }
+  .act .now { animation: none; }
+  .caret, .think-body.is-streaming::after, .md.is-streaming > :last-child::after { animation: none; opacity: 1; }
+}
