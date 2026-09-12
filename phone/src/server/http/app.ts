@@ -13,6 +13,7 @@
  *   GET    /auth/me                                              -> { label }
  *
  *   GET    /api/models                                           -> ModelChoice[] (live catalog)
+ *   GET    /api/passkeys                                         -> { label, createdAt }[] (never the credential id)
  *   GET    /api/settings                                         -> HelmSettings
  *   PATCH  /api/settings                                         -> HelmSettings
  *   GET    /api/threads                                          -> ThreadSummary[]
@@ -207,6 +208,8 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
       return fail(c, 503, `model catalog unavailable: ${message(err)}`);
     }
   });
+
+  app.get("/api/passkeys", async (c) => c.json(passkeyRows(await deps.webauthn.listCredentials())));
 
   app.get("/api/settings", async (c) => c.json(await deps.settings.get()));
 
@@ -477,6 +480,16 @@ export function parseCreateThread(body: unknown, catalog: readonly ModelChoice[]
   const title = body.title === undefined || body.title === null ? null : typeof body.title === "string" ? body.title.slice(0, 120) : undefined;
   if (title === undefined) return { ok: false, status: 400, error: "title must be a string" };
   return { ok: true, value: { threadId: typeof body.threadId === "string" ? body.threadId : undefined, cwd, model, effort: effort as Effort, title } };
+}
+
+/**
+ * The passkey list as the device manager shows it. credentialId is a handle
+ * to an authenticator and the UI has no use for it, so it is dropped here
+ * rather than filtered in the route: an explicit mapping cannot be widened by
+ * accident the way a spread of the stored record could.
+ */
+export function passkeyRows(creds: readonly { credentialId: string; label: string; createdAt: string }[]): { label: string; createdAt: string }[] {
+  return creds.map((c) => ({ label: c.label, createdAt: c.createdAt }));
 }
 
 /**

@@ -4,7 +4,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { LIMITS } from "../../shared/protocol";
 import type { HelmSettings, SlashCommand, ThreadConfig, ThreadSummary } from "../../shared/protocol";
-import { parseCreateThread, parsePatch, parseSend } from "./app";
+import { parseCreateThread, parsePatch, parseSend, passkeyRows } from "./app";
 import { API_KEY, buildStack, eventSeqs, events, readSse, type Frame, type Stack } from "./testkit";
 
 const THREAD = "0f0f0f0f-0000-4000-8000-0000000000aa";
@@ -451,4 +451,24 @@ test("settings: defaults on first read, patches round-trip across a restart, bad
   assert.deepEqual(await (await r2.api("GET", "/api/settings")).json(), { theme: "dark", defaultModel: null, defaultEffort: "high", defaultCwd: join(s.home, "work", "proj") });
   assert.equal((await r2.fetch(new Request("https://mac.test.ts.net/api/settings"))).status, 401);
   await r2.cleanup();
+});
+
+test("passkeys: empty before enrollment, and the mapping never leaks the credential id", async () => {
+  const s = await buildStack();
+  const res = await s.api("GET", "/api/passkeys");
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), []);
+  assert.equal((await s.fetch(new Request("https://mac.test.ts.net/api/passkeys"))).status, 401);
+  await s.cleanup();
+
+  // A real registration ceremony needs an authenticator, so the shape is pinned on the pure mapping instead.
+  const rows = passkeyRows([
+    { credentialId: "Y3JlZC1pZA", label: "iphone", createdAt: "2026-09-01T10:00:00.000Z" },
+    { credentialId: "b3RoZXI", label: "laptop", createdAt: "2026-09-02T10:00:00.000Z" },
+  ]);
+  assert.deepEqual(rows, [
+    { label: "iphone", createdAt: "2026-09-01T10:00:00.000Z" },
+    { label: "laptop", createdAt: "2026-09-02T10:00:00.000Z" },
+  ]);
+  assert.deepEqual(rows.flatMap((r) => Object.keys(r)), ["label", "createdAt", "label", "createdAt"], "no third key rides along");
 });
