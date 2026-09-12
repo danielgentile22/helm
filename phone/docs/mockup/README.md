@@ -33,7 +33,8 @@ Grafts proposed if Opus is the base:
    of cards, and the literal `phone ›` / `laptop ›` origin prefix on prompt lines.
 
 Sonnet is not a viable base: its dark theme inherits light ink so most text vanishes, its diff
-and state tokens encode meaning as red versus green, and the page overflows at 390 px.
+and state tokens encode meaning as red versus green. An earlier note here said it overflows at 390 px; that was a screenshot
+tool artifact and all three candidates fit at phone width.
 
 Once a base is picked, the chosen values land as design tokens in the repo and this note becomes
 the design note recording what was grafted and why.
