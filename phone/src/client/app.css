@@ -79,9 +79,12 @@ details[open] > summary::before { content: "▾ "; }
 .line.tool summary { display: flex; gap: var(--s-4); align-items: baseline; }
 .line.tool summary::before { content: "▸ "; }
 .line.tool .mark { font-family: var(--sans); font-size: var(--t-xs); padding: var(--s-1) var(--s-3); border-radius: var(--r-sm); border: 1px solid var(--hair); }
-.line.tool .mark.ok { border-color: var(--cool); }
-.line.tool .mark.err { border-color: var(--alert); }
-.line.tool .mark.busy { border-color: var(--accent); }
+/* The ok and err marks already carry a glyph in their text (LineView.svelte);
+   only busy needs one added, so that no mark leans on its colour alone. */
+.line.tool .mark.ok { border-color: var(--cool); color: var(--cool); }
+.line.tool .mark.err { border-color: var(--alert); color: var(--alert); }
+.line.tool .mark.busy { border-color: var(--accent); color: var(--accent); }
+.line.tool .mark.busy::before { content: "◆ "; }
 .line.tool pre { margin: var(--s-3) 0 var(--s-3) var(--s-5); padding: var(--s-4); background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-md); overflow-x: auto; font-size: var(--t-xs); max-height: 40vh; }
 .line.end { color: var(--ink-3); font-size: var(--t-xs); border-top: 1px dashed var(--hair); padding-top: var(--s-3); margin-top: var(--s-4); }
 .line.end.orphaned, .line.end.error { color: var(--alert); }
