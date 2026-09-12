@@ -1,0 +1,721 @@
+<title>Amber Ledger</title>
+<style>
+  :root{
+    --hue: 38;
+    --bg: #f5f1e8;
+    --bg-raised: #ffffff;
+    --ink: #241f14;
+    --ink-dim: #6b6252;
+    --ink-faint: #9c927e;
+    --line: #ddd3bd;
+    --accent: #a15c00;
+    --accent-ink: #ffffff;
+    --accent-soft: #f2dfb8;
+    --running: #a15c00;
+    --idle: #6b6252;
+    --done: #3d6b4a;
+    --error: #a13a2e;
+    --orphaned: #8a4b8a;
+    --reconnecting: #a1860a;
+    --offline: #9c927e;
+    --archived: #6b6252;
+    --code-bg: #ece4d2;
+    --diff-add-bg: #e3ecdc;
+    --diff-add-ink: #345c3c;
+    --diff-del-bg: #f2e0d8;
+    --diff-del-ink: #8a3d2a;
+    --radius-s: 4px;
+    --radius-m: 8px;
+    --radius-l: 14px;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --font-size-s: 12px;
+    --font-size-m: 14px;
+    --font-size-l: 17px;
+    --font-size-xl: 22px;
+    --dur-fast: 120ms;
+    --dur-med: 320ms;
+    --dur-slow: 1600ms;
+    --ease-standard: cubic-bezier(.2,.7,.3,1);
+    color-scheme: light;
+  }
+  [data-theme="dark"]{
+    --bg: #16130c;
+    --bg-raised: #211c12;
+    --ink: #f2ead9;
+    --ink-dim: #b5a98e;
+    --ink-faint: #7d735e;
+    --line: #3a3222;
+    --accent: #e8a23a;
+    --accent-ink: #16130c;
+    --accent-soft: #3a2c10;
+    --running: #e8a23a;
+    --idle: #b5a98e;
+    --done: #7fbf8f;
+    --error: #e08a72;
+    --orphaned: #c99fdb;
+    --reconnecting: #e8c25a;
+    --offline: #7d735e;
+    --archived: #b5a98e;
+    --code-bg: #241f13;
+    --diff-add-bg: #1e2a1c;
+    --diff-add-ink: #9fd6ab;
+    --diff-del-bg: #2b1c17;
+    --diff-del-ink: #e8a894;
+    color-scheme: dark;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);width:100%;overflow-x:hidden;}
+  body{
+    font-family:-apple-system, system-ui, sans-serif;
+    font-size:var(--font-size-m);
+    line-height:1.45;
+    padding:var(--space-5) var(--space-4) var(--space-6);
+  }
+  .mono{font-family:ui-monospace,"SF Mono",Menlo,monospace;}
+  h1.page-title{font-size:var(--font-size-xl);margin:0 0 var(--space-1);}
+  p.page-sub{color:var(--ink-dim);margin:0 0 var(--space-5);max-width:60ch;}
+
+  /* controls */
+  .controls{display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap;margin-bottom:var(--space-5);}
+  .controls button{
+    font:inherit;font-size:var(--font-size-s);
+    background:var(--bg-raised);color:var(--ink);
+    border:1px solid var(--line);border-radius:var(--radius-m);
+    padding:var(--space-2) var(--space-3);cursor:pointer;
+  }
+  .controls button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);}
+
+  /* token table */
+  table.tokens{border-collapse:collapse;width:100%;max-width:920px;margin-bottom:var(--space-6);font-size:var(--font-size-s);}
+  table.tokens caption{text-align:left;font-weight:600;margin-bottom:var(--space-2);font-size:var(--font-size-m);}
+  table.tokens th, table.tokens td{border:1px solid var(--line);padding:var(--space-2) var(--space-3);text-align:left;vertical-align:middle;}
+  table.tokens th{background:var(--bg-raised);}
+  .swatch{display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid var(--line);vertical-align:-2px;margin-right:6px;}
+  .tokens-wrap{overflow-x:auto;margin-bottom:var(--space-6);}
+
+  /* gallery layout */
+  .gallery{display:flex;flex-wrap:wrap;gap:var(--space-5);align-items:flex-start;}
+  .frame-block{display:flex;flex-direction:column;gap:var(--space-2);}
+  .frame-label{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--font-size-s);color:var(--ink-dim);}
+  .phone{
+    width:390px;max-width:100%;
+    border:1px solid var(--line);border-radius:28px;
+    background:var(--bg-raised);
+    box-shadow:0 1px 0 var(--line);
+    overflow:hidden;
+    display:flex;flex-direction:column;
+    height:720px;
+  }
+  .phone.tall{height:820px;}
+  .wide{width:1100px;max-width:100%;height:640px;flex-direction:row;border-radius:16px;}
+  .screen{flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0;}
+
+  /* status bar */
+  .statusbar{height:14px;flex:none;}
+
+  /* header */
+  .app-header{
+    flex:none;display:flex;align-items:center;gap:var(--space-2);
+    padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--line);
+    background:var(--bg-raised);
+  }
+  .app-header .icon-btn{width:28px;height:28px;flex:none;border-radius:var(--radius-s);border:none;background:transparent;color:var(--ink-dim);display:flex;align-items:center;justify-content:center;cursor:pointer;}
+  .app-header .title{flex:1;font-weight:600;font-size:var(--font-size-m);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .gauge{width:24px;height:24px;flex:none;position:relative;}
+  .gauge svg{transform:rotate(-90deg);}
+  .gauge circle{fill:none;stroke-width:3;}
+  .gauge .track{stroke:var(--line);}
+  .gauge .fill{stroke:var(--accent);stroke-linecap:round;}
+
+  .reconnect-bar{
+    flex:none;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:11px;
+    background:var(--accent-soft);color:var(--reconnecting);
+    padding:var(--space-1) var(--space-4);
+    display:flex;align-items:center;gap:var(--space-2);
+  }
+  .reconnect-bar .dot{width:6px;height:6px;border-radius:50%;background:var(--reconnecting);animation:blink 1s var(--ease-standard) infinite;}
+
+  /* thread list */
+  .list-body{flex:1;overflow-y:auto;padding-bottom:var(--space-5);}
+  .group-header{
+    display:flex;align-items:center;gap:var(--space-2);
+    padding:var(--space-3) var(--space-4) var(--space-1);
+    font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:11px;color:var(--ink-dim);
+    text-transform:none;letter-spacing:.02em;
+  }
+  .group-header .live{
+    width:6px;height:6px;border-radius:50%;background:var(--running);
+    box-shadow:0 0 0 0 var(--running);
+    animation:pulse-ring var(--dur-slow) var(--ease-standard) infinite;
+    flex:none;
+  }
+  .thread-row{
+    display:flex;align-items:center;gap:var(--space-3);
+    padding:var(--space-3) var(--space-4);
+    border-bottom:1px solid var(--line);
+    cursor:pointer;
+  }
+  .thread-row .state-icon{width:16px;height:16px;flex:none;}
+  .thread-row .body{flex:1;min-width:0;}
+  .thread-row .title-line{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .thread-row .meta-line{font-size:var(--font-size-s);color:var(--ink-dim);display:flex;gap:var(--space-2);align-items:center;}
+  .thread-row .meta-line .state-word{font-family:ui-monospace,"SF Mono",Menlo,monospace;}
+  .thread-row .time{font-size:var(--font-size-s);color:var(--ink-faint);flex:none;}
+  .doing-now{
+    font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:11px;color:var(--running);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .new-btn-wrap{position:absolute;right:var(--space-4);bottom:var(--space-4);}
+  .new-btn{
+    display:flex;align-items:center;gap:6px;
+    background:var(--accent);color:var(--accent-ink);
+    border:none;border-radius:999px;padding:10px 18px;
+    font:inherit;font-weight:600;font-size:var(--font-size-m);
+    box-shadow:0 4px 10px rgba(0,0,0,.2);
+  }
+
+  /* state icons (icon + word, never color alone) */
+  .state-icon{display:inline-flex;align-items:center;justify-content:center;}
+  .state-running{color:var(--running);}
+  .state-idle{color:var(--idle);}
+  .state-done{color:var(--done);}
+  .state-error{color:var(--error);}
+  .state-orphaned{color:var(--orphaned);}
+  .state-reconnecting{color:var(--reconnecting);}
+  .state-offline{color:var(--offline);}
+  .state-archived{color:var(--archived);}
+
+  /* thread screen body */
+  .log-body{flex:1;overflow-y:auto;padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-4);position:relative;}
+  .prompt-line{
+    font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--font-size-s);
+    background:var(--code-bg);border-left:2px solid var(--accent);
+    border-radius:0 var(--radius-s) var(--radius-s) 0;
+    padding:var(--space-2) var(--space-3);
+  }
+  .prompt-line .origin{color:var(--accent);margin-right:var(--space-2);}
+  .prompt-line .caret-prefix{color:var(--ink-faint);margin-right:4px;}
+
+  details.thinking{
+    border:1px dashed var(--line);border-radius:var(--radius-m);
+    font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:11px;color:var(--ink-dim);
+  }
+  details.thinking summary{padding:var(--space-2) var(--space-3);cursor:pointer;list-style:none;}
+  details.thinking summary::-webkit-details-marker{display:none;}
+  details.thinking summary::before{content:"▸ ";}
+  details.thinking[open] summary::before{content:"▾ ";}
+  details.thinking p{margin:0;padding:0 var(--space-3) var(--space-3);}
+
+  .prose h3{font-size:var(--font-size-l);margin:0 0 var(--space-2);}
+  .prose ul{margin:0 0 var(--space-2);padding-left:20px;}
+  .prose p{margin:0 0 var(--space-2);}
+  .prose code{
+    font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:.9em;
+    background:var(--code-bg);border-radius:3px;padding:1px 5px;
+  }
+  .code-block{border:1px solid var(--line);border-radius:var(--radius-m);overflow:hidden;}
+  .code-block-head{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:var(--space-1) var(--space-3);background:var(--code-bg);
+    font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:11px;color:var(--ink-dim);
+  }
+  .code-block-head button{
+    font:inherit;background:none;border:1px solid var(--line);border-radius:var(--radius-s);
+    color:var(--ink-dim);padding:2px 8px;cursor:pointer;
+  }
+  .code-block pre{margin:0;padding:var(--space-3);overflow-x:auto;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px;background:var(--bg-raised);}
+
+  .activity-block{
+    border:1px solid var(--line);border-radius:var(--radius-m);
+    font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px;
+    overflow:hidden;
+  }
+  .activity-summary{padding:var(--space-2) var(--space-3);color:var(--ink-dim);border-bottom:1px solid var(--line);}
+  .activity-current{
+    display:flex;align-items:center;gap:var(--space-2);
+    padding:var(--space-2) var(--space-3);color:var(--running);
+    animation:slide-in var(--dur-med) var(--ease-standard);
+  }
+  .activity-current .spinner{
+    width:10px;height:10px;border-radius:50%;
+    border:2px solid var(--accent-soft);border-top-color:var(--running);
+    animation:spin 900ms linear infinite;flex:none;
+  }
+
+  .diff-view{border:1px solid var(--line);border-radius:var(--radius-m);overflow:hidden;}
+  .diff-head{padding:var(--space-1) var(--space-3);background:var(--code-bg);font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:11px;color:var(--ink-dim);}
+  .diff-scroll{overflow-x:auto;}
+  .diff-view table{border-collapse:collapse;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px;width:100%;}
+  .diff-view td{padding:1px 10px;white-space:pre;}
+  .diff-view td.ln{color:var(--ink-faint);text-align:right;width:1%;user-select:none;}
+  tr.add td{background:var(--diff-add-bg);color:var(--diff-add-ink);}
+  tr.del td{background:var(--diff-del-bg);color:var(--diff-del-ink);}
+
+  .streaming{font-size:var(--font-size-m);}
+  .caret{display:inline-block;width:7px;height:1em;background:var(--ink);vertical-align:text-bottom;animation:blink 1s step-end infinite;margin-left:2px;}
+
+  .jump-pill{
+    position:sticky;bottom:var(--space-3);align-self:center;
+    background:var(--ink);color:var(--bg);
+    border-radius:999px;padding:6px 14px;font-size:12px;font-weight:600;
+    box-shadow:0 4px 10px rgba(0,0,0,.25);
+  }
+  [data-theme="dark"] .jump-pill{background:var(--accent);color:var(--accent-ink);}
+
+  /* settings */
+  .settings-body{flex:1;overflow-y:auto;}
+  .settings-group{padding:var(--space-3) var(--space-4);}
+  .settings-group h4{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint);margin:0 0 var(--space-2);font-weight:600;}
+  .settings-row{display:flex;align-items:center;justify-content:space-between;padding:var(--space-2) 0;border-bottom:1px solid var(--line);gap:var(--space-3);}
+  .settings-row .label{font-weight:500;}
+  .settings-row .value{color:var(--ink-dim);font-size:var(--font-size-s);}
+  .seg{display:flex;border:1px solid var(--line);border-radius:var(--radius-m);overflow:hidden;}
+  .seg span{padding:4px 10px;font-size:12px;color:var(--ink-dim);}
+  .seg span.active{background:var(--accent);color:var(--accent-ink);}
+  .toggle{width:36px;height:20px;border-radius:999px;background:var(--line);position:relative;flex:none;}
+  .toggle.on{background:var(--accent);}
+  .toggle::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--bg-raised);transition:left var(--dur-fast) var(--ease-standard);}
+  .toggle.on::after{left:18px;}
+  .device-row{display:flex;justify-content:space-between;padding:var(--space-1) 0;font-size:var(--font-size-s);color:var(--ink-dim);}
+
+  /* composer */
+  .composer-wrap{margin-top:auto;flex:none;border-top:1px solid var(--line);background:var(--bg-raised);}
+  .quick-actions{display:flex;gap:var(--space-2);padding:var(--space-2) var(--space-4) 0;flex-wrap:wrap;}
+  .chip{
+    display:inline-flex;align-items:center;gap:4px;
+    border:1px solid var(--line);border-radius:999px;padding:4px 10px;
+    font-size:12px;color:var(--ink-dim);background:var(--bg);
+  }
+  .chip.stop{color:var(--error);border-color:var(--error);}
+  .chip button.remove{background:none;border:none;color:inherit;cursor:pointer;padding:0;margin-left:2px;font-size:13px;line-height:1;}
+  .composer-row{display:flex;align-items:flex-end;gap:var(--space-2);padding:var(--space-3) var(--space-4);}
+  .composer-input{
+    flex:1;min-height:36px;max-height:100px;border:1px solid var(--line);border-radius:var(--radius-l);
+    padding:8px 12px;font:inherit;font-size:var(--font-size-m);background:var(--bg);color:var(--ink-faint);
+    overflow-y:auto;
+  }
+  .send-btn{
+    width:36px;height:36px;border-radius:50%;border:none;flex:none;
+    background:var(--accent);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;cursor:pointer;
+  }
+  .send-btn.stop{background:var(--error);}
+  .popover{border-top:1px solid var(--line);background:var(--bg-raised);max-height:260px;overflow-y:auto;}
+  .popover-item{padding:var(--space-2) var(--space-4);border-bottom:1px solid var(--line);}
+  .popover-item .name{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:13px;color:var(--accent);}
+  .popover-item .desc{font-size:12px;color:var(--ink-dim);}
+  .popover-item .hint{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:11px;color:var(--ink-faint);}
+  .sheet-search{margin:var(--space-3) var(--space-4) 0;padding:8px 12px;border:1px solid var(--line);border-radius:var(--radius-m);font-size:var(--font-size-s);color:var(--ink-faint);display:flex;justify-content:space-between;}
+  .attach-row{display:flex;gap:var(--space-2);padding:var(--space-2) var(--space-4);flex-wrap:wrap;}
+  .thumb{width:52px;height:52px;border-radius:var(--radius-s);background:var(--code-bg);position:relative;display:flex;align-items:center;justify-content:center;color:var(--ink-faint);font-size:10px;}
+  .thumb .remove{position:absolute;top:-5px;right:-5px;width:16px;height:16px;border-radius:50%;background:var(--ink);color:var(--bg);border:none;font-size:10px;line-height:1;cursor:pointer;}
+
+  /* two-pane */
+  .pane-list{width:340px;flex:none;border-right:1px solid var(--line);display:flex;flex-direction:column;}
+  .pane-thread{flex:1;display:flex;flex-direction:column;min-width:0;}
+
+  @keyframes pulse-ring{
+    0%{box-shadow:0 0 0 0 rgba(161,92,0,.5);}
+    70%{box-shadow:0 0 0 6px rgba(161,92,0,0);}
+    100%{box-shadow:0 0 0 0 rgba(161,92,0,0);}
+  }
+  @keyframes blink{0%,49%{opacity:1;}50%,100%{opacity:0;}}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  @keyframes slide-in{from{transform:translateX(-8px);opacity:0;}to{transform:translateX(0);opacity:1;}}
+
+  @media (prefers-reduced-motion: reduce){
+    .group-header .live, .activity-current, .caret, .activity-current .spinner{animation:none !important;}
+  }
+
+  @media (max-width: 480px){
+    .gallery{flex-direction:column;align-items:center;}
+  }
+</style>
+
+<h1 class="page-title">Amber Ledger</h1>
+<p class="page-sub">A single warm amber hue standing in for every terminal cue: prompt, running state, accent chips. Rows read like ledger entries, not chat bubbles. Every state pairs an icon with a word so nothing depends on hue alone.</p>
+
+<div class="controls">
+  <button id="btn-light" aria-pressed="true" onclick="setTheme('light')">Light</button>
+  <button id="btn-dark" aria-pressed="false" onclick="setTheme('dark')">Dark</button>
+  <button id="btn-both" aria-pressed="false" onclick="setBoth()">Show both</button>
+</div>
+
+<div class="tokens-wrap">
+<table class="tokens">
+  <caption>Design tokens — Amber Ledger</caption>
+  <thead><tr><th>Token</th><th>Light</th><th>Dark</th><th>Usage</th></tr></thead>
+  <tbody>
+    <tr><td>--bg</td><td><span class="swatch" style="background:#f5f1e8"></span>#f5f1e8</td><td><span class="swatch" style="background:#16130c"></span>#16130c</td><td>page ground</td></tr>
+    <tr><td>--bg-raised</td><td><span class="swatch" style="background:#ffffff"></span>#ffffff</td><td><span class="swatch" style="background:#211c12"></span>#211c12</td><td>cards, headers</td></tr>
+    <tr><td>--ink</td><td><span class="swatch" style="background:#241f14"></span>#241f14</td><td><span class="swatch" style="background:#f2ead9"></span>#f2ead9</td><td>body text (7:1+)</td></tr>
+    <tr><td>--ink-dim</td><td><span class="swatch" style="background:#6b6252"></span>#6b6252</td><td><span class="swatch" style="background:#b5a98e"></span>#b5a98e</td><td>meta text (4.6:1)</td></tr>
+    <tr><td>--line</td><td><span class="swatch" style="background:#ddd3bd"></span>#ddd3bd</td><td><span class="swatch" style="background:#3a3222"></span>#3a3222</td><td>hairlines</td></tr>
+    <tr><td>--accent</td><td><span class="swatch" style="background:#a15c00"></span>#a15c00</td><td><span class="swatch" style="background:#e8a23a"></span>#e8a23a</td><td>the one hue: brand, running, prompt rail</td></tr>
+    <tr><td>--done</td><td><span class="swatch" style="background:#3d6b4a"></span>#3d6b4a</td><td><span class="swatch" style="background:#7fbf8f"></span>#7fbf8f</td><td>done state (icon + word only)</td></tr>
+    <tr><td>--error</td><td><span class="swatch" style="background:#a13a2e"></span>#a13a2e</td><td><span class="swatch" style="background:#e08a72"></span>#e08a72</td><td>error state (icon + word only)</td></tr>
+    <tr><td>--orphaned</td><td><span class="swatch" style="background:#8a4b8a"></span>#8a4b8a</td><td><span class="swatch" style="background:#c99fdb"></span>#c99fdb</td><td>orphaned state</td></tr>
+    <tr><td>--reconnecting</td><td><span class="swatch" style="background:#a1860a"></span>#a1860a</td><td><span class="swatch" style="background:#e8c25a"></span>#e8c25a</td><td>reconnecting state</td></tr>
+    <tr><td>font-size (s/m/l/xl)</td><td colspan="3">12 / 14 / 17 / 22 px</td></tr>
+    <tr><td>space (1..6)</td><td colspan="3">4 / 8 / 12 / 16 / 24 / 32 px</td></tr>
+    <tr><td>radius (s/m/l)</td><td colspan="3">4 / 8 / 14 px</td></tr>
+    <tr><td>duration (fast/med/slow)</td><td colspan="3">120ms / 320ms / 1600ms</td></tr>
+    <tr><td>easing</td><td colspan="3">cubic-bezier(.2,.7,.3,1) — standard for all motion</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div id="gallery-light" class="gallery" data-theme="light"></div>
+<div id="gallery-dark" class="gallery" data-theme="dark" hidden></div>
+
+<template id="tpl-content">
+
+<!-- ============ FRAME 1: THREAD LIST ============ -->
+<div class="frame-block">
+  <div class="frame-label">1 — thread list</div>
+  <div class="phone tall" style="position:relative;">
+    <div class="statusbar"></div>
+    <div class="app-header">
+      <span style="font-weight:700;">Helm</span>
+      <span style="flex:1"></span>
+      <span class="icon-btn">⚙</span>
+    </div>
+    <div class="screen">
+      <div class="list-body">
+        <div class="group-header"><span class="live"></span> ~/projects/helm2</div>
+        <div class="thread-row">
+          <span class="state-icon state-running">●</span>
+          <div class="body">
+            <div class="title-line">Wire up SSE reconnect</div>
+            <div class="doing-now">doing now — editing server/subscribe.ts</div>
+          </div>
+          <div class="time">2m</div>
+        </div>
+        <div class="thread-row">
+          <span class="state-icon state-done">✓</span>
+          <div class="body">
+            <div class="title-line">Passkey enrollment flow</div>
+            <div class="meta-line"><span class="state-word">done</span></div>
+          </div>
+          <div class="time">1h</div>
+        </div>
+        <div class="thread-row">
+          <span class="state-icon state-orphaned">◆</span>
+          <div class="body">
+            <div class="title-line">Migrate events.jsonl schema</div>
+            <div class="meta-line"><span class="state-word">orphaned</span></div>
+          </div>
+          <div class="time">6h</div>
+        </div>
+        <div class="group-header">~/projects/vault-tools</div>
+        <div class="thread-row">
+          <span class="state-icon state-idle">○</span>
+          <div class="body">
+            <div class="title-line">Prune retired inbox reports</div>
+            <div class="meta-line"><span class="state-word">idle</span></div>
+          </div>
+          <div class="time">1d</div>
+        </div>
+        <div class="thread-row">
+          <span class="state-icon state-error">✕</span>
+          <div class="body">
+            <div class="title-line">Rebuild search index</div>
+            <div class="meta-line"><span class="state-word">error</span></div>
+          </div>
+          <div class="time">2d</div>
+        </div>
+        <div class="thread-row">
+          <span class="state-icon state-archived">▢</span>
+          <div class="body">
+            <div class="title-line">Old renderer spike</div>
+            <div class="meta-line"><span class="state-word">archived</span></div>
+          </div>
+          <div class="time">9d</div>
+        </div>
+      </div>
+    </div>
+    <div class="new-btn-wrap">
+      <button class="new-btn">New <span style="font-size:11px;">⌄</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ FRAME 2: THREAD SCREEN ============ -->
+<div class="frame-block">
+  <div class="frame-label">2 — thread, running turn</div>
+  <div class="phone tall">
+    <div class="statusbar"></div>
+    <div class="app-header">
+      <span class="icon-btn">←</span>
+      <span class="title">Wire up SSE reconnect</span>
+      <div class="gauge">
+        <svg width="24" height="24" viewBox="0 0 24 24">
+          <circle class="track" cx="12" cy="12" r="10"></circle>
+          <circle class="fill" cx="12" cy="12" r="10" stroke-dasharray="62.8" stroke-dashoffset="20"></circle>
+        </svg>
+      </div>
+      <span class="icon-btn">⋯</span>
+    </div>
+    <div class="reconnect-bar"><span class="dot"></span> reconnecting — resuming from seq 1042</div>
+    <div class="screen">
+      <div class="log-body">
+        <div class="prompt-line"><span class="origin">phone ›</span><span class="caret-prefix">$</span> make subscribe attach before it replays the backlog</div>
+
+        <details class="thinking">
+          <summary>thought for 8s</summary>
+          <p>Checking whether subscribe() can race the file read on reconnect...</p>
+        </details>
+
+        <div class="prose">
+          <h3>Plan</h3>
+          <p>I will attach the listener first, buffer incoming events, then replay from the cursor and flush the buffer with <code>dedupeBySeq</code>.</p>
+          <ul>
+            <li>Add a buffering queue on <code>subscribe()</code></li>
+            <li>Replay from cursor up to head seq observed at attach</li>
+            <li>Flush buffer, dropping already-sent seqs</li>
+          </ul>
+        </div>
+
+        <div class="code-block">
+          <div class="code-block-head"><span>server/subscribe.ts</span><button>Copy</button></div>
+          <pre class="mono">function subscribe(cursor) {
+  const buf = [];
+  const stop = tail(e => buf.push(e));
+  const head = replay(cursor);
+  flush(buf, head);
+  return stop;
+}</pre>
+        </div>
+
+        <div class="activity-block">
+          <div class="activity-summary">read 6 files, ran 2 commands, edited 3 files</div>
+          <div class="activity-current"><span class="spinner"></span> running: pnpm test subscribe.spec.ts</div>
+        </div>
+
+        <div class="diff-view">
+          <div class="diff-head">server/subscribe.ts</div>
+          <div class="diff-scroll">
+          <table>
+            <tr><td class="ln">41</td><td>  function subscribe(cursor) {</td></tr>
+            <tr class="del"><td class="ln">-42</td><td>-   const head = replay(cursor);</td></tr>
+            <tr class="add"><td class="ln">42</td><td>+   const buf = [];</td></tr>
+            <tr class="add"><td class="ln">43</td><td>+   const stop = tail(e =&gt; buf.push(e));</td></tr>
+            <tr class="add"><td class="ln">44</td><td>+   const head = replay(cursor);</td></tr>
+          </table>
+          </div>
+        </div>
+
+        <div class="streaming">Running the test now to confirm no duplicate seq lands twice<span class="caret"></span></div>
+
+        <div class="jump-pill">↓ jump to latest</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ FRAME 3: SETTINGS ============ -->
+<div class="frame-block">
+  <div class="frame-label">3 — settings</div>
+  <div class="phone tall">
+    <div class="statusbar"></div>
+    <div class="app-header">
+      <span class="icon-btn">←</span>
+      <span class="title">Settings</span>
+      <span style="flex:1"></span>
+    </div>
+    <div class="screen">
+      <div class="settings-body">
+        <div class="settings-group">
+          <h4>Appearance</h4>
+          <div class="settings-row">
+            <span class="label">Theme</span>
+            <div class="seg"><span>System</span><span class="active">Light</span><span>Dark</span></div>
+          </div>
+        </div>
+        <div class="settings-group">
+          <h4>Notifications</h4>
+          <div class="settings-row">
+            <span class="label">Push notifications</span>
+            <div class="toggle on"></div>
+          </div>
+        </div>
+        <div class="settings-group">
+          <h4>Passkeys</h4>
+          <div class="device-row"><span>Daniel's iPhone</span><span>added 3mo ago</span></div>
+          <div class="device-row"><span>Daniel's MacBook Pro</span><span>added 1yr ago</span></div>
+        </div>
+        <div class="settings-group">
+          <h4>Defaults</h4>
+          <div class="settings-row"><span class="label">Model</span><span class="value">claude-opus-4.6</span></div>
+          <div class="settings-row"><span class="label">Effort</span><span class="value">high</span></div>
+          <div class="settings-row"><span class="label">Working directory</span><span class="value mono">~/projects</span></div>
+        </div>
+        <div class="settings-group">
+          <h4>About</h4>
+          <div class="settings-row"><span class="label">Version</span><span class="value">2.0.4</span></div>
+          <div class="settings-row"><span class="label">Host</span><span class="value mono">mac-studio.ts.net</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ FRAME 4: COMPOSER STATES ============ -->
+<div class="frame-block">
+  <div class="frame-label">4 — composer: idle / running</div>
+  <div class="phone" style="height:220px;">
+    <div class="screen" style="justify-content:flex-end;">
+      <div class="composer-wrap">
+        <div class="quick-actions">
+          <span class="chip">/ commands</span>
+          <span class="chip">skills</span>
+          <span class="chip">attach</span>
+        </div>
+        <div class="composer-row">
+          <div class="composer-input">Ask Claude, or type / for a command…</div>
+          <button class="send-btn">↑</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="phone" style="height:220px;margin-top:var(--space-3);">
+    <div class="screen" style="justify-content:flex-end;">
+      <div class="composer-wrap">
+        <div class="quick-actions">
+          <span class="chip stop">■ stop</span>
+        </div>
+        <div class="composer-row">
+          <div class="composer-input" style="color:var(--ink-faint);">Running — streaming response…</div>
+          <button class="send-btn stop">■</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="frame-block">
+  <div class="frame-label">4 — slash popover</div>
+  <div class="phone" style="height:340px;">
+    <div class="screen" style="justify-content:flex-end;">
+      <div class="composer-wrap">
+        <div class="popover">
+          <div class="popover-item"><div class="name">/grill-with-docs</div><div class="desc">Stress-test a plan against project docs</div><div class="hint">&lt;topic&gt;</div></div>
+          <div class="popover-item"><div class="name">/grep-thread</div><div class="desc">Search this thread's log</div><div class="hint">&lt;pattern&gt;</div></div>
+          <div class="popover-item"><div class="name">/graft</div><div class="desc">Pull a diff from another thread</div><div class="hint">&lt;thread-id&gt;</div></div>
+        </div>
+        <div class="composer-row">
+          <div class="composer-input">/gr</div>
+          <button class="send-btn">↑</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="frame-block">
+  <div class="frame-label">4 — skills sheet</div>
+  <div class="phone" style="height:340px;">
+    <div class="screen" style="justify-content:flex-end;">
+      <div class="composer-wrap">
+        <div class="sheet-search"><span>Search skills…</span><span>⟲ reload</span></div>
+        <div class="popover">
+          <div class="popover-item"><div class="name">architect</div><div class="desc">Sketch types and module structure before code</div></div>
+          <div class="popover-item"><div class="name">blast-radius</div><div class="desc">Find what a change could break elsewhere</div></div>
+          <div class="popover-item"><div class="name">deep-review</div><div class="desc">Exhaustive multi-agent codebase review</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="frame-block">
+  <div class="frame-label">4 — staged attachments</div>
+  <div class="phone" style="height:260px;">
+    <div class="screen" style="justify-content:flex-end;">
+      <div class="composer-wrap">
+        <div class="attach-row">
+          <div class="thumb">img<button class="remove">✕</button></div>
+          <div class="thumb">img<button class="remove">✕</button></div>
+          <span class="chip">📄 subscribe.ts<button class="remove">✕</button></span>
+          <span class="chip">/grill-with-docs <span style="color:var(--ink-faint);">&lt;topic&gt;</span></span>
+        </div>
+        <div class="composer-row">
+          <div class="composer-input">Add a caption…</div>
+          <button class="send-btn">↑</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ WIDE: TWO PANE ============ -->
+<div class="frame-block" style="width:100%;">
+  <div class="frame-label">laptop — two pane, above 900px</div>
+  <div class="phone wide">
+    <div class="pane-list">
+      <div class="app-header"><span style="font-weight:700;">Helm</span></div>
+      <div class="list-body">
+        <div class="group-header"><span class="live"></span> ~/projects/helm2</div>
+        <div class="thread-row">
+          <span class="state-icon state-running">●</span>
+          <div class="body"><div class="title-line">Wire up SSE reconnect</div><div class="doing-now">doing now — editing server/subscribe.ts</div></div>
+          <div class="time">2m</div>
+        </div>
+        <div class="thread-row">
+          <span class="state-icon state-done">✓</span>
+          <div class="body"><div class="title-line">Passkey enrollment flow</div><div class="meta-line"><span class="state-word">done</span></div></div>
+          <div class="time">1h</div>
+        </div>
+      </div>
+    </div>
+    <div class="pane-thread">
+      <div class="app-header">
+        <span class="title">Wire up SSE reconnect</span>
+        <div class="gauge"><svg width="24" height="24" viewBox="0 0 24 24"><circle class="track" cx="12" cy="12" r="10"></circle><circle class="fill" cx="12" cy="12" r="10" stroke-dasharray="62.8" stroke-dashoffset="20"></circle></svg></div>
+        <span class="icon-btn">⋯</span>
+      </div>
+      <div class="log-body">
+        <div class="prompt-line"><span class="origin">laptop ›</span><span class="caret-prefix">$</span> make subscribe attach before it replays the backlog</div>
+        <div class="activity-block">
+          <div class="activity-summary">read 6 files, ran 2 commands, edited 3 files</div>
+          <div class="activity-current"><span class="spinner"></span> running: pnpm test subscribe.spec.ts</div>
+        </div>
+        <div class="streaming">Confirming no duplicate seq lands twice<span class="caret"></span></div>
+      </div>
+      <div class="composer-wrap">
+        <div class="quick-actions"><span class="chip stop">■ stop</span></div>
+        <div class="composer-row">
+          <div class="composer-input" style="color:var(--ink-faint);">Running — streaming response…</div>
+          <button class="send-btn stop">■</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</template>
+
+<script>
+  document.getElementById('gallery-light').innerHTML = document.getElementById('tpl-content').innerHTML;
+  document.getElementById('gallery-dark').innerHTML = document.getElementById('tpl-content').innerHTML;
+
+  function setPressed(id){
+    ['btn-light','btn-dark','btn-both'].forEach(b => document.getElementById(b).setAttribute('aria-pressed', b===id ? 'true':'false'));
+  }
+  function setTheme(mode){
+    var l = document.getElementById('gallery-light');
+    var d = document.getElementById('gallery-dark');
+    if(mode === 'light'){ l.hidden = false; d.hidden = true; }
+    else { l.hidden = true; d.hidden = false; }
+    setPressed(mode === 'light' ? 'btn-light' : 'btn-dark');
+  }
+  function setBoth(){
+    document.getElementById('gallery-light').hidden = false;
+    document.getElementById('gallery-dark').hidden = false;
+    setPressed('btn-both');
+  }
+</script>
