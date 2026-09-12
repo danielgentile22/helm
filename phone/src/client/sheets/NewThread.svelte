@@ -68,7 +68,7 @@
         </select>
       </div>
       <p class="error">{err}</p>
-      <div class="row">
+      <div class="actions">
         <button class="btn" onclick={onClose}>Cancel</button>
         <span class="grow"></span>
         <button class="btn primary" disabled={!catalog.length} onclick={create}>Create</button>

@@ -167,7 +167,7 @@
       <div class="panel">
         <h2>Working directory</h2>
         <DirBrowser {api} initial={value.defaultCwd} onPick={(p) => (picked = p)} />
-        <div class="row">
+        <div class="actions">
           <button class="btn" onclick={() => (dirOpen = false)}>Cancel</button>
           <span class="grow"></span>
           <button
