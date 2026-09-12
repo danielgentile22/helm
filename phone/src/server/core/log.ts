@@ -32,7 +32,10 @@ import type {
   ThreadEvent,
   ThreadEventBody,
   ThreadId,
+  ToolUseId,
   TurnId,
+  Usage,
+  UsageTotal,
 } from "../../shared/protocol";
 
 /** Derived from the tail of the log by open(); never stored. */
@@ -48,6 +51,17 @@ export interface ThreadHead {
   /** From the last turn.ended, for ThreadSummary. */
   readonly lastTurnEndedAt: string | null;
   readonly contextTokens: number | null;
+  /** The tool the model is waiting on, or null. Cleared by its own tool.finished and by turn.ended. */
+  readonly activeTool: { toolUseId: ToolUseId; name: string; input: unknown } | null;
+  /**
+   * The assistant text of the most recent turn that produced any. A new turn
+   * resets it, but turn.ended never clears it, so a turn that says nothing
+   * leaves the previous preview standing rather than blanking the row.
+   */
+  readonly lastText: { turnId: TurnId; text: string } | null;
+  readonly usageTotal: UsageTotal | null;
+  /** From the most recent usage that carried one. */
+  readonly contextWindow: number | null;
 }
 
 export type Unsubscribe = () => void;
@@ -55,11 +69,11 @@ export type Unsubscribe = () => void;
 const RECENT_IDS = 64;
 const FILE = "events.jsonl";
 
-const emptyHead: ThreadHead = { lastSeq: 0, sessionId: null, openTurn: null, queued: [], recentClientMsgIds: new Map(), lastTurnEndedAt: null, contextTokens: null };
+const emptyHead: ThreadHead = { lastSeq: 0, sessionId: null, openTurn: null, queued: [], recentClientMsgIds: new Map(), lastTurnEndedAt: null, contextTokens: null, activeTool: null, lastText: null, usageTotal: null, contextWindow: null };
 
 /** Pure: the head after one more event. */
 function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
-  let { sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, contextTokens } = h;
+  let { sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, contextTokens, activeTool, lastText, usageTotal, contextWindow } = h;
   switch (ev.kind) {
     case "session.bound":
       sessionId = ev.sessionId;
@@ -79,17 +93,40 @@ function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
       openTurn = ev.turnId;
       queued = queued.filter((q) => q.clientMsgId !== ev.clientMsgId);
       break;
+    case "assistant.text":
+      lastText = lastText && lastText.turnId === ev.turnId ? { turnId: ev.turnId, text: lastText.text + ev.delta } : { turnId: ev.turnId, text: ev.delta };
+      break;
+    case "tool.started":
+      activeTool = { toolUseId: ev.toolUseId, name: ev.name, input: ev.input };
+      break;
+    case "tool.finished":
+      if (activeTool?.toolUseId === ev.toolUseId) activeTool = null;
+      break;
     case "turn.ended":
       openTurn = null;
+      activeTool = null;
       if (ev.sessionId) sessionId = ev.sessionId;
       lastTurnEndedAt = ev.ts;
-      if (ev.usage) contextTokens = ev.usage.contextTokens;
+      if (ev.usage) {
+        contextTokens = ev.usage.contextTokens;
+        usageTotal = addUsage(usageTotal, ev.usage);
+        if (ev.usage.contextWindow !== undefined) contextWindow = ev.usage.contextWindow;
+      }
       break;
     case "thread.archived":
       queued = [];
       break;
   }
-  return { lastSeq: ev.seq, sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, contextTokens };
+  return { lastSeq: ev.seq, sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, contextTokens, activeTool, lastText, usageTotal, contextWindow };
+}
+
+function addUsage(total: UsageTotal | null, u: Usage): UsageTotal {
+  return {
+    inputTokens: (total?.inputTokens ?? 0) + u.inputTokens,
+    outputTokens: (total?.outputTokens ?? 0) + u.outputTokens,
+    cacheReadTokens: (total?.cacheReadTokens ?? 0) + u.cacheReadTokens,
+    cacheWriteTokens: (total?.cacheWriteTokens ?? 0) + u.cacheWriteTokens,
+  };
 }
 
 type DeltaBody = Extract<ThreadEventBody, { kind: "assistant.text" | "assistant.thinking" }>;

@@ -167,6 +167,25 @@ function toolResultText(content: unknown): string {
     .join("\n");
 }
 
+/**
+ * The context window of the model that carried the turn. `modelUsage` is
+ * keyed by model and a turn can touch several (a subagent on a small model,
+ * say), so the busiest entry by prompt tokens is the one whose window the
+ * meter should be read against.
+ */
+export function contextWindowFrom(modelUsage: unknown): number | null {
+  if (!isRecord(modelUsage)) return null;
+  let best: { prompt: number; window: number } | null = null;
+  for (const entry of Object.values(modelUsage)) {
+    if (!isRecord(entry)) continue;
+    const num = (k: string): number => (typeof entry[k] === "number" ? (entry[k] as number) : 0);
+    const prompt = num("inputTokens") + num("cacheReadInputTokens");
+    const window = num("contextWindow");
+    if (window > 0 && (!best || prompt > best.prompt)) best = { prompt, window };
+  }
+  return best?.window ?? null;
+}
+
 function usageFrom(msg: Record<string, unknown>, ctx: MapContext): Usage | null {
   const u = msg.usage;
   if (!isRecord(u)) return null;
@@ -175,6 +194,7 @@ function usageFrom(msg: Record<string, unknown>, ctx: MapContext): Usage | null 
   const cacheRead = n("cache_read_input_tokens");
   const cacheWrite = n("cache_creation_input_tokens");
   const total = typeof msg.total_cost_usd === "number" ? msg.total_cost_usd : null;
+  const contextWindow = contextWindowFrom(msg.modelUsage);
   return {
     inputTokens: input,
     outputTokens: n("output_tokens"),
@@ -182,6 +202,7 @@ function usageFrom(msg: Record<string, unknown>, ctx: MapContext): Usage | null 
     cacheWriteTokens: cacheWrite,
     costUsd: total === null ? null : Math.max(0, total - ctx.prevCostUsd),
     contextTokens: input + cacheRead + cacheWrite,
+    ...(contextWindow === null ? {} : { contextWindow }),
     durationMs: typeof msg.duration_ms === "number" ? msg.duration_ms : 0,
   };
 }

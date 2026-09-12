@@ -16,6 +16,9 @@ export interface FakeTurn {
   text(delta: string, blockIx?: number): void;
   thinking(delta: string): void;
   tool(name: string, input: unknown, output: string, isError?: boolean): void;
+  /** Open a tool and leave it open, so a script can hold the thread mid-tool. */
+  toolStart(name: string, input: unknown): ToolUseId;
+  toolEnd(id: ToolUseId, output: string, isError?: boolean): void;
   /** Finish the turn. Exactly once per send; the fake enforces it. */
   end(outcome?: "ok" | "error", error?: string | null, usage?: Usage | null): void;
   /** Resolves when the supervisor calls interrupt() during this turn. */
@@ -26,7 +29,7 @@ export interface FakeTurn {
 
 export type FakeScript = (turn: FakeTurn) => Promise<void> | void;
 
-export const defaultUsage: Usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 100, cacheWriteTokens: 0, costUsd: 0.01, contextTokens: 110, durationMs: 42 };
+export const defaultUsage: Usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 100, cacheWriteTokens: 0, costUsd: 0.01, contextTokens: 110, contextWindow: 200_000, durationMs: 42 };
 
 /** Echoes the prompt back as one text block and ends ok. */
 export const echoScript: FakeScript = (t) => {
@@ -96,11 +99,13 @@ export class FakeSession implements AgentSession {
       },
       text: (delta, blockIx = 0) => turn.emit({ kind: "assistant.text", turnId: input.turnId, blockIx, delta }),
       thinking: (delta) => turn.emit({ kind: "assistant.thinking", turnId: input.turnId, delta }),
-      tool: (name, inp, output, isError = false) => {
+      toolStart: (name, inp) => {
         const toolUseId = `tu-${Math.random().toString(36).slice(2, 8)}` as ToolUseId;
         turn.emit({ kind: "tool.started", turnId: input.turnId, toolUseId, name, input: inp });
-        turn.emit({ kind: "tool.finished", turnId: input.turnId, toolUseId, output, isError });
+        return toolUseId;
       },
+      toolEnd: (toolUseId, output, isError = false) => turn.emit({ kind: "tool.finished", turnId: input.turnId, toolUseId, output, isError }),
+      tool: (name, inp, output, isError = false) => turn.toolEnd(turn.toolStart(name, inp), output, isError),
       end: (outcome = "ok", error = null, usage = defaultUsage) =>
         turn.emit({ kind: "turn.ended", turnId: input.turnId, outcome, sessionId: this.sessionId, usage, error }),
       crash: () => {

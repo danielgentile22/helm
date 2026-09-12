@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LIMITS } from "../../shared/protocol";
 import type { ModelId, TurnId, UploadId } from "../../shared/protocol";
-import { agentMessageToEvents, buildUserMessage, modelCatalog, parseModelId, toSlashCommands, truncateJson, truncateText, SdkAgentFactory, PHONE_APPENDIX } from "./agent";
+import { agentMessageToEvents, buildUserMessage, contextWindowFrom, modelCatalog, parseModelId, toSlashCommands, truncateJson, truncateText, SdkAgentFactory, PHONE_APPENDIX } from "./agent";
 import { FakeAgentFactory } from "./agent.fake";
 
 const t = "t:7" as TurnId;
@@ -203,4 +203,27 @@ test("toSlashCommands parses the SDK list, drops terminal entries, and defaults 
   ]);
   assert.deepEqual(toSlashCommands(null, new Set()), []);
   assert.deepEqual(toSlashCommands([{ name: "a" }], new Set(["a"])), []);
+});
+
+test("usage carries the context window of the model that did the most of the turn", () => {
+  const result = (modelUsage: unknown) =>
+    agentMessageToEvents(t, {
+      type: "result",
+      subtype: "success",
+      session_id: "s",
+      usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 4000, cache_creation_input_tokens: 300 },
+      modelUsage,
+      duration_ms: 10,
+    })[0];
+
+  const busiest = result({
+    "claude-haiku-4-5": { inputTokens: 10, cacheReadInputTokens: 5, contextWindow: 100_000 },
+    "claude-opus-5": { inputTokens: 100, cacheReadInputTokens: 4000, contextWindow: 1_000_000 },
+  });
+  assert.equal(busiest?.kind === "turn.ended" && busiest.usage?.contextWindow, 1_000_000);
+
+  assert.equal(contextWindowFrom({ m: { inputTokens: 5, contextWindow: 0 } }), null, "a zero window is not a window");
+  assert.equal(contextWindowFrom(undefined), null);
+  const none = result(undefined);
+  assert.equal(none?.kind === "turn.ended" && "contextWindow" in (none.usage ?? {}), false, "the field is absent, not zero");
 });

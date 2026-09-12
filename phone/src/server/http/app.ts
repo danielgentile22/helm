@@ -55,8 +55,8 @@ import type {
 import type { AgentFactory } from "../core/agent";
 import { modelCatalog, parseModelId } from "../core/agent";
 import { parseClientMsgId, resolveThreadId } from "../core/ids";
+import { doingNow } from "../core/doing";
 import type { LogRegistry, ThreadLog } from "../core/log";
-import { lastAssistantText } from "../core/log";
 import type { PushSubscriptionRecord } from "../core/push";
 import type { Supervisor } from "../core/supervisor";
 import type { ThreadStore } from "../core/thread-store";
@@ -195,15 +195,20 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     }
   });
 
-  const summary = async (log: ThreadLog, config: ThreadSummary["config"]): Promise<ThreadSummary> => {
+  const summary = (log: ThreadLog, config: ThreadSummary["config"]): ThreadSummary => {
     const head = log.getHead();
+    const session = deps.supervisor.status(log.threadId).session;
+    const preview = head.lastText?.text.trim().slice(0, 120);
     return {
       config,
       headSeq: head.lastSeq,
-      session: deps.supervisor.status(log.threadId).session,
+      session,
       lastTurnEndedAt: head.lastTurnEndedAt,
       contextTokens: head.contextTokens,
-      preview: lastAssistantText(await collect(log), 120),
+      preview: preview ? preview : null,
+      doing: doingNow(head, session),
+      usageTotal: head.usageTotal,
+      contextWindow: head.contextWindow,
     };
   };
 
@@ -241,7 +246,7 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
 
   app.get("/api/threads/:id", async (c) => {
     const t = await thread(c);
-    return t instanceof Response ? t : c.json(await summary(t.log, t.config));
+    return t instanceof Response ? t : c.json(summary(t.log, t.config));
   });
 
   app.patch("/api/threads/:id", async (c) => {
@@ -467,10 +472,4 @@ async function json(c: Context): Promise<Record<string, unknown> | null> {
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-async function collect(log: ThreadLog) {
-  const out = [];
-  for await (const ev of log.read(0)) out.push(ev);
-  return out;
 }

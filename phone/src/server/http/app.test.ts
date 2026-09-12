@@ -20,6 +20,16 @@ async function untilIdle(s: Stack, threadId: string): Promise<void> {
   throw new Error("thread never settled to idle");
 }
 
+/** Poll until the server-side projection catches up with what the fake already emitted. */
+async function until<T>(read: () => Promise<T>, done: (v: T) => boolean): Promise<T> {
+  for (let i = 0; i < 200; i++) {
+    const v = await read();
+    if (done(v)) return v;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error("condition never held");
+}
+
 test("auth doors: 401 without credentials, 401 on a bad key, 503 when unconfigured, static and login options open", async () => {
   const s = await buildStack();
   const open = (path: string, init?: RequestInit) => s.fetch(new Request(`https://mac.test.ts.net${path}`, init));
@@ -330,5 +340,51 @@ test("commands: a cold thread is answered by a cwd probe, a live session answers
 
   assert.equal((await s.api("GET", `/api/threads/${uuid(9)}/commands`)).status, 404);
   assert.equal((await s.fetch(new Request(`https://mac.test.ts.net/api/threads/${THREAD}/commands`))).status, 401);
+  await s.cleanup();
+});
+
+test("thread head: doing reports the open tool while running, the text tail once idle, and usage totals over two turns", async () => {
+  let openGate = (): void => {};
+  const gate = new Promise<void>((r) => (openGate = r));
+  let holdNext = true;
+  const s = await buildStack(async (t) => {
+    if (!holdNext) {
+      t.text("Second turn done");
+      t.end();
+      return;
+    }
+    holdNext = false;
+    t.text("Let me look. ");
+    const id = t.toolStart("Bash", { command: "  npm   test " });
+    await gate;
+    t.toolEnd(id, "ok");
+    t.text("All green.");
+    t.end();
+  });
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  const get = async (): Promise<ThreadSummary> => (await (await s.api("GET", `/api/threads/${THREAD}`)).json()) as ThreadSummary;
+
+  const first = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "run the tests" });
+  const mid = await until(get, (t) => t.doing !== null);
+  assert.equal(mid.session, "running");
+  assert.deepEqual(mid.doing, { kind: "tool", name: "Bash", arg: "npm test" }, "the open tool wins over the text already emitted");
+  openGate();
+
+  await first;
+  await untilIdle(s, THREAD);
+  const done = await get();
+  assert.deepEqual(done.doing, { kind: "text", tail: "Let me look. All green." }, "turn.ended clears the tool and the tail stands");
+  assert.equal(done.preview, "Let me look. All green.");
+  assert.equal(done.contextWindow, 200_000);
+  assert.deepEqual(done.usageTotal, { inputTokens: 10, outputTokens: 5, cacheReadTokens: 100, cacheWriteTokens: 0 });
+
+  const second = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${done.headSeq}`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(2), text: "again" });
+  await second;
+  await untilIdle(s, THREAD);
+  const after = await get();
+  assert.deepEqual(after.usageTotal, { inputTokens: 20, outputTokens: 10, cacheReadTokens: 200, cacheWriteTokens: 0 }, "summed over both turns");
+  assert.deepEqual(after.doing, { kind: "text", tail: "Second turn done" }, "a new turn resets the tail");
   await s.cleanup();
 });

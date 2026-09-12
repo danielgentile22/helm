@@ -130,7 +130,26 @@ export interface Usage {
   readonly costUsd: number | null;
   /** Approximate context size after this turn (input + cache read). The UI's "ctx 48k" meter. */
   readonly contextTokens: number;
+  /** Denominator for the context meter. Optional: log lines written before it was recorded lack it. */
+  readonly contextWindow?: number;
   readonly durationMs: number;
+}
+
+/**
+ * What a thread is doing right now, for the thread list. Derived from the
+ * head on every read and never stored, so it cannot go stale.
+ */
+export type DoingNow =
+  | { kind: "tool"; name: string; arg: string }
+  /** The tail of the last thing the model said, when no tool is in flight. */
+  | { kind: "text"; tail: string };
+
+/** Tokens summed over every turn of a thread. No cost: the SDK reports it cumulatively per process, which does not add up across restarts. */
+export interface UsageTotal {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly cacheWriteTokens: number;
 }
 
 /**
@@ -251,6 +270,9 @@ export interface ThreadSummary {
   readonly contextTokens: number | null;
   /** First ~120 chars of the last assistant text; for the thread list. */
   readonly preview: string | null;
+  readonly doing: DoingNow | null;
+  readonly usageTotal: UsageTotal | null;
+  readonly contextWindow: number | null;
 }
 
 export interface DirEntry {
