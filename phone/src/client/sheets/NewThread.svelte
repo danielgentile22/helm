@@ -64,9 +64,10 @@
     <div class="panel">
       <h2>New thread</h2>
       <div class="field">
-        <label for="new-cwd">Working directory (Claude reads its CLAUDE.md)</label>
+        <!-- svelte-ignore a11y_label_has_associated_control -->
+        <label>Working directory (Claude reads its CLAUDE.md)</label>
         <div class="crumb">{shortPath(cwd)}</div>
-        <div class="dirs" id="new-cwd">
+        <div class="dirs">
           {#if parent !== null}
             <button onclick={() => void browse(parent!, roots.some((r) => r.path === parent) ? "" : parentOf(parent!))}>..</button>
           {/if}
