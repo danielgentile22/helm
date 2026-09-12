@@ -33,14 +33,26 @@ self.addEventListener("fetch", (e) => {
 });
 
 export async function onPush(payload: PushPayload): Promise<void> {
-  await self.registration.showNotification(payload.title, { body: payload.body, tag: `helm-${payload.threadId}`, data: { url: payload.url }, icon: "/icon-192.png" });
+  await self.registration.showNotification(payload.title, {
+    body: payload.body,
+    tag: `helm-${payload.threadId}`,
+    data: { url: payload.url, threadId: payload.threadId },
+    icon: "/icon-192.png",
+  });
 }
 
-export async function onNotificationClick(url: string): Promise<void> {
+/**
+ * A tab already on this thread is told to scroll rather than navigated: the
+ * url carries a `#end` fragment, and a same-document fragment change does not
+ * reload, so the app would otherwise sit where the user left it.
+ */
+export async function onNotificationClick(url: string, threadId: string | null): Promise<void> {
   const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  const path = threadId === null ? null : `/t/${threadId}`;
   for (const c of all) {
-    if (new URL(c.url).pathname === url) {
+    if (path !== null && new URL(c.url).pathname === path) {
       await c.focus();
+      c.postMessage({ kind: "helm.open", threadId, scroll: "end" });
       return;
     }
   }
@@ -60,6 +72,6 @@ self.addEventListener("push", (e) => {
 
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
-  const url = (e.notification.data as { url?: string } | undefined)?.url ?? "/";
-  e.waitUntil(onNotificationClick(url));
+  const data = e.notification.data as { url?: string; threadId?: string } | undefined;
+  e.waitUntil(onNotificationClick(data?.url ?? "/", data?.threadId ?? null));
 });

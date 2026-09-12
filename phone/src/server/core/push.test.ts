@@ -61,7 +61,7 @@ async function readFileRecords(file: string): Promise<readonly PushSubscriptionR
 // Pure: shouldNotify
 // ---------------------------------------------------------------------------
 
-test("shouldNotify fires only on turn.ended with nobody watching", () => {
+test("shouldNotify fires on any turn.ended with nobody watching", () => {
   assert.equal(shouldNotify(endedEvent("ok"), 0), true);
   assert.equal(shouldNotify(endedEvent("error", "boom"), 0), true);
   assert.equal(shouldNotify(endedEvent("interrupted"), 0), true);
@@ -70,8 +70,9 @@ test("shouldNotify fires only on turn.ended with nobody watching", () => {
   assert.equal(shouldNotify(endedEvent("ok"), 1), false);
   assert.equal(shouldNotify(endedEvent("ok"), 4), false);
 
-  // A turn the server never finished watching is not news the phone can act on.
-  assert.equal(shouldNotify(endedEvent("orphaned"), 0), false);
+  // An orphaned turn is exactly the case where the user has to resend, so it notifies too.
+  assert.equal(shouldNotify(endedEvent("orphaned"), 0), true);
+  assert.equal(shouldNotify(endedEvent("orphaned"), 2), false, "still quiet while somebody is watching");
 
   // Every other event kind.
   const other: ThreadEventBody[] = [
@@ -94,14 +95,25 @@ test("payloadFor renders the title, the outcome, and the preview", () => {
     threadId,
     title: "Vault cleanup",
     body: "All done, three files moved.",
+    kind: "ok",
     seq: 9 as Seq,
-    url: `/t/${threadId}`,
+    url: `/t/${threadId}#end`,
   } satisfies PushPayload);
 
   assert.equal(payloadFor(threadId, null, endedEvent("ok"), "hi").title, "Helm");
   assert.equal(payloadFor(threadId, "T", endedEvent("error", "spawn failed"), null).body, "Error: spawn failed");
   assert.equal(payloadFor(threadId, "T", endedEvent("interrupted"), "partial text").body, "Interrupted");
-  assert.equal(payloadFor(threadId, "T", endedEvent("ok"), null).body.length > 0, true);
+  assert.equal(payloadFor(threadId, "T", endedEvent("orphaned"), null).body, "Server restarted while this turn was running; resend if needed");
+  assert.equal(payloadFor(threadId, "T", endedEvent("ok"), null).body, "Turn finished");
+  const body = (preview: string | null): string => payloadFor(threadId, "T", endedEvent("ok"), preview).body;
+  assert.equal(body("   \n  "), "Turn finished", "whitespace is not a preview");
+  assert.equal(body("\n\n  Renamed four files.  \nThen ran the tests.\n"), "Renamed four files.", "the first non-empty line, trimmed");
+
+  assert.deepEqual(
+    (["ok", "error", "interrupted", "orphaned"] as const).map((o) => payloadFor(threadId, "T", endedEvent(o, "boom"), "hi").kind),
+    ["ok", "error", "interrupted", "orphaned"],
+    "the outcome travels as its own field, not parsed out of the body",
+  );
 
   const long = "x".repeat(400);
   assert.equal(payloadFor(threadId, "T", endedEvent("ok"), long).body, "x".repeat(120));
@@ -174,7 +186,7 @@ test("watch sends the payload to every subscription when nobody is watching", as
     for (const s of r.sent) {
       assert.equal(s.payload.title, "Vault cleanup");
       assert.equal(s.payload.body, "Moved three notes into the inbox.");
-      assert.equal(s.payload.url, `/t/${threadId}`);
+      assert.equal(s.payload.url, `/t/${threadId}#end`);
       assert.equal(s.payload.threadId, threadId);
     }
   } finally {

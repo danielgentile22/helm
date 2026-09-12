@@ -12,6 +12,7 @@ import type { SyncFrame, ThreadEvent } from "../../shared/protocol";
 import { FakeAgentFactory, echoScript, type FakeScript } from "../core/agent.fake";
 import { LogRegistry } from "../core/log";
 import type { PushSubscriptionRecord } from "../core/push";
+import { SettingsStore } from "../core/settings";
 import { Supervisor } from "../core/supervisor";
 import { ThreadStore } from "../core/thread-store";
 import { Uploads } from "../core/uploads";
@@ -51,6 +52,7 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
   const agents = new FakeAgentFactory(script);
   const supervisor = new Supervisor(logs, threads, agents, { additionalDirectories: [], idleParkMs: 60_000 });
   const uploads = new Uploads(threads, logs);
+  const settings = new SettingsStore(join(h, "settings.json"), { defaultCwd: join(h, "work") });
   const sessions = new FileSessionStore(join(h, "auth", "sessions.json"));
   const apiKey = "apiKey" in opts ? opts.apiKey : API_KEY;
   const pushSubs: PushSubscriptionRecord[] = [];
@@ -63,6 +65,7 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
     supervisor,
     agents,
     uploads,
+    settings,
     push: {
       publicKey: () => "vapid-public",
       subscribe: async (rec) => void pushSubs.push(rec),

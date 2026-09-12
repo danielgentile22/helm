@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, writeFile, mkdir, rm, truncate } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LogRegistry, ThreadLog, lastAssistantText } from "./log";
+import { LogRegistry, ThreadLog } from "./log";
 import type {
   ClaudeSessionId,
   ClientMsgId,
@@ -248,17 +248,6 @@ test("LogRegistry returns one instance per thread, recovers every thread dir at 
   await rm(root, { recursive: true });
 });
 
-test("lastAssistantText returns the tail of the last turn's text, capped", () => {
-  const t = "t:1" as TurnId;
-  const evs = [
-    { seq: 1 as Seq, ts: "", kind: "assistant.text", turnId: t, blockIx: 0, delta: "Hello " },
-    { seq: 2 as Seq, ts: "", kind: "assistant.text", turnId: t, blockIx: 0, delta: "world" },
-    { seq: 3 as Seq, ts: "", kind: "assistant.text", turnId: "t:2" as TurnId, blockIx: 0, delta: "Second turn reply" },
-  ] as ThreadEvent[];
-  assert.equal(lastAssistantText(evs, 120), "Second turn reply");
-  assert.equal(lastAssistantText(evs, 6), "Second");
-  assert.equal(lastAssistantText([], 10), null);
-});
 
 test("hardening: multi-byte text survives replay across read chunk boundaries", async () => {
   const dir = await freshDir();

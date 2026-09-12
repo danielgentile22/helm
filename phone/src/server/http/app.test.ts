@@ -3,12 +3,32 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { LIMITS } from "../../shared/protocol";
-import type { ThreadConfig, ThreadSummary } from "../../shared/protocol";
-import { parseCreateThread, parsePatch, parseSend } from "./app";
-import { API_KEY, buildStack, eventSeqs, events, readSse, type Frame } from "./testkit";
+import type { HelmSettings, SlashCommand, ThreadConfig, ThreadSummary } from "../../shared/protocol";
+import { parseCreateThread, parsePatch, parseSend, passkeyRows } from "./app";
+import { API_KEY, buildStack, eventSeqs, events, readSse, type Frame, type Stack } from "./testkit";
 
 const THREAD = "0f0f0f0f-0000-4000-8000-0000000000aa";
 const uuid = (n: number) => `0f0f0f0f-0000-4000-8000-${String(n).padStart(12, "0")}`;
+
+/** The supervisor settles to idle a tick after the log emits turn.ended; poll rather than guess the tick count. */
+async function untilIdle(s: Stack, threadId: string): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    const t = (await (await s.api("GET", `/api/threads/${threadId}`)).json()) as ThreadSummary;
+    if (t.session === "idle") return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error("thread never settled to idle");
+}
+
+/** Poll until the server-side projection catches up with what the fake already emitted. */
+async function until<T>(read: () => Promise<T>, done: (v: T) => boolean): Promise<T> {
+  for (let i = 0; i < 200; i++) {
+    const v = await read();
+    if (done(v)) return v;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error("condition never held");
+}
 
 test("auth doors: 401 without credentials, 401 on a bad key, 503 when unconfigured, static and login options open", async () => {
   const s = await buildStack();
@@ -291,4 +311,164 @@ test("the phone's view: folding the SSE frames a client receives reconstructs th
     assert.equal(after.session, "idle");
   }
   await s.cleanup();
+});
+
+test("commands: a cold thread is answered by a cwd probe, a live session answers for itself, reload picks up a new skill", async () => {
+  const s = await buildStack();
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  const names = async (method: string, path: string): Promise<string[]> => {
+    const res = await s.api(method, path);
+    assert.equal(res.status, 200);
+    return ((await res.json()) as { commands: SlashCommand[] }).commands.map((c) => c.name);
+  };
+
+  assert.deepEqual(await names("GET", `/api/threads/${THREAD}/commands`), ["commit", "grill-with-docs"]);
+  assert.deepEqual(s.agents.probes, [join(s.home, "work")], "a cold thread probes its own cwd");
+  await names("GET", `/api/threads/${THREAD}/commands`);
+  assert.equal(s.agents.probes.length, 1, "the probe result is cached per cwd");
+
+  const turnDone = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "hi" });
+  await turnDone;
+  await untilIdle(s, THREAD);
+  s.agents.last.pushCommands([{ name: "pushed", description: "arrived mid-session", argumentHint: "" }]);
+  assert.deepEqual(await names("GET", `/api/threads/${THREAD}/commands`), ["pushed"], "the live session answers, not the probe");
+
+  s.agents.commandList = [...s.agents.commandList, { name: "new-skill", description: "Just written", argumentHint: "" }];
+  assert.deepEqual(await names("POST", `/api/threads/${THREAD}/commands/reload`), ["commit", "grill-with-docs", "new-skill"]);
+  assert.deepEqual(await names("GET", `/api/threads/${THREAD}/commands`), ["commit", "grill-with-docs", "new-skill"], "reload replaced the live snapshot");
+
+  assert.equal((await s.api("GET", `/api/threads/${uuid(9)}/commands`)).status, 404);
+  assert.equal((await s.fetch(new Request(`https://mac.test.ts.net/api/threads/${THREAD}/commands`))).status, 401);
+  await s.cleanup();
+});
+
+test("thread head: doing reports the open tool while running, the text tail once idle, and usage totals over two turns", async () => {
+  let openGate = (): void => {};
+  const gate = new Promise<void>((r) => (openGate = r));
+  let holdNext = true;
+  const s = await buildStack(async (t) => {
+    if (!holdNext) {
+      t.text("Second turn done");
+      t.end();
+      return;
+    }
+    holdNext = false;
+    t.text("Let me look. ");
+    const id = t.toolStart("Bash", { command: "  npm   test " });
+    await gate;
+    t.toolEnd(id, "ok");
+    t.text("All green.");
+    t.end();
+  });
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  const get = async (): Promise<ThreadSummary> => (await (await s.api("GET", `/api/threads/${THREAD}`)).json()) as ThreadSummary;
+
+  const first = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "run the tests" });
+  const mid = await until(get, (t) => t.doing !== null);
+  assert.equal(mid.session, "running");
+  assert.deepEqual(mid.doing, { kind: "tool", name: "Bash", arg: "npm test" }, "the open tool wins over the text already emitted");
+  openGate();
+
+  await first;
+  await untilIdle(s, THREAD);
+  const done = await get();
+  assert.deepEqual(done.doing, { kind: "text", tail: "Let me look. All green." }, "turn.ended clears the tool and the tail stands");
+  assert.equal(done.preview, "Let me look. All green.");
+  assert.equal(done.contextWindow, 200_000);
+  assert.deepEqual(done.usageTotal, { inputTokens: 10, outputTokens: 5, cacheReadTokens: 100, cacheWriteTokens: 0 });
+
+  const second = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${done.headSeq}`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(2), text: "again" });
+  await second;
+  await untilIdle(s, THREAD);
+  const after = await get();
+  assert.deepEqual(after.usageTotal, { inputTokens: 20, outputTokens: 10, cacheReadTokens: 200, cacheWriteTokens: 0 }, "summed over both turns");
+  assert.deepEqual(after.doing, { kind: "text", tail: "Second turn done" }, "a new turn resets the tail");
+  await s.cleanup();
+});
+
+test("upload bytes: round-trip after staging, again after a restart, 404 for an unknown id, 401 without auth", async () => {
+  const s = await buildStack();
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+  const posted = await s.fetch(
+    new Request(`https://mac.test.ts.net/api/threads/${THREAD}/uploads`, {
+      method: "POST",
+      headers: { "x-helm-key": API_KEY, "content-type": "application/octet-stream", "content-length": String(png.length), "x-upload-name": "shot.png" },
+      body: png,
+    }),
+  );
+  assert.equal(posted.status, 201);
+  const [staged] = (await posted.json()) as { uploadId: string; name: string; mime: string; bytes: number }[];
+  assert.equal(staged!.mime, "image/png", "sniffed from the magic bytes");
+
+  const got = await s.api("GET", `/api/threads/${THREAD}/uploads/${staged!.uploadId}`);
+  assert.equal(got.status, 200);
+  assert.equal(got.headers.get("content-type"), "image/png");
+  assert.equal(got.headers.get("content-length"), String(png.length));
+  assert.equal(got.headers.get("content-disposition"), 'inline; filename="shot.png"');
+  assert.equal(got.headers.get("cache-control"), "private, max-age=3600");
+  assert.deepEqual(Buffer.from(await got.arrayBuffer()), png);
+
+  assert.equal((await s.api("GET", `/api/threads/${THREAD}/uploads/${uuid(7)}`)).status, 404);
+  assert.equal((await s.fetch(new Request(`https://mac.test.ts.net/api/threads/${THREAD}/uploads/${staged!.uploadId}`))).status, 401);
+
+  const r2 = await s.restart();
+  const afterRestart = await r2.api("GET", `/api/threads/${THREAD}/uploads/${staged!.uploadId}`);
+  assert.equal(afterRestart.status, 200, "resolved from the log, not from memory");
+  assert.deepEqual(Buffer.from(await afterRestart.arrayBuffer()), png);
+  await r2.cleanup();
+});
+
+test("settings: defaults on first read, patches round-trip across a restart, bad fields are rejected", async () => {
+  const s = await buildStack();
+  const read = async (): Promise<HelmSettings> => (await (await s.api("GET", "/api/settings")).json()) as HelmSettings;
+
+  assert.deepEqual(await read(), { theme: "system", defaultModel: null, defaultEffort: "medium", defaultCwd: join(s.home, "work") });
+
+  const patched = await s.api("PATCH", "/api/settings", { theme: "dark", defaultModel: "claude-sonnet-5", defaultEffort: "high", defaultCwd: join(s.home, "work", "proj") });
+  assert.equal(patched.status, 200);
+  const saved = (await patched.json()) as HelmSettings;
+  assert.deepEqual(saved, { theme: "dark", defaultModel: "claude-sonnet-5", defaultEffort: "high", defaultCwd: join(s.home, "work", "proj") });
+  assert.deepEqual(await read(), saved, "a re-read matches what the patch returned");
+
+  const bad = async (body: unknown): Promise<string> => ((await (await s.api("PATCH", "/api/settings", body)).json()) as { error: string }).error;
+  assert.equal(await bad({ colour: "dark" }), "unknown field: colour");
+  assert.equal(await bad({ theme: "neon" }), "theme must be one of system, light, dark");
+  assert.equal(await bad({ defaultModel: "claude-haiku-4-5-20251001" }), "defaultModel is not in the live catalog");
+  assert.equal(await bad({ defaultEffort: "ultra" }), "defaultEffort must be one of low, medium, high, xhigh, max");
+  assert.equal(await bad({ defaultCwd: "relative/path" }), "defaultCwd must be an absolute path");
+  assert.equal(await bad({ defaultCwd: join(s.home, "work", "nope") }), "defaultCwd is not an existing directory");
+  assert.equal(await bad({}), "nothing to change");
+  assert.equal((await s.api("PATCH", "/api/settings", { theme: "neon" })).status, 400);
+
+  const cleared = await s.api("PATCH", "/api/settings", { defaultModel: null });
+  assert.equal(((await cleared.json()) as HelmSettings).defaultModel, null, "null clears the preference");
+
+  const r2 = await s.restart();
+  assert.deepEqual(await (await r2.api("GET", "/api/settings")).json(), { theme: "dark", defaultModel: null, defaultEffort: "high", defaultCwd: join(s.home, "work", "proj") });
+  assert.equal((await r2.fetch(new Request("https://mac.test.ts.net/api/settings"))).status, 401);
+  await r2.cleanup();
+});
+
+test("passkeys: empty before enrollment, and the mapping never leaks the credential id", async () => {
+  const s = await buildStack();
+  const res = await s.api("GET", "/api/passkeys");
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), []);
+  assert.equal((await s.fetch(new Request("https://mac.test.ts.net/api/passkeys"))).status, 401);
+  await s.cleanup();
+
+  // A real registration ceremony needs an authenticator, so the shape is pinned on the pure mapping instead.
+  const rows = passkeyRows([
+    { credentialId: "Y3JlZC1pZA", label: "iphone", createdAt: "2026-09-01T10:00:00.000Z" },
+    { credentialId: "b3RoZXI", label: "laptop", createdAt: "2026-09-02T10:00:00.000Z" },
+  ]);
+  assert.deepEqual(rows, [
+    { label: "iphone", createdAt: "2026-09-01T10:00:00.000Z" },
+    { label: "laptop", createdAt: "2026-09-02T10:00:00.000Z" },
+  ]);
+  assert.deepEqual(rows.flatMap((r) => Object.keys(r)), ["label", "createdAt", "label", "createdAt"], "no third key rides along");
 });

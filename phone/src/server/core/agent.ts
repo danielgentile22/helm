@@ -13,7 +13,13 @@
  *   Query.setModel(model?)                                  sdk.d.ts:2659
  *   Query.applyFlagSettings({ effortLevel })                sdk.d.ts:2706
  *   Query.supportedModels() -> ModelInfo[]                  sdk.d.ts:2763
+ *   Query.supportedCommands() -> SlashCommand[]             sdk.d.ts:2757
+ *   Query.reloadSkills() -> { skills: SlashCommand[] }      sdk.d.ts:2845
+ *   Options.settingSources?: SettingSource[]                sdk.d.ts:2096
  *   Options.spawnClaudeCodeProcess?: (o) => SpawnedProcess  sdk.d.ts:2288
+ *
+ * supportedCommands() tracks the `commands_changed` system message the CLI
+ * pushes mid-session, so there is nothing to cache or invalidate here.
  *
  * spawnClaudeCodeProcess lets us spawn the child ourselves with
  * `detached: true`, so it leads its own process group and killTree keeps
@@ -31,6 +37,7 @@ import type {
   Effort,
   ModelId,
   ModelChoice,
+  SlashCommand,
   StagedUpload,
   ThreadEventBody,
   ToolUseId,
@@ -95,6 +102,10 @@ export interface AgentSession {
   setEffort(effort: Effort): Promise<void>;
   /** Ordered stream of AgentEvent for the life of the process. Ends when the process exits. */
   events(): AsyncIterable<AgentEvent>;
+  /** The live slash-command menu, terminal-only entries removed. Empty when the session is dead. */
+  commands(): Promise<readonly SlashCommand[]>;
+  /** Rediscover skills from disk, then return the refreshed menu. Empty when the session is dead. */
+  reloadSkills(): Promise<readonly SlashCommand[]>;
   /** SIGTERM the group, SIGKILL after 10 s, settle once. Idempotent. */
   kill(): Promise<void>;
 }
@@ -111,6 +122,12 @@ export interface AgentFactory {
   spawn(opts: SpawnOptions): Promise<AgentSession>;
   /** The SDK's live catalog, unfiltered. */
   models(): Promise<readonly RawModel[]>;
+  /**
+   * The command menu a session in `cwd` would see, without spawning a real
+   * one. Uncached: the supervisor owns the cache, because only it knows
+   * whether a reload was asked for.
+   */
+  commands(cwd: string): Promise<readonly SlashCommand[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +167,25 @@ function toolResultText(content: unknown): string {
     .join("\n");
 }
 
+/**
+ * The context window of the model that carried the turn. `modelUsage` is
+ * keyed by model and a turn can touch several (a subagent on a small model,
+ * say), so the busiest entry by prompt tokens is the one whose window the
+ * meter should be read against.
+ */
+export function contextWindowFrom(modelUsage: unknown): number | null {
+  if (!isRecord(modelUsage)) return null;
+  let best: { prompt: number; window: number } | null = null;
+  for (const entry of Object.values(modelUsage)) {
+    if (!isRecord(entry)) continue;
+    const num = (k: string): number => (typeof entry[k] === "number" ? (entry[k] as number) : 0);
+    const prompt = num("inputTokens") + num("cacheReadInputTokens");
+    const window = num("contextWindow");
+    if (window > 0 && (!best || prompt > best.prompt)) best = { prompt, window };
+  }
+  return best?.window ?? null;
+}
+
 function usageFrom(msg: Record<string, unknown>, ctx: MapContext): Usage | null {
   const u = msg.usage;
   if (!isRecord(u)) return null;
@@ -158,6 +194,7 @@ function usageFrom(msg: Record<string, unknown>, ctx: MapContext): Usage | null 
   const cacheRead = n("cache_read_input_tokens");
   const cacheWrite = n("cache_creation_input_tokens");
   const total = typeof msg.total_cost_usd === "number" ? msg.total_cost_usd : null;
+  const contextWindow = contextWindowFrom(msg.modelUsage);
   return {
     inputTokens: input,
     outputTokens: n("output_tokens"),
@@ -165,8 +202,29 @@ function usageFrom(msg: Record<string, unknown>, ctx: MapContext): Usage | null 
     cacheWriteTokens: cacheWrite,
     costUsd: total === null ? null : Math.max(0, total - ctx.prevCostUsd),
     contextTokens: input + cacheRead + cacheWrite,
+    ...(contextWindow === null ? {} : { contextWindow }),
     durationMs: typeof msg.duration_ms === "number" ? msg.duration_ms : 0,
   };
+}
+
+/**
+ * Parse an SDK command list into the wire shape, dropping the terminal-bound
+ * entries (`/exit`, `/statusline` and friends). This is the only place a raw
+ * SDK command becomes a SlashCommand, per boundary-discipline; both the live
+ * session and the throwaway probe go through it.
+ */
+export function toSlashCommands(raw: unknown, hide: ReadonlySet<string>): readonly SlashCommand[] {
+  if (!Array.isArray(raw)) return [];
+  const out: SlashCommand[] = [];
+  for (const c of raw) {
+    if (!isRecord(c) || typeof c.name !== "string" || c.name === "" || hide.has(c.name)) continue;
+    out.push({
+      name: c.name,
+      description: typeof c.description === "string" ? c.description : "",
+      argumentHint: typeof c.argumentHint === "string" ? c.argumentHint : "",
+    });
+  }
+  return out;
 }
 
 /** Strip absolute home paths and stack frames from an error string before it reaches the phone. */
@@ -311,6 +369,8 @@ class SdkSession implements AgentSession {
   private readonly q: Query;
   private readonly abort = new AbortController();
   private turn: { turnId: TurnId; interrupted: boolean; settle: () => void } | null = null;
+  /** Command names the CLI tags as terminal-only; the phone menu hides them. */
+  private terminalCommands: ReadonlySet<string> = new Set();
   private prevCostUsd = 0;
   private dead = false;
   private killing: Promise<void> | null = null;
@@ -327,6 +387,7 @@ class SdkSession implements AgentSession {
       resume: opts.resume ?? undefined,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
+      settingSources: ["user", "project", "local"],
       additionalDirectories: [...opts.additionalDirectories],
       systemPrompt: { type: "preset", preset: "claude_code", append: opts.appendSystemPrompt },
       includePartialMessages: true,
@@ -361,6 +422,9 @@ class SdkSession implements AgentSession {
   }
 
   private handle(msg: SDKMessage): void {
+    if (msg.type === "system" && msg.subtype === "init" && Array.isArray(msg.terminal_slash_commands)) {
+      this.terminalCommands = new Set(msg.terminal_slash_commands);
+    }
     const turnId = this.turn?.turnId ?? ("t:0" as TurnId);
     const events = agentMessageToEvents(turnId, msg, { interrupted: this.turn?.interrupted ?? false, prevCostUsd: this.prevCostUsd });
     if (msg.type === "result") this.prevCostUsd = msg.total_cost_usd;
@@ -412,6 +476,16 @@ class SdkSession implements AgentSession {
     return this.out;
   }
 
+  async commands(): Promise<readonly SlashCommand[]> {
+    if (this.dead) return [];
+    return toSlashCommands(await this.q.supportedCommands(), this.terminalCommands);
+  }
+
+  async reloadSkills(): Promise<readonly SlashCommand[]> {
+    if (this.dead) return [];
+    return toSlashCommands((await this.q.reloadSkills()).skills, this.terminalCommands);
+  }
+
   kill(): Promise<void> {
     if (!this.killing) {
       this.killing = (async () => {
@@ -434,23 +508,38 @@ export class SdkAgentFactory implements AgentFactory {
     return new SdkSession(opts, this.deps);
   }
 
+  /** Spawn a throwaway process in `cwd`, ask it one question, close it. */
+  private async probe<T>(cwd: string, ask: (q: Query) => Promise<T>): Promise<T> {
+    const input = new Pushable<SDKUserMessage>();
+    const q = query({ prompt: input, options: { cwd, settingSources: ["user", "project", "local"], pathToClaudeCodeExecutable: this.deps.claudeBin, env: this.deps.env as Record<string, string> } });
+    try {
+      return await ask(q);
+    } finally {
+      input.end();
+      q.close();
+    }
+  }
+
   /** Spawns a throwaway process once per server lifetime and asks it. Cached; the catalog changes only when the CLI is upgraded. */
   models(): Promise<readonly RawModel[]> {
     if (!this.catalog) {
-      this.catalog = (async () => {
-        const input = new Pushable<SDKUserMessage>();
-        const q = query({ prompt: input, options: { cwd: homedir(), pathToClaudeCodeExecutable: this.deps.claudeBin, env: this.deps.env as Record<string, string> } });
-        try {
-          const infos: ModelInfo[] = await q.supportedModels();
-          return infos.map((m) => ({ id: m.value, label: m.displayName, supportsEffort: m.supportsEffort === true, efforts: m.supportedEffortLevels ?? [] }));
-        } finally {
-          input.end();
-          q.close();
-        }
-      })();
+      this.catalog = this.probe(homedir(), async (q) => {
+        const infos: ModelInfo[] = await q.supportedModels();
+        return infos.map((m) => ({ id: m.value, label: m.displayName, supportsEffort: m.supportsEffort === true, efforts: m.supportedEffortLevels ?? [] }));
+      });
       this.catalog.catch(() => (this.catalog = null));
     }
     return this.catalog;
+  }
+
+  /**
+   * The probe never reads the message stream, so it never sees `system.init`
+   * and cannot know which commands are terminal-bound. A cold thread's menu
+   * therefore carries a few entries a live one would hide; the first turn
+   * replaces it with the filtered live list.
+   */
+  commands(cwd: string): Promise<readonly SlashCommand[]> {
+    return this.probe(cwd, async (q) => toSlashCommands(await q.supportedCommands(), new Set()));
   }
 }
 

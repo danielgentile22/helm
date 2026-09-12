@@ -13,6 +13,9 @@
  *   GET    /auth/me                                              -> { label }
  *
  *   GET    /api/models                                           -> ModelChoice[] (live catalog)
+ *   GET    /api/passkeys                                         -> { label, createdAt }[] (never the credential id)
+ *   GET    /api/settings                                         -> HelmSettings
+ *   PATCH  /api/settings                                         -> HelmSettings
  *   GET    /api/threads                                          -> ThreadSummary[]
  *   POST   /api/threads                                          -> create (idempotent on threadId)
  *   GET    /api/threads/:id                                      -> ThreadSummary
@@ -20,7 +23,10 @@
  *   DELETE /api/threads/:id                                      -> archive
  *   POST   /api/threads/:id/send                                 -> SendResponse
  *   POST   /api/threads/:id/interrupt                            -> 204 always
+ *   GET    /api/threads/:id/commands                             -> { commands: SlashCommand[] }
+ *   POST   /api/threads/:id/commands/reload                      -> { commands: SlashCommand[] } (rediscovers skills)
  *   POST   /api/threads/:id/uploads   (raw body, one file, Content-Length capped) -> StagedUpload[]
+ *   GET    /api/threads/:id/uploads/:uploadId                    -> the staged bytes, inline
  *   GET    /api/threads/:id/events?after=N   (SSE, cookie or key) -> ThreadEvent stream
  *   GET    /api/events                        (SSE)              -> global fan-in
  *   GET    /api/dirs?path=...                                    -> DirEntry[] (within browseRoots)
@@ -33,19 +39,24 @@
  * module -> log.ts.
  */
 
-import { readFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
+import { Readable } from "node:stream";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
-import { DEFAULT_EFFORT, EFFORTS, LIMITS } from "../../shared/protocol";
+import { DEFAULT_EFFORT, EFFORTS, LIMITS, THEMES } from "../../shared/protocol";
 import type {
   ClientMsgId,
   CreateThreadRequest,
   Effort,
+  HelmSettings,
   ModelChoice,
+  ModelId,
   Origin,
   SendRequest,
+  SettingsPatch,
   ThreadConfigPatch,
   ThreadId,
   ThreadSummary,
@@ -53,11 +64,12 @@ import type {
 import type { AgentFactory } from "../core/agent";
 import { modelCatalog, parseModelId } from "../core/agent";
 import { parseClientMsgId, resolveThreadId } from "../core/ids";
+import { doingNow } from "../core/doing";
 import type { LogRegistry, ThreadLog } from "../core/log";
-import { lastAssistantText } from "../core/log";
 import type { PushSubscriptionRecord } from "../core/push";
 import type { Supervisor } from "../core/supervisor";
 import type { ThreadStore } from "../core/thread-store";
+import type { SettingsStore } from "../core/settings";
 import type { Uploads } from "../core/uploads";
 import type { AuthDeps, EnrollTokens, WebAuthnCeremonies } from "./auth";
 import { API_KEY_HEADER, authenticate, bodyTooLarge, checkApiKey, sessionCookie } from "./auth";
@@ -78,6 +90,7 @@ export interface AppDeps {
   readonly supervisor: Supervisor;
   readonly agents: AgentFactory;
   readonly uploads: Uploads;
+  readonly settings: SettingsStore;
   readonly push: PushDeps;
   readonly staticDir: string;
   readonly browseRoots: readonly string[];
@@ -87,6 +100,9 @@ export interface AppDeps {
   readonly publicOrigin: string;
   readonly heartbeatMs?: number;
 }
+
+/** The settings a PATCH may carry. Named once so the parser and the type cannot drift apart. */
+const SETTINGS_FIELDS: readonly (keyof HelmSettings)[] = ["theme", "defaultModel", "defaultEffort", "defaultCwd"];
 
 type Env = { Variables: { origin: Origin } };
 
@@ -193,15 +209,35 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     }
   });
 
-  const summary = async (log: ThreadLog, config: ThreadSummary["config"]): Promise<ThreadSummary> => {
+  app.get("/api/passkeys", async (c) => c.json(passkeyRows(await deps.webauthn.listCredentials())));
+
+  app.get("/api/settings", async (c) => c.json(await deps.settings.get()));
+
+  app.patch("/api/settings", async (c) => {
+    if (bodyTooLarge(c.req.raw.headers, LIMITS.SEND_BODY_BYTES)) return fail(c, 413, "body too large");
+    const parsed = parseSettingsPatch(await json(c), await models().catch(() => []));
+    if (!parsed.ok) return fail(c, parsed.status, parsed.error);
+    // Touching the filesystem is the route's job, not the parser's: the parser stays pure and unit-testable.
+    if (parsed.value.defaultCwd !== undefined && !(await stat(parsed.value.defaultCwd).then((s) => s.isDirectory(), () => false))) {
+      return fail(c, 400, "defaultCwd is not an existing directory");
+    }
+    return c.json(await deps.settings.patch(parsed.value));
+  });
+
+  const summary = (log: ThreadLog, config: ThreadSummary["config"]): ThreadSummary => {
     const head = log.getHead();
+    const session = deps.supervisor.status(log.threadId).session;
+    const preview = head.lastText?.text.trim().slice(0, 120);
     return {
       config,
       headSeq: head.lastSeq,
-      session: deps.supervisor.status(log.threadId).session,
+      session,
       lastTurnEndedAt: head.lastTurnEndedAt,
       contextTokens: head.contextTokens,
-      preview: lastAssistantText(await collect(log), 120),
+      preview: preview ? preview : null,
+      doing: doingNow(head, session),
+      usageTotal: head.usageTotal,
+      contextWindow: head.contextWindow,
     };
   };
 
@@ -239,7 +275,7 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
 
   app.get("/api/threads/:id", async (c) => {
     const t = await thread(c);
-    return t instanceof Response ? t : c.json(await summary(t.log, t.config));
+    return t instanceof Response ? t : c.json(summary(t.log, t.config));
   });
 
   app.patch("/api/threads/:id", async (c) => {
@@ -285,6 +321,19 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     return c.body(null, 204);
   });
 
+  const commands = async (c: Context<Env>, reload: boolean): Promise<Response> => {
+    const t = await thread(c);
+    if (t instanceof Response) return t;
+    try {
+      return c.json({ commands: await deps.supervisor.commands(t.threadId, { reload }) });
+    } catch (err) {
+      return fail(c, 503, `commands unavailable: ${message(err)}`);
+    }
+  };
+
+  app.get("/api/threads/:id/commands", (c) => commands(c, false));
+  app.post("/api/threads/:id/commands/reload", (c) => commands(c, true));
+
   app.post("/api/threads/:id/uploads", async (c) => {
     const t = await thread(c);
     if (t instanceof Response) return t;
@@ -295,6 +344,22 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     const mime = (c.req.header("content-type") ?? "application/octet-stream").split(";")[0]!.trim();
     const staged = await deps.uploads.stage(t.threadId, { name, mime, stream: body as unknown as AsyncIterable<Uint8Array> }, c.get("origin"));
     return c.json([staged], 201);
+  });
+
+  app.get("/api/threads/:id/uploads/:uploadId", async (c) => {
+    const t = await thread(c);
+    if (t instanceof Response) return t;
+    const resolved = await deps.uploads.resolve(t.threadId, [c.req.param("uploadId")]).catch(() => []);
+    const upload = resolved[0];
+    if (!upload) return fail(c, 404, "no such upload");
+    const size = await stat(upload.path).then((s) => s.size, () => null);
+    if (size === null) return fail(c, 404, "upload file is gone");
+    c.header("Content-Type", upload.mime);
+    c.header("Content-Length", String(size));
+    c.header("Content-Disposition", `inline; filename="${upload.name}"`);
+    // The id is a uuid and the bytes never change under it, so a phone may hold on to them.
+    c.header("Cache-Control", "private, max-age=3600");
+    return c.body(Readable.toWeb(createReadStream(upload.path)) as ReadableStream);
   });
 
   app.get("/api/threads/:id/events", async (c) => {
@@ -417,6 +482,48 @@ export function parseCreateThread(body: unknown, catalog: readonly ModelChoice[]
   return { ok: true, value: { threadId: typeof body.threadId === "string" ? body.threadId : undefined, cwd, model, effort: effort as Effort, title } };
 }
 
+/**
+ * The passkey list as the device manager shows it. credentialId is a handle
+ * to an authenticator and the UI has no use for it, so it is dropped here
+ * rather than filtered in the route: an explicit mapping cannot be widened by
+ * accident the way a spread of the stored record could.
+ */
+export function passkeyRows(creds: readonly { credentialId: string; label: string; createdAt: string }[]): { label: string; createdAt: string }[] {
+  return creds.map((c) => ({ label: c.label, createdAt: c.createdAt }));
+}
+
+/**
+ * Strict, unlike the file reader in settings.ts: an unknown field from a
+ * client is a bug on the client, and accepting it silently would let a typo
+ * look like a saved preference. `defaultCwd` is only checked for shape here;
+ * whether the directory exists is a filesystem question the route asks.
+ */
+export function parseSettingsPatch(body: unknown, catalog: readonly ModelChoice[]): Parsed<SettingsPatch> {
+  if (!isRecord(body)) return { ok: false, status: 400, error: "body must be a JSON object" };
+  const patch: { -readonly [K in keyof HelmSettings]?: HelmSettings[K] } = {};
+  for (const key of Object.keys(body)) {
+    if (!SETTINGS_FIELDS.includes(key as keyof HelmSettings)) return { ok: false, status: 400, error: `unknown field: ${key}` };
+  }
+  if (body.theme !== undefined) {
+    if (!THEMES.includes(body.theme as HelmSettings["theme"])) return { ok: false, status: 400, error: `theme must be one of ${THEMES.join(", ")}` };
+    patch.theme = body.theme as HelmSettings["theme"];
+  }
+  if (body.defaultModel !== undefined) {
+    if (body.defaultModel !== null && !parseModelId(body.defaultModel, catalog)) return { ok: false, status: 400, error: "defaultModel is not in the live catalog" };
+    patch.defaultModel = body.defaultModel === null ? null : (body.defaultModel as ModelId);
+  }
+  if (body.defaultEffort !== undefined) {
+    if (!EFFORTS.includes(body.defaultEffort as Effort)) return { ok: false, status: 400, error: `defaultEffort must be one of ${EFFORTS.join(", ")}` };
+    patch.defaultEffort = body.defaultEffort as Effort;
+  }
+  if (body.defaultCwd !== undefined) {
+    if (typeof body.defaultCwd !== "string" || !body.defaultCwd.startsWith("/")) return { ok: false, status: 400, error: "defaultCwd must be an absolute path" };
+    patch.defaultCwd = body.defaultCwd;
+  }
+  if (Object.keys(patch).length === 0) return { ok: false, status: 400, error: "nothing to change" };
+  return { ok: true, value: patch };
+}
+
 export function parsePatch(body: unknown, catalog: readonly ModelChoice[]): Parsed<ThreadConfigPatch> {
   if (!isRecord(body)) return { ok: false, status: 400, error: "body must be a JSON object" };
   const patch: { -readonly [K in keyof ThreadConfigPatch]: ThreadConfigPatch[K] } = {};
@@ -452,10 +559,4 @@ async function json(c: Context): Promise<Record<string, unknown> | null> {
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-async function collect(log: ThreadLog) {
-  const out = [];
-  for await (const ev of log.read(0)) out.push(ev);
-  return out;
 }

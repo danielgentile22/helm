@@ -5,7 +5,7 @@
  * whatever sequence of events the test needs, with whatever timing.
  */
 
-import type { ClaudeSessionId, Effort, ModelId, ToolUseId, TurnId, Usage } from "../../shared/protocol";
+import type { ClaudeSessionId, Effort, ModelId, SlashCommand, ToolUseId, TurnId, Usage } from "../../shared/protocol";
 import { Pushable } from "../util/pushable";
 import type { AgentEvent, AgentFactory, AgentSession, RawModel, SpawnOptions, TurnInput } from "./agent";
 
@@ -16,6 +16,9 @@ export interface FakeTurn {
   text(delta: string, blockIx?: number): void;
   thinking(delta: string): void;
   tool(name: string, input: unknown, output: string, isError?: boolean): void;
+  /** Open a tool and leave it open, so a script can hold the thread mid-tool. */
+  toolStart(name: string, input: unknown): ToolUseId;
+  toolEnd(id: ToolUseId, output: string, isError?: boolean): void;
   /** Finish the turn. Exactly once per send; the fake enforces it. */
   end(outcome?: "ok" | "error", error?: string | null, usage?: Usage | null): void;
   /** Resolves when the supervisor calls interrupt() during this turn. */
@@ -26,7 +29,7 @@ export interface FakeTurn {
 
 export type FakeScript = (turn: FakeTurn) => Promise<void> | void;
 
-export const defaultUsage: Usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 100, cacheWriteTokens: 0, costUsd: 0.01, contextTokens: 110, durationMs: 42 };
+export const defaultUsage: Usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 100, cacheWriteTokens: 0, costUsd: 0.01, contextTokens: 110, contextWindow: 200_000, durationMs: 42 };
 
 /** Echoes the prompt back as one text block and ends ok. */
 export const echoScript: FakeScript = (t) => {
@@ -49,9 +52,27 @@ export class FakeSession implements AgentSession {
     return !this.dead && !this.out.isEnded;
   }
 
-  constructor(readonly spawnOpts: SpawnOptions, private readonly script: FakeScript, sessionId: ClaudeSessionId) {
+  /** Snapshot of the factory list taken at spawn, so a later factory edit does not reach a live session until reloadSkills(). */
+  private commandList: readonly SlashCommand[];
+
+  constructor(readonly spawnOpts: SpawnOptions, private readonly script: FakeScript, sessionId: ClaudeSessionId, private readonly onDisk: () => readonly SlashCommand[]) {
     this.sessionId = sessionId;
+    this.commandList = onDisk();
     this.out.push({ kind: "session.bound", sessionId });
+  }
+
+  async commands(): Promise<readonly SlashCommand[]> {
+    return this.commandList;
+  }
+
+  /** Stand in for the SDK's `commands_changed` push: the live menu changed under us. */
+  pushCommands(list: readonly SlashCommand[]): void {
+    this.commandList = list;
+  }
+
+  async reloadSkills(): Promise<readonly SlashCommand[]> {
+    this.commandList = this.onDisk();
+    return this.commandList;
   }
 
   send(input: TurnInput): Promise<void> {
@@ -78,11 +99,13 @@ export class FakeSession implements AgentSession {
       },
       text: (delta, blockIx = 0) => turn.emit({ kind: "assistant.text", turnId: input.turnId, blockIx, delta }),
       thinking: (delta) => turn.emit({ kind: "assistant.thinking", turnId: input.turnId, delta }),
-      tool: (name, inp, output, isError = false) => {
+      toolStart: (name, inp) => {
         const toolUseId = `tu-${Math.random().toString(36).slice(2, 8)}` as ToolUseId;
         turn.emit({ kind: "tool.started", turnId: input.turnId, toolUseId, name, input: inp });
-        turn.emit({ kind: "tool.finished", turnId: input.turnId, toolUseId, output, isError });
+        return toolUseId;
       },
+      toolEnd: (toolUseId, output, isError = false) => turn.emit({ kind: "tool.finished", turnId: input.turnId, toolUseId, output, isError }),
+      tool: (name, inp, output, isError = false) => turn.toolEnd(turn.toolStart(name, inp), output, isError),
       end: (outcome = "ok", error = null, usage = defaultUsage) =>
         turn.emit({ kind: "turn.ended", turnId: input.turnId, outcome, sessionId: this.sessionId, usage, error }),
       crash: () => {
@@ -146,6 +169,13 @@ export class FakeAgentFactory implements AgentFactory {
     { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5", supportsEffort: false, efforts: [] },
     { id: "default", label: "Default (recommended)", supportsEffort: true, efforts: ["low", "medium", "high"] },
   ];
+  /** The menu "on disk": mutate it to simulate a skill being added, then reload. */
+  commandList: readonly SlashCommand[] = [
+    { name: "commit", description: "Commit staged work", argumentHint: "" },
+    { name: "grill-with-docs", description: "Grill a plan against the docs", argumentHint: "<plan>" },
+  ];
+  /** Every cwd commands() was probed with, in call order. */
+  readonly probes: string[] = [];
   private spawnCount = 0;
 
   constructor(script: FakeScript = echoScript) {
@@ -155,13 +185,18 @@ export class FakeAgentFactory implements AgentFactory {
   async spawn(opts: SpawnOptions): Promise<AgentSession> {
     this.spawnCount += 1;
     const sessionId = (opts.resume ?? `fake-session-${this.spawnCount}`) as ClaudeSessionId;
-    const s = new FakeSession(opts, this.script, sessionId);
+    const s = new FakeSession(opts, this.script, sessionId, () => this.commandList);
     this.sessions.push(s);
     return s;
   }
 
   async models(): Promise<readonly RawModel[]> {
     return this.catalog;
+  }
+
+  async commands(cwd: string): Promise<readonly SlashCommand[]> {
+    this.probes.push(cwd);
+    return this.commandList;
   }
 
   get last(): FakeSession {

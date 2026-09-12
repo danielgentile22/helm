@@ -69,6 +69,37 @@ export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"];
 export const DEFAULT_EFFORT: Effort = "medium";
 
+/**
+ * One entry in the slash-command menu: a built-in command or a discovered
+ * skill, as Claude Code reports it. The list is per-cwd (skills are found
+ * relative to the working directory) and can change mid-session, so it is
+ * asked for rather than stored.
+ */
+export interface SlashCommand {
+  readonly name: string;
+  readonly description: string;
+  /** e.g. "<plan>". Empty when the command takes no argument. */
+  readonly argumentHint: string;
+}
+
+/**
+ * Server-wide preferences, in <HELM_HOME>/settings.json. These seed a new
+ * thread; they never change one that already exists, whose own ThreadConfig
+ * is the record of what it actually ran on.
+ */
+export interface HelmSettings {
+  readonly theme: "system" | "light" | "dark";
+  /** null means "no preference": the picker opens with nothing chosen. */
+  readonly defaultModel: ModelId | null;
+  readonly defaultEffort: Effort;
+  /** Absolute path to an existing directory. */
+  readonly defaultCwd: string;
+}
+
+export const THEMES: readonly HelmSettings["theme"][] = ["system", "light", "dark"];
+
+export type SettingsPatch = Partial<HelmSettings>;
+
 export interface ThreadConfig {
   readonly threadId: ThreadId;
   /** Absolute path. Determines which CLAUDE.md Claude Code discovers. */
@@ -117,7 +148,26 @@ export interface Usage {
   readonly costUsd: number | null;
   /** Approximate context size after this turn (input + cache read). The UI's "ctx 48k" meter. */
   readonly contextTokens: number;
+  /** Denominator for the context meter. Optional: log lines written before it was recorded lack it. */
+  readonly contextWindow?: number;
   readonly durationMs: number;
+}
+
+/**
+ * What a thread is doing right now, for the thread list. Derived from the
+ * head on every read and never stored, so it cannot go stale.
+ */
+export type DoingNow =
+  | { kind: "tool"; name: string; arg: string }
+  /** The tail of the last thing the model said, when no tool is in flight. */
+  | { kind: "text"; tail: string };
+
+/** Tokens summed over every turn of a thread. No cost: the SDK reports it cumulatively per process, which does not add up across restarts. */
+export interface UsageTotal {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly cacheWriteTokens: number;
 }
 
 /**
@@ -238,6 +288,9 @@ export interface ThreadSummary {
   readonly contextTokens: number | null;
   /** First ~120 chars of the last assistant text; for the thread list. */
   readonly preview: string | null;
+  readonly doing: DoingNow | null;
+  readonly usageTotal: UsageTotal | null;
+  readonly contextWindow: number | null;
 }
 
 export interface DirEntry {
@@ -251,8 +304,10 @@ export interface PushPayload {
   readonly threadId: ThreadId;
   readonly title: string;
   readonly body: string;
+  /** How the turn ended, so the notification can be styled by outcome rather than by parsing the body. */
+  readonly kind: TurnOutcome;
   readonly seq: Seq;
-  readonly url: string; // `/t/<threadId>`
+  readonly url: string; // `/t/<threadId>#end`
 }
 
 // ---------------------------------------------------------------------------
