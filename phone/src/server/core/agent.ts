@@ -327,6 +327,7 @@ class SdkSession implements AgentSession {
       resume: opts.resume ?? undefined,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
+      settingSources: ["user", "project", "local"],
       additionalDirectories: [...opts.additionalDirectories],
       systemPrompt: { type: "preset", preset: "claude_code", append: opts.appendSystemPrompt },
       includePartialMessages: true,
@@ -439,7 +440,7 @@ export class SdkAgentFactory implements AgentFactory {
     if (!this.catalog) {
       this.catalog = (async () => {
         const input = new Pushable<SDKUserMessage>();
-        const q = query({ prompt: input, options: { cwd: homedir(), pathToClaudeCodeExecutable: this.deps.claudeBin, env: this.deps.env as Record<string, string> } });
+        const q = query({ prompt: input, options: { cwd: homedir(), settingSources: ["user", "project", "local"], pathToClaudeCodeExecutable: this.deps.claudeBin, env: this.deps.env as Record<string, string> } });
         try {
           const infos: ModelInfo[] = await q.supportedModels();
           return infos.map((m) => ({ id: m.value, label: m.displayName, supportsEffort: m.supportsEffort === true, efforts: m.supportedEffortLevels ?? [] }));
