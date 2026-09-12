@@ -58,9 +58,11 @@ export interface ModelChoice {
 /**
  * Policy filter applied to the live catalog. Daniel's standing rule is "never
  * Haiku"; matching on the id keeps the rule true for future Haiku releases
- * without another edit here.
+ * without another edit here. The "default" alias is dropped too: it resolves
+ * to whatever Claude Code currently recommends, and a thread should record
+ * the model it actually ran on.
  */
-export const MODEL_POLICY_DENY: readonly RegExp[] = [/haiku/i];
+export const MODEL_POLICY_DENY: readonly RegExp[] = [/haiku/i, /^default$/];
 
 /** Every level Claude Code knows. The catalog offers the subset each model supports. */
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";

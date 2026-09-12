@@ -144,6 +144,7 @@ export class FakeAgentFactory implements AgentFactory {
     { id: "claude-opus-5", label: "Opus 5", supportsEffort: true, efforts: ["low", "medium", "high", "xhigh", "max"] },
     { id: "claude-sonnet-5", label: "Sonnet 5", supportsEffort: true, efforts: ["low", "medium", "high", "xhigh"] },
     { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5", supportsEffort: false, efforts: [] },
+    { id: "default", label: "Default (recommended)", supportsEffort: true, efforts: ["low", "medium", "high"] },
   ];
   private spawnCount = 0;
 

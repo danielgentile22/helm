@@ -374,7 +374,8 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     try {
       const bytes = await readFile(file);
       c.header("Content-Type", MIME[extname(file)] ?? "application/octet-stream");
-      c.header("Cache-Control", rel === "/index.html" || rel === "/sw.js" ? "no-cache" : "max-age=3600");
+      // Shell files revalidate on every load so a rebuild reaches the phone at once; icons may cache.
+      c.header("Cache-Control", /\.(png|webmanifest)$/.test(rel) ? "max-age=3600" : "no-cache");
       return c.body(bytes);
     } catch {
       return fail(c, 404, "not found");

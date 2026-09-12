@@ -133,7 +133,7 @@ test("buildUserMessage lists uploads by absolute path and returns image paths", 
   assert.equal(buildUserMessage({ turnId: t, text: "plain", uploads: [] }).text, "plain");
 });
 
-test("modelCatalog drops Haiku and passes through every effort level the SDK reports; parseModelId validates against it", async () => {
+test("modelCatalog drops Haiku and the opaque default alias, and passes through every effort level the SDK reports; parseModelId validates against it", async () => {
   const factory = new FakeAgentFactory();
   const catalog = await modelCatalog(factory);
   assert.deepEqual(catalog, [
