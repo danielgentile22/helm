@@ -198,7 +198,8 @@ async function openNewThread(): Promise<void> {
   const dirs = h("div", { class: "dirs" });
   const modelSel = h("select", {}) as HTMLSelectElement;
   const defaultModel = catalog.find((m) => /opus/i.test(m.id)) ?? catalog[0];
-  for (const m of catalog) modelSel.append(h("option", { value: m.id, selected: m === defaultModel }, m.label));
+  for (const m of catalog) modelSel.append(h("option", { value: m.id }, m.label));
+  if (defaultModel) modelSel.value = defaultModel.id;
   const effortSel = h("select", {}) as HTMLSelectElement;
   const effortField = h("div", { class: "field" }, h("label", {}, "Effort"), effortSel);
   const syncEffort = (): void => {
