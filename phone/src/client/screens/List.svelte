@@ -6,21 +6,30 @@
 
 <script lang="ts">
   import { flip } from "svelte/animate";
-  import { DEFAULT_EFFORT, type ThreadSummary } from "../../shared/protocol";
+  import type { ModelChoice, ThreadSummary } from "../../shared/protocol";
   import type { HelmClient } from "../api";
-  import { fmtRelative, shortPath, uuid } from "../format";
+  import { fmtRelative, shortPath } from "../format";
   import { groupThreads } from "../groups";
   import { models } from "../models";
+  import { createWithDefaults } from "../newThread";
   import { router } from "../route.svelte";
+  import { settings } from "../settings.svelte";
   import NewThread from "../sheets/NewThread.svelte";
+
+  const LONG_PRESS_MS = 500;
 
   let { api }: { api: HelmClient } = $props();
 
   let threads = $state<readonly ThreadSummary[]>([]);
+  let catalog = $state<readonly ModelChoice[]>([]);
   let loaded = $state(false);
   let loadError = $state("");
+  let createError = $state("");
   let sheetOpen = $state(false);
   let showArchived = $state(false);
+
+  let pressTimer: ReturnType<typeof setTimeout> | null = null;
+  let suppressClick = false;
 
   const groups = $derived(groupThreads(threads, showArchived));
 
@@ -42,21 +51,42 @@
     loaded = true;
   }
 
-  async function createIn(cwd: string): Promise<void> {
+  async function create(cwd?: string): Promise<void> {
     try {
-      const catalog = await models(api);
-      const choice = catalog.find((m) => /opus/i.test(m.id)) ?? catalog[0];
-      if (!choice) throw new Error("model catalog unavailable");
-      const effort = choice.efforts.includes(DEFAULT_EFFORT) ? DEFAULT_EFFORT : (choice.efforts[0] ?? DEFAULT_EFFORT);
-      const cfg = await api.createThread({ threadId: uuid(), cwd, model: choice.id, effort });
+      const cfg = await createWithDefaults(api, settings.value, catalog, cwd);
+      createError = "";
       router.navigate(`/t/${cfg.threadId}`);
     } catch (err) {
-      loadError = `Could not create a thread: ${err instanceof Error ? err.message : String(err)}`;
+      createError = `Could not create a thread: ${err instanceof Error ? err.message : String(err)}`;
     }
+  }
+
+  function pressStart(): void {
+    suppressClick = false;
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      suppressClick = true;
+      sheetOpen = true;
+    }, LONG_PRESS_MS);
+  }
+
+  function pressCancel(): void {
+    if (pressTimer) clearTimeout(pressTimer);
+    pressTimer = null;
+  }
+
+  function mainClick(): void {
+    pressCancel();
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
+    void create();
   }
 
   $effect(() => {
     void load();
+    void models(api).then((m) => (catalog = m), () => undefined);
     let pending: ReturnType<typeof setTimeout> | null = null;
     const stop = api.attachGlobal(() => {
       if (pending) clearTimeout(pending);
@@ -68,6 +98,7 @@
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       if (pending) clearTimeout(pending);
+      pressCancel();
       stop();
       document.removeEventListener("visibilitychange", onVisible);
     };
@@ -83,10 +114,14 @@
         <path d="M8 1.3v1.3M8 13.4v1.3M14.7 8h-1.3M2.6 8H1.3M12.74 3.26l-.92.92M4.18 11.82l-.92.92M12.74 12.74l-.92-.92M4.18 4.18l-.92-.92" />
       </svg>
     </button>
-    <button class="btn primary small" onclick={() => (sheetOpen = true)}>New</button>
+    <span class="split">
+      <button class="main" aria-label="New thread" onpointerdown={pressStart} onpointerup={pressCancel} onpointerleave={pressCancel} onclick={mainClick}>New</button>
+      <button class="more" aria-label="More new thread options" onclick={() => (sheetOpen = true)}>▾</button>
+    </span>
   </header>
 
-  {#if loadError}<p class="center error">{loadError}</p>{/if}
+  {#if loadError}<p class="center error">▲ {loadError}</p>{/if}
+  {#if createError}<p class="center error">▲ {createError}</p>{/if}
 
   <div class="groups">
     {#if groups.length}
@@ -98,7 +133,7 @@
               <span class="live"><span class="dot pulse"></span>{g.running} running</span>
             {/if}
             <span class="path">{path.head}<b>{path.tail}</b></span>
-            <button class="icon-btn plus" aria-label="New thread here" onclick={() => void createIn(g.cwd)}>+</button>
+            <button class="icon-btn plus" aria-label="New thread here" onclick={() => void create(g.cwd)}>+</button>
           </div>
           <div class="rows">
             {#each g.rows as r (r.summary.config.threadId)}
@@ -144,6 +179,6 @@
   </div>
 
   {#if sheetOpen}
-    <NewThread {api} onClose={() => (sheetOpen = false)} />
+    <NewThread {api} initialCwd={settings.value?.defaultCwd} initialModel={settings.value?.defaultModel ?? undefined} initialEffort={settings.value?.defaultEffort} onClose={() => (sheetOpen = false)} />
   {/if}
 </main>

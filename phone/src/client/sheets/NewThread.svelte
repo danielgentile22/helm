@@ -6,11 +6,13 @@
   import { models } from "../models";
   import { router } from "../route.svelte";
 
-  let { api, onClose }: { api: HelmClient; onClose: () => void } = $props();
+  let { api, onClose, initialCwd, initialModel, initialEffort }: { api: HelmClient; onClose: () => void; initialCwd?: string; initialModel?: string; initialEffort?: string } = $props();
 
   let ready = $state(false);
   let catalog = $state<readonly ModelChoice[]>([]);
-  let cwd = $state("/");
+  /* The sheet is mounted fresh on each open, so the prefill is a starting value, not a binding. */
+  // svelte-ignore state_referenced_locally
+  let cwd = $state(initialCwd ?? "");
   let model = $state("");
   let effort = $state<string>(DEFAULT_EFFORT);
   let err = $state("");
@@ -22,13 +24,15 @@
   $effect(() => {
     void (async () => {
       catalog = await models(api).catch(() => [] as readonly ModelChoice[]);
-      model = (catalog.find((m) => /opus/i.test(m.id)) ?? catalog[0])?.id ?? "";
+      const preferred = catalog.find((m) => m.id === initialModel);
+      model = (preferred ?? catalog.find((m) => /opus/i.test(m.id)) ?? catalog[0])?.id ?? "";
       ready = true;
     })();
   });
 
   $effect(() => {
-    effort = efforts.includes(DEFAULT_EFFORT) ? DEFAULT_EFFORT : (efforts[0] ?? DEFAULT_EFFORT);
+    if (initialEffort && efforts.includes(initialEffort as Effort)) effort = initialEffort;
+    else effort = efforts.includes(DEFAULT_EFFORT) ? DEFAULT_EFFORT : (efforts[0] ?? DEFAULT_EFFORT);
   });
 
   async function create(): Promise<void> {
@@ -49,7 +53,7 @@
       <div class="field">
         <!-- svelte-ignore a11y_label_has_associated_control -->
         <label>Working directory (Claude reads its CLAUDE.md)</label>
-        <DirBrowser {api} initial="" onPick={(p) => (cwd = p)} />
+        <DirBrowser {api} initial={initialCwd ?? ""} onPick={(p) => (cwd = p)} />
       </div>
       <div class="field">
         <label for="new-model">Model</label>

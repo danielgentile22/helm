@@ -16,6 +16,9 @@ a { color: var(--accent); }
 .btn.primary { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; font-weight: 600; }
 .btn.small { padding: var(--s-2) var(--s-4); font-size: var(--t-sm); }
 .btn:disabled { opacity: .5; cursor: default; }
+.split { display: inline-flex; align-items: stretch; flex: none; border-radius: var(--r-md); overflow: hidden; }
+.split .main { border: 0; background: var(--accent-solid); color: var(--on-accent); font-weight: 600; font-size: var(--t-sm); padding: 7px 12px; display: inline-flex; align-items: center; gap: 5px; }
+.split .more { border: 0; background: var(--accent-solid); color: var(--on-accent); padding: 0 7px; display: inline-flex; align-items: center; border-left: 1px solid color-mix(in srgb, var(--on-accent) 22%, transparent); }
 .muted { color: var(--ink-3); }
 .center { text-align: center; padding: var(--s-9) var(--s-6); }
 .groups { flex: 1; padding: var(--s-5) var(--s-5) 0; }
