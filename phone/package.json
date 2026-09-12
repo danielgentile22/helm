@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Drive Claude Code on the always-on Mac from a phone. Tailnet-only, passkey-gated.",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "dev": "npm run build:client && node --import tsx src/server/main.ts",
     "build:client": "node scripts/build-client.mjs",
