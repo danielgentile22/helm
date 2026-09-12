@@ -12,7 +12,7 @@ import { resolve } from "node:path";
 export interface Env {
   readonly HELM_HOME: string; // ~/.helm2
   readonly HELM_VAULT_ROOT: string; // ~/Projects/Vault
-  readonly HELM_BIND_ADDR: string; // tailnet IPv4 of this host
+  readonly HELM_BIND_ADDR: string; // loopback; tailscale serve proxies to it
   readonly HELM_PORT: number;
   readonly HELM_API_KEY: string | undefined;
   readonly HELM_VAPID_PUBLIC: string;
