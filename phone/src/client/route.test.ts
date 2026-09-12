@@ -19,6 +19,7 @@ test("enroll takes its token from the query string", () => {
 
 test("login and everything else", () => {
   assert.deepEqual(parseRoute("/login", ""), { name: "login" });
+  assert.deepEqual(parseRoute("/settings", ""), { name: "settings" });
   assert.deepEqual(parseRoute("/", ""), { name: "list" });
   assert.deepEqual(parseRoute("/anything", ""), { name: "list" });
 });

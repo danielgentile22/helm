@@ -7,26 +7,21 @@ export async function swRegistration(): Promise<ServiceWorkerRegistration | null
   return (await navigator.serviceWorker.getRegistration()) ?? (await navigator.serviceWorker.register("/sw.js"));
 }
 
-/** Once enabled there is nothing left to do, so the button goes away. */
-export async function pushEnabled(): Promise<boolean> {
-  if (!("PushManager" in window) || !("Notification" in window)) return true;
+export async function pushState(): Promise<"enabled" | "disabled" | "unsupported"> {
+  if (!("PushManager" in window) || !("Notification" in window)) return "unsupported";
   const reg = await swRegistration();
   const sub = await reg?.pushManager.getSubscription();
-  return Boolean(sub && Notification.permission === "granted");
+  return sub && Notification.permission === "granted" ? "enabled" : "disabled";
 }
 
 export async function enablePush(api: HelmClient): Promise<void> {
-  try {
-    const perm = await Notification.requestPermission();
-    if (perm !== "granted") return;
-    const reg = await swRegistration();
-    if (!reg) return;
-    const { key } = await api.pushPublicKey();
-    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidKey(key) as BufferSource });
-    await api.pushSubscribe(sub.toJSON());
-  } catch (err) {
-    alert(`Notifications could not be enabled: ${err instanceof Error ? err.message : String(err)}`);
-  }
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") throw new Error("Notifications were not allowed on this device.");
+  const reg = await swRegistration();
+  if (!reg) throw new Error("This browser has no service worker, so push cannot be enabled.");
+  const { key } = await api.pushPublicKey();
+  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidKey(key) as BufferSource });
+  await api.pushSubscribe(sub.toJSON());
 }
 
 export function vapidKey(b64url: string): Uint8Array<ArrayBuffer> {

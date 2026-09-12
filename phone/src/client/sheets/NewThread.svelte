@@ -1,18 +1,16 @@
 <script lang="ts">
-  import { DEFAULT_EFFORT, type DirEntry, type Effort, type ModelChoice } from "../../shared/protocol";
+  import { DEFAULT_EFFORT, type Effort, type ModelChoice } from "../../shared/protocol";
   import type { HelmClient } from "../api";
-  import { shortPath, uuid } from "../format";
+  import DirBrowser from "../components/DirBrowser.svelte";
+  import { uuid } from "../format";
   import { models } from "../models";
   import { router } from "../route.svelte";
 
   let { api, onClose }: { api: HelmClient; onClose: () => void } = $props();
 
   let ready = $state(false);
-  let roots: readonly DirEntry[] = [];
   let catalog = $state<readonly ModelChoice[]>([]);
   let cwd = $state("/");
-  let parent = $state<string | null>(null);
-  let entries = $state<readonly DirEntry[]>([]);
   let model = $state("");
   let effort = $state<string>(DEFAULT_EFFORT);
   let err = $state("");
@@ -21,26 +19,10 @@
   const efforts = $derived(choice?.efforts ?? []);
   const effortHidden = $derived(!choice?.supportsEffort);
 
-  const parentOf = (p: string): string => p.replace(/\/[^/]+$/, "") || "/";
-
-  async function browse(path: string, from: string | null): Promise<void> {
-    cwd = path;
-    parent = from;
-    try {
-      entries = from === null && path === "" ? roots : await api.browseDirs(path);
-    } catch (e) {
-      entries = [];
-      err = e instanceof Error ? e.message : String(e);
-    }
-  }
-
   $effect(() => {
     void (async () => {
-      roots = await api.browseDirs();
       catalog = await models(api).catch(() => [] as readonly ModelChoice[]);
       model = (catalog.find((m) => /opus/i.test(m.id)) ?? catalog[0])?.id ?? "";
-      const start = roots.find((r) => /Vault$/.test(r.path))?.path ?? roots[0]?.path ?? "/";
-      await browse(start, roots.some((r) => r.path === start) ? "" : parentOf(start));
       ready = true;
     })();
   });
@@ -67,15 +49,7 @@
       <div class="field">
         <!-- svelte-ignore a11y_label_has_associated_control -->
         <label>Working directory (Claude reads its CLAUDE.md)</label>
-        <div class="crumb">{shortPath(cwd)}</div>
-        <div class="dirs">
-          {#if parent !== null}
-            <button onclick={() => void browse(parent!, roots.some((r) => r.path === parent) ? "" : parentOf(parent!))}>..</button>
-          {/if}
-          {#each entries as d (d.path)}
-            <button onclick={() => void browse(d.path, cwd)}>{d.name}<span class="flags">{[d.hasClaudeMd ? "CLAUDE.md" : "", d.isGitRepo ? "git" : ""].filter(Boolean).join(" ")}</span></button>
-          {/each}
-        </div>
+        <DirBrowser {api} initial="" onPick={(p) => (cwd = p)} />
       </div>
       <div class="field">
         <label for="new-model">Model</label>

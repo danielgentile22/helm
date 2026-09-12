@@ -2,7 +2,6 @@
   import type { ThreadSummary } from "../../shared/protocol";
   import type { HelmClient } from "../api";
   import { fmtK, fmtTime, shortModel, shortPath } from "../format";
-  import { enablePush, pushEnabled } from "../push";
   import { router } from "../route.svelte";
   import NewThread from "../sheets/NewThread.svelte";
 
@@ -11,7 +10,6 @@
   let threads = $state<readonly ThreadSummary[]>([]);
   let loaded = $state(false);
   let loadError = $state("");
-  let notifyHidden = $state(false);
   let sheetOpen = $state(false);
 
   async function load(): Promise<void> {
@@ -24,14 +22,8 @@
     loaded = true;
   }
 
-  async function notify(): Promise<void> {
-    await enablePush(api);
-    notifyHidden = await pushEnabled();
-  }
-
   $effect(() => {
     void load();
-    void pushEnabled().then((done) => (notifyHidden = done));
     let pending: ReturnType<typeof setTimeout> | null = null;
     const stop = api.attachGlobal(() => {
       if (pending) clearTimeout(pending);
@@ -52,7 +44,12 @@
 <main class="screen">
   <header class="topbar">
     <h1>Helm</h1>
-    <button class="btn small" hidden={notifyHidden} onclick={notify}>Notifications</button>
+    <button class="icon-btn" aria-label="Settings" onclick={() => router.navigate("/settings")}>
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="8" cy="8" r="2.3" /><circle cx="8" cy="8" r="5.4" />
+        <path d="M8 1.3v1.3M8 13.4v1.3M14.7 8h-1.3M2.6 8H1.3M12.74 3.26l-.92.92M4.18 11.82l-.92.92M12.74 12.74l-.92-.92M4.18 4.18l-.92-.92" />
+      </svg>
+    </button>
     <button class="btn primary small" onclick={() => (sheetOpen = true)}>New</button>
   </header>
   <ul class="list">

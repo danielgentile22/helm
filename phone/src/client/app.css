@@ -2,6 +2,8 @@
 
 :root { color-scheme: light dark; }
 * { box-sizing: border-box; }
+/* A display rule on the element beats the user-agent [hidden] rule, so every `hidden` binding needs this. */
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px; -webkit-text-size-adjust: 100%; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -69,3 +71,17 @@ details[open] > summary::before { content: "▾ "; }
 .error { color: var(--alert); font-size: var(--t-sm); }
 .login { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s-6); flex: 1; padding: var(--s-8); }
 .login h1 { margin: 0; }
+.sbody { flex: 1; overflow-y: auto; padding: var(--s-5) var(--s-5) var(--s-7); }
+.sgroup { background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-lg); overflow: hidden; margin-bottom: var(--s-6); }
+.sgroup > .lbl { font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--ink-3); padding: var(--s-4) var(--s-5) var(--s-2); }
+.item { display: flex; align-items: center; gap: var(--s-4); width: 100%; text-align: left; padding: var(--s-5); background: transparent; border: 0; border-top: 1px solid var(--hair); }
+.sgroup > .lbl + .item { border-top: 0; }
+.item .t { flex: 1; min-width: 0; }
+.item .t .a { display: block; font-size: var(--t-sm); font-weight: 600; }
+.item .t .b { display: block; font-size: var(--t-xs); color: var(--ink-3); margin-top: 1px; font-family: var(--mono); }
+.item .v { font-family: var(--mono); font-size: var(--t-xs); color: var(--ink-2); flex: none; display: flex; align-items: center; gap: var(--s-3); }
+.item .v select { font-family: var(--mono); font-size: var(--t-xs); max-width: 52vw; padding: var(--s-2) var(--s-3); border-radius: var(--r-md); border: 1px solid var(--hair); background: var(--bg); }
+.seg { display: inline-flex; flex: none; padding: var(--s-1); border: 1px solid var(--hair); border-radius: var(--r-pill); background: var(--surface); }
+.seg button { border: 0; background: transparent; color: var(--ink-2); font-size: var(--t-sm); padding: var(--s-3) var(--s-4); border-radius: var(--r-pill); white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: var(--accent-solid); color: var(--on-accent); font-weight: 600; }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: var(--r-md); background: transparent; color: var(--ink-2); }

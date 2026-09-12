@@ -6,6 +6,7 @@
   import ErrorScreen from "./screens/ErrorScreen.svelte";
   import List from "./screens/List.svelte";
   import Login from "./screens/Login.svelte";
+  import SettingsScreen from "./screens/Settings.svelte";
   import Thread from "./screens/Thread.svelte";
   import { settings } from "./settings.svelte";
 
@@ -66,6 +67,8 @@
     {#key router.route.threadId}
       <Thread {api} threadId={router.route.threadId} />
     {/key}
+  {:else if router.route.name === "settings"}
+    <SettingsScreen {api} />
   {:else if router.route.name === "list"}
     <List {api} />
   {/if}
