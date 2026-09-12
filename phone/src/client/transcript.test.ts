@@ -63,6 +63,15 @@ test("a text block between two tools splits the activity in two", () => {
   assert.notEqual(acts[0]!.key, acts[1]!.key);
 });
 
+test("only the turn's last activity block is running; an earlier one closed off by text stops its clock", () => {
+  const events = [...started(), ...tool("Read"), ev({ kind: "assistant.text", turnId: T, blockIx: 0, delta: "midway" }), ...tool("Bash")];
+  const acts = activity(toBlocks(build(events, T)));
+  assert.equal(acts[0]!.running, false);
+  assert.equal(acts[0]!.durationMs, 1000);
+  assert.equal(acts[1]!.running, true);
+  assert.equal(acts[1]!.durationMs, null);
+});
+
 test("current is the last unfinished tool while the turn is open and null once it ends", () => {
   const open = [...started(), ...tool("Read"), ev({ kind: "tool.started", turnId: T, toolUseId: "tu9" as never, name: "Bash", input: { command: "npm test" } })];
   const live = activity(toBlocks(build(open, T)))[0]!;

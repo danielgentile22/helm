@@ -67,6 +67,11 @@ interface Draft {
   tools: ToolLine[] | null;
 }
 
+/**
+ * Only the turn's last activity block is live: an earlier one has already
+ * been closed off by text, so it stops its clock rather than counting until
+ * the turn ends.
+ */
 export function toBlocks(view: ThreadView): readonly Block[] {
   const lines = view.lines;
   const lastTextIx = new Map<TurnId, number>();
@@ -126,11 +131,12 @@ export function toBlocks(view: ThreadView): readonly Block[] {
     }
   }
 
+  const tailActivity = findLast(drafts, (d) => d.block.kind === "activity")?.block;
   for (const d of drafts) {
     if (d.block.kind !== "activity") continue;
     const b = d.block;
     b.counts = count(b.tools);
-    b.running = view.openTurn === b.turnId;
+    b.running = view.openTurn === b.turnId && b === tailActivity;
     b.current = b.running ? (findLast(b.tools, (t) => t.endedAt === null) ?? null) : null;
     b.durationMs = b.running ? null : finishedDuration(b, endUsage.get(b.turnId) ?? null, activityCount.get(b.turnId) === 1);
   }
