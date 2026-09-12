@@ -19,9 +19,8 @@
 
   let session = $state<ThreadSession | null>(null);
   let failure = $state<unknown>(null);
-  let sheetOpen = $state(false);
   let menuOpen = $state(false);
-  let openSheet = $state<"rename" | "info" | "archive" | null>(null);
+  let openSheet = $state<"rename" | "model" | "info" | "archive" | null>(null);
   let uploading = $state(false);
   let inputEl: HTMLTextAreaElement | null = $state(null);
   let fileEl: HTMLInputElement | null = $state(null);
@@ -143,6 +142,7 @@
           <Menu
             onClose={() => (menuOpen = false)}
             onRename={() => ((menuOpen = false), (openSheet = "rename"))}
+            onModel={() => ((menuOpen = false), (openSheet = "model"))}
             onInfo={() => ((menuOpen = false), (openSheet = "info"))}
             onArchive={() => ((menuOpen = false), (openSheet = "archive"))}
           />
@@ -178,11 +178,10 @@
       <button class="btn" hidden={!s.running} onclick={() => s.interrupt()}>Stop</button>
     </div>
     <input type="file" multiple hidden bind:this={fileEl} onchange={pickFiles} />
-    {#if sheetOpen}
-      <ModelEffort {api} config={s.summary.config} onClose={() => (sheetOpen = false)} />
-    {/if}
     {#if openSheet === "rename"}
       <Rename {api} config={s.summary.config} onClose={() => (openSheet = null)} />
+    {:else if openSheet === "model"}
+      <ModelEffort {api} config={s.summary.config} onClose={() => (openSheet = null)} />
     {:else if openSheet === "info"}
       <ThreadInfo view={s.view} summary={s.summary} onClose={() => (openSheet = null)} />
     {:else if openSheet === "archive"}
