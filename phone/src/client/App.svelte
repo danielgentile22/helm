@@ -7,6 +7,7 @@
   import List from "./screens/List.svelte";
   import Login from "./screens/Login.svelte";
   import Thread from "./screens/Thread.svelte";
+  import { settings } from "./settings.svelte";
 
   let { api }: { api: HelmClient } = $props();
 
@@ -35,6 +36,16 @@
         checking = false;
       }
     })();
+  });
+
+  $effect(() => {
+    if (me) void settings.load(api).catch(() => null);
+  });
+
+  $effect(() => {
+    const theme = settings.value?.theme;
+    if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+    else delete document.documentElement.dataset.theme;
   });
 
   const signedIn = (who: { label: string }): void => {

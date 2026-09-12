@@ -12,9 +12,11 @@ import type {
   CreateThreadRequest,
   Cursor,
   DirEntry,
+  HelmSettings,
   ModelChoice,
   SendRequest,
   SendResponse,
+  SettingsPatch,
   StagedUpload,
   SyncFrame,
   ThreadConfig,
@@ -89,6 +91,18 @@ export class HelmClient {
   }
   listModels(): Promise<readonly ModelChoice[]> {
     return this.call("GET", "/api/models");
+  }
+  getSettings(): Promise<HelmSettings> {
+    return this.call("GET", "/api/settings");
+  }
+  patchSettings(patch: SettingsPatch): Promise<HelmSettings> {
+    return this.call("PATCH", "/api/settings", patch);
+  }
+  listPasskeys(): Promise<readonly { label: string; createdAt: string }[]> {
+    return this.call("GET", "/api/passkeys");
+  }
+  about(): Promise<{ version: string; host: string }> {
+    return this.call("GET", "/api/about");
   }
   listThreads(): Promise<readonly ThreadSummary[]> {
     return this.call("GET", "/api/threads");
