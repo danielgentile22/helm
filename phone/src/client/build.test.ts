@@ -21,3 +21,8 @@ test("app bundle is self-contained (Svelte compiled in, nothing left to resolve)
   assert.ok(app.length > 0);
   assert.doesNotMatch(app, /^\s*import\s.*from\s+["']svelte/m);
 });
+
+test("stylesheet is built with the tokens inlined", () => {
+  const css = readFileSync(join(out, "app.css"), "utf8");
+  assert.match(css, /--accent/);
+});

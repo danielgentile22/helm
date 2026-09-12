@@ -34,6 +34,7 @@ import type {
   ThreadId,
   ToolUseId,
   TurnId,
+  TurnOutcome,
   Usage,
   UsageTotal,
 } from "../../shared/protocol";
@@ -50,6 +51,7 @@ export interface ThreadHead {
   readonly recentClientMsgIds: ReadonlyMap<ClientMsgId, Seq>;
   /** From the last turn.ended, for ThreadSummary. */
   readonly lastTurnEndedAt: string | null;
+  readonly lastOutcome: TurnOutcome | null;
   readonly contextTokens: number | null;
   /** The tool the model is waiting on, or null. Cleared by its own tool.finished and by turn.ended. */
   readonly activeTool: { toolUseId: ToolUseId; name: string; input: unknown } | null;
@@ -69,11 +71,11 @@ export type Unsubscribe = () => void;
 const RECENT_IDS = 64;
 const FILE = "events.jsonl";
 
-const emptyHead: ThreadHead = { lastSeq: 0, sessionId: null, openTurn: null, queued: [], recentClientMsgIds: new Map(), lastTurnEndedAt: null, contextTokens: null, activeTool: null, lastText: null, usageTotal: null, contextWindow: null };
+const emptyHead: ThreadHead = { lastSeq: 0, sessionId: null, openTurn: null, queued: [], recentClientMsgIds: new Map(), lastTurnEndedAt: null, lastOutcome: null, contextTokens: null, activeTool: null, lastText: null, usageTotal: null, contextWindow: null };
 
 /** Pure: the head after one more event. */
 function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
-  let { sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, contextTokens, activeTool, lastText, usageTotal, contextWindow } = h;
+  let { sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow } = h;
   switch (ev.kind) {
     case "session.bound":
       sessionId = ev.sessionId;
@@ -107,6 +109,7 @@ function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
       activeTool = null;
       if (ev.sessionId) sessionId = ev.sessionId;
       lastTurnEndedAt = ev.ts;
+      lastOutcome = ev.outcome;
       if (ev.usage) {
         contextTokens = ev.usage.contextTokens;
         usageTotal = addUsage(usageTotal, ev.usage);
@@ -117,7 +120,7 @@ function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
       queued = [];
       break;
   }
-  return { lastSeq: ev.seq, sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, contextTokens, activeTool, lastText, usageTotal, contextWindow };
+  return { lastSeq: ev.seq, sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow };
 }
 
 function addUsage(total: UsageTotal | null, u: Usage): UsageTotal {

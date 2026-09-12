@@ -13,6 +13,7 @@
  * Nothing here spawns Claude. The first send() does.
  */
 
+import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { LIMITS } from "../shared/protocol";
@@ -47,6 +48,7 @@ export async function main(): Promise<void> {
   const enroll = new EnrollTokens();
   const push = new PushService(join(env.HELM_HOME, "push", "subscriptions.json"), { publicKey: env.HELM_VAPID_PUBLIC, privateKey: env.HELM_VAPID_PRIVATE, subject: env.HELM_VAPID_SUBJECT }, threads);
   const mirror = new Mirror(env.HELM_VAULT_ROOT, threads);
+  const version = (JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as { version: string }).version;
 
   logs.onOpen((log) => {
     push.watch(log);
@@ -66,6 +68,7 @@ export async function main(): Promise<void> {
     agents,
     uploads,
     settings,
+    about: { version, host: env.HELM_HOSTNAME },
     push,
     staticDir: env.HELM_STATIC_DIR,
     browseRoots: env.HELM_ADD_DIRS,

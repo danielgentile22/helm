@@ -6,7 +6,9 @@
   import ErrorScreen from "./screens/ErrorScreen.svelte";
   import List from "./screens/List.svelte";
   import Login from "./screens/Login.svelte";
+  import SettingsScreen from "./screens/Settings.svelte";
   import Thread from "./screens/Thread.svelte";
+  import { settings } from "./settings.svelte";
 
   let { api }: { api: HelmClient } = $props();
 
@@ -37,6 +39,16 @@
     })();
   });
 
+  $effect(() => {
+    if (me) void settings.load(api).catch(() => null);
+  });
+
+  $effect(() => {
+    const theme = settings.value?.theme;
+    if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+    else delete document.documentElement.dataset.theme;
+  });
+
   const signedIn = (who: { label: string }): void => {
     me = who;
     unauthorized = false;
@@ -55,6 +67,8 @@
     {#key router.route.threadId}
       <Thread {api} threadId={router.route.threadId} />
     {/key}
+  {:else if router.route.name === "settings"}
+    <SettingsScreen {api} />
   {:else if router.route.name === "list"}
     <List {api} />
   {/if}

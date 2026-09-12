@@ -2,12 +2,13 @@
 
 import type { ThreadId } from "../shared/protocol";
 
-export type Route = { name: "list" } | { name: "thread"; threadId: ThreadId } | { name: "enroll"; token: string } | { name: "login" };
+export type Route = { name: "list" } | { name: "thread"; threadId: ThreadId } | { name: "enroll"; token: string } | { name: "login" } | { name: "settings" };
 
 export function parseRoute(pathname: string, search: string): Route {
   const t = pathname.match(/^\/t\/([a-f0-9-]{8,40})$/i);
   if (t) return { name: "thread", threadId: t[1] as ThreadId };
   if (pathname === "/enroll") return { name: "enroll", token: new URLSearchParams(search).get("token") ?? "" };
   if (pathname === "/login") return { name: "login" };
+  if (pathname === "/settings") return { name: "settings" };
   return { name: "list" };
 }

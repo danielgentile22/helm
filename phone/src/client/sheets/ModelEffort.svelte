@@ -58,7 +58,7 @@
           {#each efforts as e (e)}<option value={e}>{e}</option>{/each}
         </select>
       </div>
-      <div class="row">
+      <div class="actions">
         <button class="btn" onclick={onClose}>Cancel</button>
         <span class="grow"></span>
         <button class="btn primary" onclick={apply}>Apply</button>

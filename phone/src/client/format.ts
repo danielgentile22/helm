@@ -7,6 +7,17 @@ export function fmtTime(iso: string | null): string {
   return d.toDateString() === now.toDateString() ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+/** Locale is pinned to en-US so a weekday or month name does not vary by machine. */
+export function fmtRelative(iso: string, now: Date): string {
+  const d = new Date(iso);
+  const secs = (now.getTime() - d.getTime()) / 1000;
+  if (secs < 60) return "now";
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+  if (secs < 86_400) return `${Math.floor(secs / 3600)}h`;
+  if (secs < 604_800) return d.toLocaleDateString("en-US", { weekday: "short" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 export const fmtK = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 
 export const shortModel = (m: string): string => m.replace(/^claude-/, "").replace(/-\d{8}$/, "");

@@ -13,10 +13,11 @@
  *   GET    /auth/me                                              -> { label }
  *
  *   GET    /api/models                                           -> ModelChoice[] (live catalog)
+ *   GET    /api/about                                            -> { version, host }
  *   GET    /api/passkeys                                         -> { label, createdAt }[] (never the credential id)
  *   GET    /api/settings                                         -> HelmSettings
  *   PATCH  /api/settings                                         -> HelmSettings
- *   GET    /api/threads                                          -> ThreadSummary[]
+ *   GET    /api/threads?archived=1                               -> ThreadSummary[]
  *   POST   /api/threads                                          -> create (idempotent on threadId)
  *   GET    /api/threads/:id                                      -> ThreadSummary
  *   PATCH  /api/threads/:id                                      -> reconfigure (model/effort/title)
@@ -91,6 +92,7 @@ export interface AppDeps {
   readonly agents: AgentFactory;
   readonly uploads: Uploads;
   readonly settings: SettingsStore;
+  readonly about: { readonly version: string; readonly host: string };
   readonly push: PushDeps;
   readonly staticDir: string;
   readonly browseRoots: readonly string[];
@@ -209,6 +211,8 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     }
   });
 
+  app.get("/api/about", (c) => c.json(deps.about));
+
   app.get("/api/passkeys", async (c) => c.json(passkeyRows(await deps.webauthn.listCredentials())));
 
   app.get("/api/settings", async (c) => c.json(await deps.settings.get()));
@@ -233,6 +237,7 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
       headSeq: head.lastSeq,
       session,
       lastTurnEndedAt: head.lastTurnEndedAt,
+      lastOutcome: head.lastOutcome,
       contextTokens: head.contextTokens,
       preview: preview ? preview : null,
       doing: doingNow(head, session),
@@ -242,7 +247,7 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
   };
 
   app.get("/api/threads", async (c) => {
-    const configs = await deps.threads.list();
+    const configs = await deps.threads.list({ includeArchived: c.req.query("archived") === "1" });
     const out = await Promise.all(configs.map(async (cfg) => summary(await deps.logs.get(cfg.threadId), cfg)));
     out.sort((a, b) => (b.lastTurnEndedAt ?? b.config.createdAt).localeCompare(a.lastTurnEndedAt ?? a.config.createdAt));
     return c.json(out);
@@ -433,7 +438,7 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
   app.get("/*", async (c) => {
     const url = new URL(c.req.url);
     let rel = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, "");
-    if (rel === "/" || rel.startsWith("/t/") || rel === "/enroll" || rel === "/login") rel = "/index.html";
+    if (rel === "/" || rel.startsWith("/t/") || rel === "/enroll" || rel === "/login" || rel === "/settings") rel = "/index.html";
     const file = join(deps.staticDir, rel);
     if (!file.startsWith(deps.staticDir)) return fail(c, 404, "not found");
     try {
