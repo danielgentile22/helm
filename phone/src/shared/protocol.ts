@@ -286,8 +286,10 @@ export interface PushPayload {
   readonly threadId: ThreadId;
   readonly title: string;
   readonly body: string;
+  /** How the turn ended, so the notification can be styled by outcome rather than by parsing the body. */
+  readonly kind: TurnOutcome;
   readonly seq: Seq;
-  readonly url: string; // `/t/<threadId>`
+  readonly url: string; // `/t/<threadId>#end`
 }
 
 // ---------------------------------------------------------------------------

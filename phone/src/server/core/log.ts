@@ -397,20 +397,3 @@ export class LogRegistry {
     return ids;
   }
 }
-
-/** Fold used by projections that need the last assistant text or the title; pure. */
-export function lastAssistantText(events: Iterable<ThreadEvent>, maxChars: number): string | null {
-  let turn: TurnId | null = null;
-  let text = "";
-  for (const ev of events) {
-    if (ev.kind !== "assistant.text") continue;
-    if (ev.turnId !== turn) {
-      turn = ev.turnId;
-      text = "";
-    }
-    text += ev.delta;
-  }
-  if (turn === null) return null;
-  const trimmed = text.trim();
-  return trimmed.length > maxChars ? trimmed.slice(0, maxChars) : trimmed;
-}

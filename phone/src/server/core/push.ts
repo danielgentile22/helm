@@ -15,7 +15,7 @@
 import webpush from "web-push";
 import type { PushPayload, ThreadEvent, ThreadId } from "../../shared/protocol";
 import { atomicWrite } from "../util/atomicWrite";
-import { lastAssistantText, type ThreadLog } from "./log";
+import type { ThreadLog } from "./log";
 import type { ThreadStore } from "./thread-store";
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -118,11 +118,10 @@ export class PushService {
     try {
       await this.loaded;
       if (this.records.size === 0) return;
-      const events: ThreadEvent[] = [];
-      for await (const e of log.read(0)) events.push(e);
-      const preview = lastAssistantText(events, PREVIEW_CHARS);
+      // The head already carries this turn's text, so a notification costs no disk read.
+      const last = log.getHead().lastText;
       const config = await this.threads.get(log.threadId);
-      await this.fireAll(payloadFor(log.threadId, config?.title ?? null, ev, preview));
+      await this.fireAll(payloadFor(log.threadId, config?.title ?? null, ev, last?.turnId === ev.turnId ? last.text : null));
     } catch (err) {
       console.error(`[push] ${log.threadId}: notify failed`, err);
     }
@@ -157,13 +156,12 @@ export class PushService {
  * dead phone connection from lingering more than ~2 intervals.
  *
  * `liveSubscribers` excludes the push watcher's own subscription; watch()
- * passes subscriberCount() - 1. An `orphaned` outcome is never news the
- * phone can act on (the turn died with the server, and boot recovery, not a
- * live append, wrote it), so it never notifies.
+ * passes subscriberCount() - 1. Every outcome notifies, `orphaned` included:
+ * a turn that died with the server is precisely the case where the work did
+ * not happen and the user has to resend, so staying quiet loses the message.
  */
 export function shouldNotify(ev: ThreadEvent, liveSubscribers: number): boolean {
   if (ev.kind !== "turn.ended") return false;
-  if (ev.outcome === "orphaned") return false;
   return liveSubscribers <= 0;
 }
 
@@ -178,21 +176,28 @@ export function payloadFor(
     threadId,
     title: title ?? "Helm",
     body: bodyFor(ev, preview),
+    kind: ev.outcome,
     seq: ev.seq,
-    url: `/t/${threadId}`,
+    url: `/t/${threadId}#end`,
   };
 }
 
+/**
+ * A notification has one line, so an `ok` body is the first non-empty line of
+ * what the model said rather than a slice across a paragraph break. Claude
+ * Code's replies lead with the answer, so the first line is the useful one.
+ */
 function bodyFor(ev: Extract<ThreadEvent, { kind: "turn.ended" }>, preview: string | null): string {
   switch (ev.outcome) {
-    case "ok":
-      return preview !== null && preview.length > 0 ? preview.slice(0, PREVIEW_CHARS) : "Turn finished";
+    case "ok": {
+      const line = (preview ?? "").split("\n").map((l) => l.trim()).find((l) => l.length > 0);
+      return line ? line.slice(0, PREVIEW_CHARS) : "Turn finished";
+    }
     case "error":
       return `Error: ${ev.error ?? "unknown"}`;
     case "interrupted":
       return "Interrupted";
     case "orphaned":
-      // Unreachable through shouldNotify; kept so the switch stays exhaustive.
-      return "Turn ended with the server";
+      return "Server restarted while this turn was running; resend if needed";
   }
 }
