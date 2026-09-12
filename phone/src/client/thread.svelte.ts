@@ -40,6 +40,7 @@ export class ThreadSession {
       onEvent: (ev) => {
         this.view = fold(this.view, ev);
         if (ev.kind === "thread.config") this.summary = { ...this.summary, config: { ...this.summary.config, ...ev.patch } };
+        if (ev.kind === "turn.ended" && !this.view.replaying) void api.getThread(threadId).then((s) => (this.summary = s), () => null);
       },
       onSync: (frame) => {
         this.view = applySync(this.view, frame);

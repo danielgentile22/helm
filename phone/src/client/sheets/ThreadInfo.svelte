@@ -8,7 +8,7 @@
   // The log is the only record of what this thread has run on: every model change
   // left a note behind, and the config carries whatever it is running on now.
   const history = $derived([
-    ...view.lines.filter((l) => l.kind === "note" && l.text.includes("model set to")).map((l) => (l.kind === "note" ? l.text : "")),
+    ...view.lines.flatMap((l) => (l.kind === "note" ? [l.text.match(/^(\[[^\]]*\]).*?\b(model set to \S+)/)] : [])).flatMap((m) => (m ? [`${m[1]} ${m[2]}`] : [])),
     `now ${shortModel(summary.config.model)} · ${summary.config.effort}`,
   ]);
 
@@ -25,7 +25,7 @@
       <div class="irow"><span class="k">Session</span><span class="v">{view.sessionId ?? "not bound yet"}</span></div>
       <div class="irow">
         <span class="k">Model</span>
-        <span class="v">{#each history as h (h)}<span class="hline">{h}</span>{/each}</span>
+        <span class="v">{#each history as h, i (i)}<span class="hline">{h}</span>{/each}</span>
       </div>
       {#if totals}
         <div class="irow"><span class="k">Input</span><span class="v">{fmtK(totals.inputTokens)}</span></div>

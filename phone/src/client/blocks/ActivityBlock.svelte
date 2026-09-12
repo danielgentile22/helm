@@ -8,8 +8,11 @@
   let open = $state(false);
   let now = $state(Date.now());
 
+  // Read through a derived so the interval survives text deltas, which rebuild the block object.
+  const running = $derived(block.running);
+
   $effect(() => {
-    if (!block.running) return;
+    if (!running) return;
     const id = setInterval(() => (now = Date.now()), 1000);
     return () => clearInterval(id);
   });

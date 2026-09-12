@@ -62,7 +62,7 @@ const renderer: RendererObject = {
 
 const marked = new Marked({ gfm: true, breaks: false }).use({ renderer });
 
-const purify: Sanitize = (html) => DOMPurify.sanitize(html, { ADD_ATTR: ["data-copy", "target"] });
+const purify: Sanitize = (html) => DOMPurify.sanitize(html, { ADD_ATTR: ["target"] });
 
 export function renderMarkdown(md: string, sanitize: Sanitize = purify): string {
   return sanitize(marked.parse(md, { async: false }));

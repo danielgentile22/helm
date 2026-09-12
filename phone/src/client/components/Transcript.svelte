@@ -95,9 +95,11 @@
     if (!(btn instanceof HTMLButtonElement)) return;
     const code = btn.closest(".code")?.querySelector("code");
     if (!code) return;
-    void navigator.clipboard.writeText(code.textContent ?? "");
     const label = btn.textContent;
-    btn.textContent = "Copied";
+    navigator.clipboard.writeText(code.textContent ?? "").then(
+      () => (btn.textContent = "Copied"),
+      () => (btn.textContent = "Copy failed"),
+    );
     setTimeout(() => (btn.textContent = label), 1000);
   }
 </script>

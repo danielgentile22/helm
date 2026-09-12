@@ -55,5 +55,5 @@
 >{@html html}</div>
 
 {#if sheetOpen}
-  <TextActions markdown={text} plain={el?.textContent ?? text} {onQuote} onClose={() => (sheetOpen = false)} />
+  <TextActions markdown={text} plain={el?.innerText ?? text} {onQuote} onClose={() => (sheetOpen = false)} />
 {/if}
