@@ -388,3 +388,36 @@ test("thread head: doing reports the open tool while running, the text tail once
   assert.deepEqual(after.doing, { kind: "text", tail: "Second turn done" }, "a new turn resets the tail");
   await s.cleanup();
 });
+
+test("upload bytes: round-trip after staging, again after a restart, 404 for an unknown id, 401 without auth", async () => {
+  const s = await buildStack();
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+  const posted = await s.fetch(
+    new Request(`https://mac.test.ts.net/api/threads/${THREAD}/uploads`, {
+      method: "POST",
+      headers: { "x-helm-key": API_KEY, "content-type": "application/octet-stream", "content-length": String(png.length), "x-upload-name": "shot.png" },
+      body: png,
+    }),
+  );
+  assert.equal(posted.status, 201);
+  const [staged] = (await posted.json()) as { uploadId: string; name: string; mime: string; bytes: number }[];
+  assert.equal(staged!.mime, "image/png", "sniffed from the magic bytes");
+
+  const got = await s.api("GET", `/api/threads/${THREAD}/uploads/${staged!.uploadId}`);
+  assert.equal(got.status, 200);
+  assert.equal(got.headers.get("content-type"), "image/png");
+  assert.equal(got.headers.get("content-length"), String(png.length));
+  assert.equal(got.headers.get("content-disposition"), 'inline; filename="shot.png"');
+  assert.equal(got.headers.get("cache-control"), "private, max-age=3600");
+  assert.deepEqual(Buffer.from(await got.arrayBuffer()), png);
+
+  assert.equal((await s.api("GET", `/api/threads/${THREAD}/uploads/${uuid(7)}`)).status, 404);
+  assert.equal((await s.fetch(new Request(`https://mac.test.ts.net/api/threads/${THREAD}/uploads/${staged!.uploadId}`))).status, 401);
+
+  const r2 = await s.restart();
+  const afterRestart = await r2.api("GET", `/api/threads/${THREAD}/uploads/${staged!.uploadId}`);
+  assert.equal(afterRestart.status, 200, "resolved from the log, not from memory");
+  assert.deepEqual(Buffer.from(await afterRestart.arrayBuffer()), png);
+  await r2.cleanup();
+});

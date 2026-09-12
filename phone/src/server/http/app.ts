@@ -23,6 +23,7 @@
  *   GET    /api/threads/:id/commands                             -> { commands: SlashCommand[] }
  *   POST   /api/threads/:id/commands/reload                      -> { commands: SlashCommand[] } (rediscovers skills)
  *   POST   /api/threads/:id/uploads   (raw body, one file, Content-Length capped) -> StagedUpload[]
+ *   GET    /api/threads/:id/uploads/:uploadId                    -> the staged bytes, inline
  *   GET    /api/threads/:id/events?after=N   (SSE, cookie or key) -> ThreadEvent stream
  *   GET    /api/events                        (SSE)              -> global fan-in
  *   GET    /api/dirs?path=...                                    -> DirEntry[] (within browseRoots)
@@ -35,8 +36,10 @@
  * module -> log.ts.
  */
 
-import { readFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
+import { Readable } from "node:stream";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -315,6 +318,22 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     const mime = (c.req.header("content-type") ?? "application/octet-stream").split(";")[0]!.trim();
     const staged = await deps.uploads.stage(t.threadId, { name, mime, stream: body as unknown as AsyncIterable<Uint8Array> }, c.get("origin"));
     return c.json([staged], 201);
+  });
+
+  app.get("/api/threads/:id/uploads/:uploadId", async (c) => {
+    const t = await thread(c);
+    if (t instanceof Response) return t;
+    const resolved = await deps.uploads.resolve(t.threadId, [c.req.param("uploadId")]).catch(() => []);
+    const upload = resolved[0];
+    if (!upload) return fail(c, 404, "no such upload");
+    const size = await stat(upload.path).then((s) => s.size, () => null);
+    if (size === null) return fail(c, 404, "upload file is gone");
+    c.header("Content-Type", upload.mime);
+    c.header("Content-Length", String(size));
+    c.header("Content-Disposition", `inline; filename="${upload.name}"`);
+    // The id is a uuid and the bytes never change under it, so a phone may hold on to them.
+    c.header("Cache-Control", "private, max-age=3600");
+    return c.body(Readable.toWeb(createReadStream(upload.path)) as ReadableStream);
   });
 
   app.get("/api/threads/:id/events", async (c) => {
