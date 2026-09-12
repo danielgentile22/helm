@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { LIMITS } from "../../shared/protocol";
-import type { SlashCommand, ThreadConfig, ThreadSummary } from "../../shared/protocol";
+import type { HelmSettings, SlashCommand, ThreadConfig, ThreadSummary } from "../../shared/protocol";
 import { parseCreateThread, parsePatch, parseSend } from "./app";
 import { API_KEY, buildStack, eventSeqs, events, readSse, type Frame, type Stack } from "./testkit";
 
@@ -419,5 +419,36 @@ test("upload bytes: round-trip after staging, again after a restart, 404 for an 
   const afterRestart = await r2.api("GET", `/api/threads/${THREAD}/uploads/${staged!.uploadId}`);
   assert.equal(afterRestart.status, 200, "resolved from the log, not from memory");
   assert.deepEqual(Buffer.from(await afterRestart.arrayBuffer()), png);
+  await r2.cleanup();
+});
+
+test("settings: defaults on first read, patches round-trip across a restart, bad fields are rejected", async () => {
+  const s = await buildStack();
+  const read = async (): Promise<HelmSettings> => (await (await s.api("GET", "/api/settings")).json()) as HelmSettings;
+
+  assert.deepEqual(await read(), { theme: "system", defaultModel: null, defaultEffort: "medium", defaultCwd: join(s.home, "work") });
+
+  const patched = await s.api("PATCH", "/api/settings", { theme: "dark", defaultModel: "claude-sonnet-5", defaultEffort: "high", defaultCwd: join(s.home, "work", "proj") });
+  assert.equal(patched.status, 200);
+  const saved = (await patched.json()) as HelmSettings;
+  assert.deepEqual(saved, { theme: "dark", defaultModel: "claude-sonnet-5", defaultEffort: "high", defaultCwd: join(s.home, "work", "proj") });
+  assert.deepEqual(await read(), saved, "a re-read matches what the patch returned");
+
+  const bad = async (body: unknown): Promise<string> => ((await (await s.api("PATCH", "/api/settings", body)).json()) as { error: string }).error;
+  assert.equal(await bad({ colour: "dark" }), "unknown field: colour");
+  assert.equal(await bad({ theme: "neon" }), "theme must be one of system, light, dark");
+  assert.equal(await bad({ defaultModel: "claude-haiku-4-5-20251001" }), "defaultModel is not in the live catalog");
+  assert.equal(await bad({ defaultEffort: "ultra" }), "defaultEffort must be one of low, medium, high, xhigh, max");
+  assert.equal(await bad({ defaultCwd: "relative/path" }), "defaultCwd must be an absolute path");
+  assert.equal(await bad({ defaultCwd: join(s.home, "work", "nope") }), "defaultCwd is not an existing directory");
+  assert.equal(await bad({}), "nothing to change");
+  assert.equal((await s.api("PATCH", "/api/settings", { theme: "neon" })).status, 400);
+
+  const cleared = await s.api("PATCH", "/api/settings", { defaultModel: null });
+  assert.equal(((await cleared.json()) as HelmSettings).defaultModel, null, "null clears the preference");
+
+  const r2 = await s.restart();
+  assert.deepEqual(await (await r2.api("GET", "/api/settings")).json(), { theme: "dark", defaultModel: null, defaultEffort: "high", defaultCwd: join(s.home, "work", "proj") });
+  assert.equal((await r2.fetch(new Request("https://mac.test.ts.net/api/settings"))).status, 401);
   await r2.cleanup();
 });

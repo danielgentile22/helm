@@ -21,6 +21,7 @@ import { acquireInstanceLock } from "./core/instanceLock";
 import { LogRegistry } from "./core/log";
 import { Mirror } from "./core/mirror";
 import { PushService } from "./core/push";
+import { SettingsStore } from "./core/settings";
 import { Supervisor } from "./core/supervisor";
 import { ThreadStore } from "./core/thread-store";
 import { Uploads } from "./core/uploads";
@@ -38,6 +39,7 @@ export async function main(): Promise<void> {
   const agents = new SdkAgentFactory({ env: process.env });
   const supervisor = new Supervisor(logs, threads, agents, { additionalDirectories: env.HELM_ADD_DIRS, idleParkMs: LIMITS.IDLE_PARK_MS });
   const uploads = new Uploads(threads, logs);
+  const settings = new SettingsStore(join(env.HELM_HOME, "settings.json"), { defaultCwd: env.HELM_VAULT_ROOT });
   const sessions = new FileSessionStore(join(env.HELM_HOME, "auth", "sessions.json"));
   const sessionTtlMs = env.HELM_SESSION_HOURS * 3600_000;
   const publicOrigin = `https://${env.HELM_HOSTNAME}`;
@@ -63,6 +65,7 @@ export async function main(): Promise<void> {
     supervisor,
     agents,
     uploads,
+    settings,
     push,
     staticDir: env.HELM_STATIC_DIR,
     browseRoots: env.HELM_ADD_DIRS,

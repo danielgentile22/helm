@@ -82,6 +82,24 @@ export interface SlashCommand {
   readonly argumentHint: string;
 }
 
+/**
+ * Server-wide preferences, in <HELM_HOME>/settings.json. These seed a new
+ * thread; they never change one that already exists, whose own ThreadConfig
+ * is the record of what it actually ran on.
+ */
+export interface HelmSettings {
+  readonly theme: "system" | "light" | "dark";
+  /** null means "no preference": the picker opens with nothing chosen. */
+  readonly defaultModel: ModelId | null;
+  readonly defaultEffort: Effort;
+  /** Absolute path to an existing directory. */
+  readonly defaultCwd: string;
+}
+
+export const THEMES: readonly HelmSettings["theme"][] = ["system", "light", "dark"];
+
+export type SettingsPatch = Partial<HelmSettings>;
+
 export interface ThreadConfig {
   readonly threadId: ThreadId;
   /** Absolute path. Determines which CLAUDE.md Claude Code discovers. */

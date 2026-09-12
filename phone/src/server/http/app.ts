@@ -13,6 +13,8 @@
  *   GET    /auth/me                                              -> { label }
  *
  *   GET    /api/models                                           -> ModelChoice[] (live catalog)
+ *   GET    /api/settings                                         -> HelmSettings
+ *   PATCH  /api/settings                                         -> HelmSettings
  *   GET    /api/threads                                          -> ThreadSummary[]
  *   POST   /api/threads                                          -> create (idempotent on threadId)
  *   GET    /api/threads/:id                                      -> ThreadSummary
@@ -43,14 +45,17 @@ import { Readable } from "node:stream";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
-import { DEFAULT_EFFORT, EFFORTS, LIMITS } from "../../shared/protocol";
+import { DEFAULT_EFFORT, EFFORTS, LIMITS, THEMES } from "../../shared/protocol";
 import type {
   ClientMsgId,
   CreateThreadRequest,
   Effort,
+  HelmSettings,
   ModelChoice,
+  ModelId,
   Origin,
   SendRequest,
+  SettingsPatch,
   ThreadConfigPatch,
   ThreadId,
   ThreadSummary,
@@ -63,6 +68,7 @@ import type { LogRegistry, ThreadLog } from "../core/log";
 import type { PushSubscriptionRecord } from "../core/push";
 import type { Supervisor } from "../core/supervisor";
 import type { ThreadStore } from "../core/thread-store";
+import type { SettingsStore } from "../core/settings";
 import type { Uploads } from "../core/uploads";
 import type { AuthDeps, EnrollTokens, WebAuthnCeremonies } from "./auth";
 import { API_KEY_HEADER, authenticate, bodyTooLarge, checkApiKey, sessionCookie } from "./auth";
@@ -83,6 +89,7 @@ export interface AppDeps {
   readonly supervisor: Supervisor;
   readonly agents: AgentFactory;
   readonly uploads: Uploads;
+  readonly settings: SettingsStore;
   readonly push: PushDeps;
   readonly staticDir: string;
   readonly browseRoots: readonly string[];
@@ -92,6 +99,9 @@ export interface AppDeps {
   readonly publicOrigin: string;
   readonly heartbeatMs?: number;
 }
+
+/** The settings a PATCH may carry. Named once so the parser and the type cannot drift apart. */
+const SETTINGS_FIELDS: readonly (keyof HelmSettings)[] = ["theme", "defaultModel", "defaultEffort", "defaultCwd"];
 
 type Env = { Variables: { origin: Origin } };
 
@@ -196,6 +206,19 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     } catch (err) {
       return fail(c, 503, `model catalog unavailable: ${message(err)}`);
     }
+  });
+
+  app.get("/api/settings", async (c) => c.json(await deps.settings.get()));
+
+  app.patch("/api/settings", async (c) => {
+    if (bodyTooLarge(c.req.raw.headers, LIMITS.SEND_BODY_BYTES)) return fail(c, 413, "body too large");
+    const parsed = parseSettingsPatch(await json(c), await models().catch(() => []));
+    if (!parsed.ok) return fail(c, parsed.status, parsed.error);
+    // Touching the filesystem is the route's job, not the parser's: the parser stays pure and unit-testable.
+    if (parsed.value.defaultCwd !== undefined && !(await stat(parsed.value.defaultCwd).then((s) => s.isDirectory(), () => false))) {
+      return fail(c, 400, "defaultCwd is not an existing directory");
+    }
+    return c.json(await deps.settings.patch(parsed.value));
   });
 
   const summary = (log: ThreadLog, config: ThreadSummary["config"]): ThreadSummary => {
@@ -454,6 +477,38 @@ export function parseCreateThread(body: unknown, catalog: readonly ModelChoice[]
   const title = body.title === undefined || body.title === null ? null : typeof body.title === "string" ? body.title.slice(0, 120) : undefined;
   if (title === undefined) return { ok: false, status: 400, error: "title must be a string" };
   return { ok: true, value: { threadId: typeof body.threadId === "string" ? body.threadId : undefined, cwd, model, effort: effort as Effort, title } };
+}
+
+/**
+ * Strict, unlike the file reader in settings.ts: an unknown field from a
+ * client is a bug on the client, and accepting it silently would let a typo
+ * look like a saved preference. `defaultCwd` is only checked for shape here;
+ * whether the directory exists is a filesystem question the route asks.
+ */
+export function parseSettingsPatch(body: unknown, catalog: readonly ModelChoice[]): Parsed<SettingsPatch> {
+  if (!isRecord(body)) return { ok: false, status: 400, error: "body must be a JSON object" };
+  const patch: { -readonly [K in keyof HelmSettings]?: HelmSettings[K] } = {};
+  for (const key of Object.keys(body)) {
+    if (!SETTINGS_FIELDS.includes(key as keyof HelmSettings)) return { ok: false, status: 400, error: `unknown field: ${key}` };
+  }
+  if (body.theme !== undefined) {
+    if (!THEMES.includes(body.theme as HelmSettings["theme"])) return { ok: false, status: 400, error: `theme must be one of ${THEMES.join(", ")}` };
+    patch.theme = body.theme as HelmSettings["theme"];
+  }
+  if (body.defaultModel !== undefined) {
+    if (body.defaultModel !== null && !parseModelId(body.defaultModel, catalog)) return { ok: false, status: 400, error: "defaultModel is not in the live catalog" };
+    patch.defaultModel = body.defaultModel === null ? null : (body.defaultModel as ModelId);
+  }
+  if (body.defaultEffort !== undefined) {
+    if (!EFFORTS.includes(body.defaultEffort as Effort)) return { ok: false, status: 400, error: `defaultEffort must be one of ${EFFORTS.join(", ")}` };
+    patch.defaultEffort = body.defaultEffort as Effort;
+  }
+  if (body.defaultCwd !== undefined) {
+    if (typeof body.defaultCwd !== "string" || !body.defaultCwd.startsWith("/")) return { ok: false, status: 400, error: "defaultCwd must be an absolute path" };
+    patch.defaultCwd = body.defaultCwd;
+  }
+  if (Object.keys(patch).length === 0) return { ok: false, status: 400, error: "nothing to change" };
+  return { ok: true, value: patch };
 }
 
 export function parsePatch(body: unknown, catalog: readonly ModelChoice[]): Parsed<ThreadConfigPatch> {
