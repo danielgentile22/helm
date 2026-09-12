@@ -1,0 +1,40 @@
+<script lang="ts">
+  import { toolArg } from "../format";
+  import { toolDiff, type ToolLine } from "../transcript";
+  import Diff from "./Diff.svelte";
+
+  let { tool }: { tool: ToolLine } = $props();
+
+  const OUTPUT_LINES = 200;
+
+  let open = $state(false);
+  let showAll = $state(false);
+
+  const mark = $derived(tool.isError === null ? { cls: "running", glyph: "◆", word: "running" } : tool.isError ? { cls: "error", glyph: "▲", word: "failed" } : { cls: "done", glyph: "✓", word: "done" });
+  const diff = $derived(toolDiff(tool));
+  const input = $derived(typeof tool.input === "string" ? tool.input : JSON.stringify(tool.input, null, 1));
+  const outputLines = $derived(tool.output === null ? [] : tool.output.split("\n"));
+  const clipped = $derived(!showAll && outputLines.length > OUTPUT_LINES);
+  const output = $derived(clipped ? outputLines.slice(0, OUTPUT_LINES).join("\n") : outputLines.join("\n"));
+</script>
+
+<div class="trow" class:is-open={open}>
+  <button class="trhead" type="button" aria-expanded={open} onclick={() => (open = !open)}>
+    <span class="state {mark.cls}"><span class="glyph">{mark.glyph}</span>{mark.word}</span>
+    <span class="name">{tool.name}</span>
+    <span class="arg">{toolArg(tool.input)}</span>
+  </button>
+  {#if open}
+    {#if diff}
+      <Diff file={diff.file} lines={diff.lines} />
+    {:else}
+      <pre class="io">{input}</pre>
+    {/if}
+    {#if tool.output !== null}
+      <pre class="io">{output}</pre>
+      {#if clipped}
+        <button class="btn small" type="button" onclick={() => (showAll = true)}>show all {outputLines.length} lines</button>
+      {/if}
+    {/if}
+  {/if}
+</div>

@@ -8,16 +8,16 @@
  * received a duplicate, self-heals without any special-case code.
  */
 
-import type { Cursor, SyncFrame, ThreadEvent, ThreadId, TurnId, Usage } from "../shared/protocol";
+import type { ClaudeSessionId, Cursor, SyncFrame, ThreadEvent, ThreadId, TurnId, TurnOutcome, Usage } from "../shared/protocol";
 
 export type Line =
   /** `[iphone] > text` prompt line; `pending` until the server acks, `queued` until its turn starts, `dropped` if the server restarted. */
   | { kind: "prompt"; clientMsgId: string; text: string; uploads: readonly string[]; state: "pending" | "queued" | "started" | "dropped"; label: string }
   | { kind: "text"; turnId: TurnId; blockIx: number; text: string }
   | { kind: "thinking"; turnId: TurnId; text: string }
-  /** Rendered as a single collapsed row: `> Read Atlas/Areas/Health.md` then a checkmark or a cross. */
-  | { kind: "tool"; turnId: TurnId; toolUseId: string; name: string; input: unknown; output: string | null; isError: boolean | null }
-  | { kind: "end"; turnId: TurnId; outcome: string; usage: Usage | null; error: string | null }
+  /** One tool call. `endedAt` is null while it is still running; both stamps come from the event `ts`. */
+  | { kind: "tool"; turnId: TurnId; toolUseId: string; name: string; input: unknown; output: string | null; isError: boolean | null; startedAt: string; endedAt: string | null }
+  | { kind: "end"; turnId: TurnId; outcome: TurnOutcome; usage: Usage | null; error: string | null }
   | { kind: "note"; text: string }; // config changes, archived
 
 export interface ThreadView {
@@ -26,12 +26,13 @@ export interface ThreadView {
   readonly lines: readonly Line[];
   readonly openTurn: TurnId | null;
   readonly session: SyncFrame["session"];
+  readonly sessionId: ClaudeSessionId | null;
   readonly contextTokens: number | null;
   readonly replaying: boolean;
 }
 
 export function emptyView(threadId: ThreadId): ThreadView {
-  return { threadId, headSeq: 0, lines: [], openTurn: null, session: "cold", contextTokens: null, replaying: true };
+  return { threadId, headSeq: 0, lines: [], openTurn: null, session: "cold", sessionId: null, contextTokens: null, replaying: true };
 }
 
 function replaceLast(lines: readonly Line[], index: number, line: Line): Line[] {
@@ -52,9 +53,10 @@ export function fold(view: ThreadView, ev: ThreadEvent): ThreadView {
   const lines = view.lines;
   switch (ev.kind) {
     case "thread.created":
-    case "session.bound":
     case "upload.staged":
       return base;
+    case "session.bound":
+      return { ...base, sessionId: ev.sessionId };
     case "input.queued": {
       const ix = findLastIndex(lines, (l) => l.kind === "prompt" && l.clientMsgId === ev.clientMsgId && l.state === "pending");
       const line: Line = { kind: "prompt", clientMsgId: ev.clientMsgId, text: ev.text, uploads: ev.uploads.map((u) => u.name), state: "queued", label: ev.origin.label };
@@ -82,11 +84,11 @@ export function fold(view: ThreadView, ev: ThreadEvent): ThreadView {
       return { ...base, lines: [...lines, { kind: "thinking", turnId: ev.turnId, text: ev.delta }] };
     }
     case "tool.started":
-      return { ...base, lines: [...lines, { kind: "tool", turnId: ev.turnId, toolUseId: ev.toolUseId, name: ev.name, input: ev.input, output: null, isError: null }] };
+      return { ...base, lines: [...lines, { kind: "tool", turnId: ev.turnId, toolUseId: ev.toolUseId, name: ev.name, input: ev.input, output: null, isError: null, startedAt: ev.ts, endedAt: null }] };
     case "tool.finished": {
       const ix = findLastIndex(lines, (l) => l.kind === "tool" && l.toolUseId === ev.toolUseId);
-      if (ix < 0) return { ...base, lines: [...lines, { kind: "tool", turnId: ev.turnId, toolUseId: ev.toolUseId, name: "?", input: null, output: ev.output, isError: ev.isError }] };
-      return { ...base, lines: replaceLast(lines, ix, { ...(lines[ix] as Extract<Line, { kind: "tool" }>), output: ev.output, isError: ev.isError }) };
+      if (ix < 0) return { ...base, lines: [...lines, { kind: "tool", turnId: ev.turnId, toolUseId: ev.toolUseId, name: "?", input: null, output: ev.output, isError: ev.isError, startedAt: ev.ts, endedAt: ev.ts }] };
+      return { ...base, lines: replaceLast(lines, ix, { ...(lines[ix] as Extract<Line, { kind: "tool" }>), output: ev.output, isError: ev.isError, endedAt: ev.ts }) };
     }
     case "turn.ended":
       return {
