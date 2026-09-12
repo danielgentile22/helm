@@ -468,8 +468,8 @@ async function refreshPushButton(btn: HTMLButtonElement): Promise<void> {
   }
   const reg = await swRegistration();
   const sub = await reg?.pushManager.getSubscription();
-  btn.textContent = sub && Notification.permission === "granted" ? "Notifications on" : "Notifications";
-  btn.disabled = Boolean(sub && Notification.permission === "granted");
+  // Once enabled there is nothing left to do here, so the button goes away.
+  btn.hidden = Boolean(sub && Notification.permission === "granted");
 }
 
 async function enablePush(btn: HTMLButtonElement): Promise<void> {
