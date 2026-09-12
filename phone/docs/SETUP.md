@@ -25,7 +25,7 @@ Fill in `.env`:
 - `HELM_API_KEY`: a long random string, for curl. `openssl rand -hex 32` is fine.
 - VAPID keys: `npx web-push generate-vapid-keys` prints a public and a private key. Subject is a
   `mailto:` address.
-- `HELM_BIND_ADDR`: `tailscale ip -4`.
+- `HELM_BIND_ADDR`: `127.0.0.1`. Tailscale serve proxies to loopback, so the server never listens on the tailnet directly.
 - `HELM_HOSTNAME`: the machine's tailnet DNS name without the trailing dot, for example
   `mac.tail1234.ts.net`. Get it from `tailscale status --self --json | jq -r .Self.DNSName`.
   This is the passkey relying party id, so it must match the address the phone opens exactly.
