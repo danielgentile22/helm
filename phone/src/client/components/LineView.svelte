@@ -15,11 +15,8 @@
 </script>
 
 {#if line.kind === "prompt"}
-  <div class="line prompt {line.state}">
-    <span class="who">[{line.label}] {promptWho(line.state)}</span>{line.text}
-    {#if line.uploads.length}<div class="muted">attached: {line.uploads.join(", ")}</div>{/if}
-    {#if line.state === "dropped"}<div class="resend"><button class="btn small" onclick={() => onResend(line.text)}>Resend</button></div>{/if}
-  </div>
+  <!-- No whitespace around {line.text}: .line is white-space: pre-wrap, so Svelte's collapsed newline would render as a real space. -->
+  <div class="line prompt {line.state}"><span class="who">[{line.label}] {promptWho(line.state)}</span>{line.text}{#if line.uploads.length}<div class="muted">attached: {line.uploads.join(", ")}</div>{/if}{#if line.state === "dropped"}<div class="resend"><button class="btn small" onclick={() => onResend(line.text)}>Resend</button></div>{/if}</div>
 {:else if line.kind === "text"}
   <div class="line text">{line.text}</div>
 {:else if line.kind === "thinking"}

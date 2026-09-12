@@ -25,8 +25,11 @@
     })();
   });
 
+  // Tracks the effort list only. Reading config.effort here would reset the user's pick every
+  // time an incoming thread.config event replaces the summary, a rename included.
   $effect(() => {
-    effort = efforts.includes(config.effort) ? config.effort : (efforts[0] ?? config.effort);
+    const list = efforts;
+    effort = untrack(() => (list.includes(config.effort) ? config.effort : (list[0] ?? config.effort)));
   });
 
   async function apply(): Promise<void> {

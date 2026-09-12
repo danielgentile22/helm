@@ -29,6 +29,7 @@
     try {
       entries = from === null && path === "" ? roots : await api.browseDirs(path);
     } catch (e) {
+      entries = [];
       err = e instanceof Error ? e.message : String(e);
     }
   }
