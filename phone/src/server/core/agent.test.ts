@@ -133,12 +133,12 @@ test("buildUserMessage lists uploads by absolute path and returns image paths", 
   assert.equal(buildUserMessage({ turnId: t, text: "plain", uploads: [] }).text, "plain");
 });
 
-test("modelCatalog drops Haiku and clamps effort to the ceiling; parseModelId validates against it", async () => {
+test("modelCatalog drops Haiku and the opaque default alias, and passes through every effort level the SDK reports; parseModelId validates against it", async () => {
   const factory = new FakeAgentFactory();
   const catalog = await modelCatalog(factory);
   assert.deepEqual(catalog, [
-    { id: "claude-opus-5", label: "Opus 5", supportsEffort: true, efforts: ["low", "medium", "high"] },
-    { id: "claude-sonnet-5", label: "Sonnet 5", supportsEffort: true, efforts: ["low", "medium", "high"] },
+    { id: "claude-opus-5", label: "Opus 5", supportsEffort: true, efforts: ["low", "medium", "high", "xhigh", "max"] },
+    { id: "claude-sonnet-5", label: "Sonnet 5", supportsEffort: true, efforts: ["low", "medium", "high", "xhigh"] },
   ]);
   assert.equal(parseModelId("claude-opus-5", catalog), "claude-opus-5");
   assert.equal(parseModelId("claude-haiku-4-5-20251001", catalog), null);

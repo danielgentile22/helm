@@ -4,7 +4,8 @@
  * events plus the attach state. Everything on screen is a function of that.
  */
 
-import type { Cursor, DirEntry, ModelChoice, ThreadId, ThreadSummary } from "../shared/protocol";
+import { DEFAULT_EFFORT } from "../shared/protocol";
+import type { Cursor, DirEntry, Effort, ModelChoice, ThreadId, ThreadSummary } from "../shared/protocol";
 import { HelmClient, HttpError } from "./api";
 import { addPendingPrompt, applySync, emptyView, fold, type Line, type ThreadView } from "./fold";
 import { assertPasskey, createPasskey } from "./webauthn";
@@ -196,12 +197,14 @@ async function openNewThread(): Promise<void> {
   const crumb = h("div", { class: "crumb" }, shortPath(cwd));
   const dirs = h("div", { class: "dirs" });
   const modelSel = h("select", {}) as HTMLSelectElement;
+  const defaultModel = catalog.find((m) => /opus/i.test(m.id)) ?? catalog[0];
   for (const m of catalog) modelSel.append(h("option", { value: m.id }, m.label));
+  if (defaultModel) modelSel.value = defaultModel.id;
   const effortSel = h("select", {}) as HTMLSelectElement;
   const effortField = h("div", { class: "field" }, h("label", {}, "Effort"), effortSel);
   const syncEffort = (): void => {
     const m = catalog.find((c) => c.id === modelSel.value);
-    effortSel.replaceChildren(...(m?.efforts ?? []).map((e) => h("option", { value: e, selected: e === "high" }, e)));
+    effortSel.replaceChildren(...(m?.efforts ?? []).map((e) => h("option", { value: e, selected: e === DEFAULT_EFFORT }, e)));
     effortField.hidden = !m?.supportsEffort;
   };
   modelSel.addEventListener("change", syncEffort);
@@ -234,7 +237,7 @@ async function openNewThread(): Promise<void> {
       err,
       h("div", { class: "row" }, h("button", { class: "btn", onclick: () => sheet.remove() }, "Cancel"), h("span", { class: "grow" }), h("button", { class: "btn primary", disabled: !catalog.length, onclick: async () => {
         try {
-          const cfg = await api.createThread({ threadId: uuid(), cwd, model: modelSel.value as ModelChoice["id"], effort: (effortSel.value || "high") as "low" | "medium" | "high" });
+          const cfg = await api.createThread({ threadId: uuid(), cwd, model: modelSel.value as ModelChoice["id"], effort: (effortSel.value || DEFAULT_EFFORT) as Effort });
           sheet.remove();
           navigate(`/t/${cfg.threadId}`);
         } catch (e) {
@@ -431,9 +434,9 @@ async function showThread(threadId: ThreadId): Promise<void> {
       h("div", { class: "panel" }, h("h2", {}, "Model and effort"), h("p", { class: "muted" }, "Applies at the next turn."),
         h("div", { class: "field" }, h("label", {}, "Model"), modelSel), effortField,
         h("div", { class: "row" }, h("button", { class: "btn", onclick: () => sheet.remove() }, "Cancel"), h("span", { class: "grow" }), h("button", { class: "btn primary", onclick: async () => {
-          const patch: { model?: ModelChoice["id"]; effort?: "low" | "medium" | "high" } = {};
+          const patch: { model?: ModelChoice["id"]; effort?: Effort } = {};
           if (modelSel.value !== summary.config.model) patch.model = modelSel.value as ModelChoice["id"];
-          if (!effortField.hidden && effortSel.value !== summary.config.effort) patch.effort = effortSel.value as "low" | "medium" | "high";
+          if (!effortField.hidden && effortSel.value !== summary.config.effort) patch.effort = effortSel.value as Effort;
           if (Object.keys(patch).length) await api.patchThread(threadId, patch);
           sheet.remove();
         } }, "Apply"))));
