@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LIMITS } from "../../shared/protocol";
 import type { ModelId, TurnId, UploadId } from "../../shared/protocol";
-import { agentMessageToEvents, buildUserMessage, modelCatalog, parseModelId, truncateJson, truncateText, SdkAgentFactory, PHONE_APPENDIX } from "./agent";
+import { agentMessageToEvents, buildUserMessage, modelCatalog, parseModelId, toSlashCommands, truncateJson, truncateText, SdkAgentFactory, PHONE_APPENDIX } from "./agent";
 import { FakeAgentFactory } from "./agent.fake";
 
 const t = "t:7" as TurnId;
@@ -187,4 +187,20 @@ test("real SDK: spawn, one short turn, interrupt a long one, kill-tree", { skip:
 test("catalog model id type is branded at the boundary only", () => {
   const id: ModelId = "claude-opus-5" as ModelId;
   assert.equal(typeof id, "string");
+});
+
+test("toSlashCommands parses the SDK list, drops terminal entries, and defaults missing strings", () => {
+  const raw = [
+    { name: "commit", description: "Commit staged work", argumentHint: "" },
+    { name: "exit", description: "Leave", argumentHint: "" },
+    { name: "grill", aliases: ["g"] },
+    { name: "", description: "nameless" },
+    "not an object",
+  ];
+  assert.deepEqual(toSlashCommands(raw, new Set(["exit"])), [
+    { name: "commit", description: "Commit staged work", argumentHint: "" },
+    { name: "grill", description: "", argumentHint: "" },
+  ]);
+  assert.deepEqual(toSlashCommands(null, new Set()), []);
+  assert.deepEqual(toSlashCommands([{ name: "a" }], new Set(["a"])), []);
 });

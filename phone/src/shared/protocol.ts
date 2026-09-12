@@ -69,6 +69,19 @@ export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"];
 export const DEFAULT_EFFORT: Effort = "medium";
 
+/**
+ * One entry in the slash-command menu: a built-in command or a discovered
+ * skill, as Claude Code reports it. The list is per-cwd (skills are found
+ * relative to the working directory) and can change mid-session, so it is
+ * asked for rather than stored.
+ */
+export interface SlashCommand {
+  readonly name: string;
+  readonly description: string;
+  /** e.g. "<plan>". Empty when the command takes no argument. */
+  readonly argumentHint: string;
+}
+
 export interface ThreadConfig {
   readonly threadId: ThreadId;
   /** Absolute path. Determines which CLAUDE.md Claude Code discovers. */

@@ -20,6 +20,8 @@
  *   DELETE /api/threads/:id                                      -> archive
  *   POST   /api/threads/:id/send                                 -> SendResponse
  *   POST   /api/threads/:id/interrupt                            -> 204 always
+ *   GET    /api/threads/:id/commands                             -> { commands: SlashCommand[] }
+ *   POST   /api/threads/:id/commands/reload                      -> { commands: SlashCommand[] } (rediscovers skills)
  *   POST   /api/threads/:id/uploads   (raw body, one file, Content-Length capped) -> StagedUpload[]
  *   GET    /api/threads/:id/events?after=N   (SSE, cookie or key) -> ThreadEvent stream
  *   GET    /api/events                        (SSE)              -> global fan-in
@@ -284,6 +286,19 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     await deps.supervisor.interrupt(t.threadId);
     return c.body(null, 204);
   });
+
+  const commands = async (c: Context<Env>, reload: boolean): Promise<Response> => {
+    const t = await thread(c);
+    if (t instanceof Response) return t;
+    try {
+      return c.json({ commands: await deps.supervisor.commands(t.threadId, { reload }) });
+    } catch (err) {
+      return fail(c, 503, `commands unavailable: ${message(err)}`);
+    }
+  };
+
+  app.get("/api/threads/:id/commands", (c) => commands(c, false));
+  app.post("/api/threads/:id/commands/reload", (c) => commands(c, true));
 
   app.post("/api/threads/:id/uploads", async (c) => {
     const t = await thread(c);

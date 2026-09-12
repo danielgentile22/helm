@@ -3,12 +3,22 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { LIMITS } from "../../shared/protocol";
-import type { ThreadConfig, ThreadSummary } from "../../shared/protocol";
+import type { SlashCommand, ThreadConfig, ThreadSummary } from "../../shared/protocol";
 import { parseCreateThread, parsePatch, parseSend } from "./app";
-import { API_KEY, buildStack, eventSeqs, events, readSse, type Frame } from "./testkit";
+import { API_KEY, buildStack, eventSeqs, events, readSse, type Frame, type Stack } from "./testkit";
 
 const THREAD = "0f0f0f0f-0000-4000-8000-0000000000aa";
 const uuid = (n: number) => `0f0f0f0f-0000-4000-8000-${String(n).padStart(12, "0")}`;
+
+/** The supervisor settles to idle a tick after the log emits turn.ended; poll rather than guess the tick count. */
+async function untilIdle(s: Stack, threadId: string): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    const t = (await (await s.api("GET", `/api/threads/${threadId}`)).json()) as ThreadSummary;
+    if (t.session === "idle") return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error("thread never settled to idle");
+}
 
 test("auth doors: 401 without credentials, 401 on a bad key, 503 when unconfigured, static and login options open", async () => {
   const s = await buildStack();
@@ -290,5 +300,35 @@ test("the phone's view: folding the SSE frames a client receives reconstructs th
     assert.equal(after.replaying, false);
     assert.equal(after.session, "idle");
   }
+  await s.cleanup();
+});
+
+test("commands: a cold thread is answered by a cwd probe, a live session answers for itself, reload picks up a new skill", async () => {
+  const s = await buildStack();
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  const names = async (method: string, path: string): Promise<string[]> => {
+    const res = await s.api(method, path);
+    assert.equal(res.status, 200);
+    return ((await res.json()) as { commands: SlashCommand[] }).commands.map((c) => c.name);
+  };
+
+  assert.deepEqual(await names("GET", `/api/threads/${THREAD}/commands`), ["commit", "grill-with-docs"]);
+  assert.deepEqual(s.agents.probes, [join(s.home, "work")], "a cold thread probes its own cwd");
+  await names("GET", `/api/threads/${THREAD}/commands`);
+  assert.equal(s.agents.probes.length, 1, "the probe result is cached per cwd");
+
+  const turnDone = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "hi" });
+  await turnDone;
+  await untilIdle(s, THREAD);
+  s.agents.last.pushCommands([{ name: "pushed", description: "arrived mid-session", argumentHint: "" }]);
+  assert.deepEqual(await names("GET", `/api/threads/${THREAD}/commands`), ["pushed"], "the live session answers, not the probe");
+
+  s.agents.commandList = [...s.agents.commandList, { name: "new-skill", description: "Just written", argumentHint: "" }];
+  assert.deepEqual(await names("POST", `/api/threads/${THREAD}/commands/reload`), ["commit", "grill-with-docs", "new-skill"]);
+  assert.deepEqual(await names("GET", `/api/threads/${THREAD}/commands`), ["commit", "grill-with-docs", "new-skill"], "reload replaced the live snapshot");
+
+  assert.equal((await s.api("GET", `/api/threads/${uuid(9)}/commands`)).status, 404);
+  assert.equal((await s.fetch(new Request(`https://mac.test.ts.net/api/threads/${THREAD}/commands`))).status, 401);
   await s.cleanup();
 });

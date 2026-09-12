@@ -31,6 +31,7 @@ import type {
   SyncFrame,
   ThreadConfig,
   ThreadConfigPatch,
+  SlashCommand,
   ThreadEvent,
   ThreadId,
   TurnId,
@@ -68,6 +69,8 @@ const COLD: SessionState = { tag: "cold" };
 export class Supervisor {
   private readonly states = new Map<ThreadId, SessionState>();
   private readonly draining = new Map<ThreadId, Promise<void>>();
+  /** cwd -> probed command menu, for threads with no live process. Keyed by cwd because that is what the menu depends on. */
+  private readonly probedCommands = new Map<string, Promise<readonly SlashCommand[]>>();
   private stopped = false;
 
   constructor(
@@ -133,6 +136,28 @@ export class Supervisor {
       await log.append({ kind: "input.dropped", clientMsgId: q.clientMsgId, reason: "archived" });
     }
     await log.append({ kind: "thread.archived" });
+  }
+
+  /**
+   * The slash-command menu for a thread. A live process answers for itself,
+   * because it alone knows the skills discovered while it worked. A thread
+   * with no process is answered by a throwaway probe in its cwd, cached
+   * across threads that share one; `reload` always pays for a fresh process
+   * and refreshes that cache.
+   */
+  async commands(threadId: ThreadId, opts: { reload: boolean }): Promise<readonly SlashCommand[]> {
+    const config = await this.threads.get(threadId);
+    if (!config) throw new Error("no such thread");
+    const s = this.state(threadId);
+    if (s.tag === "idle" || s.tag === "running") {
+      return opts.reload ? s.live.agent.reloadSkills() : s.live.agent.commands();
+    }
+    const cached = opts.reload ? undefined : this.probedCommands.get(config.cwd);
+    if (cached) return cached;
+    const fresh = this.agents.commands(config.cwd);
+    this.probedCommands.set(config.cwd, fresh);
+    fresh.catch(() => this.probedCommands.delete(config.cwd));
+    return fresh;
   }
 
   /** For SyncFrame and ThreadSummary. Pure read of memory. */
