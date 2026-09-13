@@ -1,26 +1,23 @@
 /**
- * In-process stack for the primary suite: real log, supervisor, SSE, HTTP,
- * auth, uploads over a temp home, with the scripted fake agent and a stub
- * push service. `restart()` builds a fresh stack over the same home to
- * simulate a server crash and reboot.
+ * In-process stack for the primary suite: the production graph from the
+ * composition root over a temp home, with the scripted fake agent and a
+ * push delivery stubbed out. `restart()` builds a fresh stack over the same home
+ * to simulate a server crash and reboot.
  */
 
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SyncFrame, ThreadEvent } from "../../shared/protocol";
 import { FakeAgentFactory, echoScript, type FakeScript } from "../core/agent.fake";
-import { LogRegistry } from "../core/log";
+import type { LogRegistry } from "../core/log";
 import type { PushSubscriptionRecord } from "../core/push";
-import { SettingsStore } from "../core/settings";
-import { Supervisor } from "../core/supervisor";
-import { ThreadStore } from "../core/thread-store";
-import { Offers } from "../core/offers";
-import { Uploads } from "../core/uploads";
-import { buildApp } from "./app";
-import { EnrollTokens, FileSessionStore, WebAuthn } from "./auth";
+import type { Supervisor } from "../core/supervisor";
+import type { Offers } from "../core/offers";
+import { buildServer } from "../server";
 
 export const API_KEY = "test-key-123";
+export const HOST = "mac.test.ts.net";
 
 export interface Stack {
   readonly home: string;
@@ -30,7 +27,8 @@ export interface Stack {
   readonly supervisor: Supervisor;
   /** What the model's `send_to_phone` tool calls; tests call it directly since the fake agent has no tools. */
   readonly offers: Offers;
-  readonly pushSubs: PushSubscriptionRecord[];
+  /** The subscriptions on disk, the way a reboot would read them. */
+  subscriptions(): Promise<PushSubscriptionRecord[]>;
   /** Authenticated JSON request helper using the API key door. */
   api(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<Response>;
   /** Abandon this stack without killing anything (a crash), then boot a new one over the same home. */
@@ -48,63 +46,44 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
   await mkdir(join(h, "work", "proj"), { recursive: true });
   await writeFile(join(h, "work", "proj", "CLAUDE.md"), "");
 
-  const threadsRoot = join(h, "threads");
-  const logs = new LogRegistry(threadsRoot);
-  await logs.recoverAll();
-  const threads = new ThreadStore(threadsRoot);
   const agents = new FakeAgentFactory(script);
-  const offers = new Offers(threads, logs);
-  const supervisor = new Supervisor(logs, threads, agents, { additionalDirectories: [], idleParkMs: 60_000, offers });
-  const uploads = new Uploads(threads, logs);
-  const settings = new SettingsStore(join(h, "settings.json"), { defaultCwd: join(h, "work") });
-  const sessions = new FileSessionStore(join(h, "auth", "sessions.json"));
-  const apiKey = "apiKey" in opts ? opts.apiKey : API_KEY;
-  const pushSubs: PushSubscriptionRecord[] = [];
-  const app = buildApp({
-    auth: { apiKey, sessions, now: Date.now },
-    webauthn: new WebAuthn({ rpId: "mac.test.ts.net", origin: "https://mac.test.ts.net", credentialsFile: join(h, "auth", "credentials.json"), sessions, sessionTtlMs: 3600_000 }),
-    enroll: new EnrollTokens(),
-    threads,
-    logs,
-    supervisor,
-    agents,
-    uploads,
-    offers,
-    settings,
-    about: { version: "0.0.0-test", host: "mac.test.ts.net" },
-    push: {
-      publicKey: () => "vapid-public",
-      subscribe: async (rec) => void pushSubs.push(rec),
-      unsubscribe: async (endpoint) => void pushSubs.splice(pushSubs.findIndex((r) => r.endpoint === endpoint), 1),
+  const server = await buildServer(
+    {
+      home: h,
+      vaultRoot: join(h, "work"),
+      hostname: HOST,
+      apiKey: "apiKey" in opts ? opts.apiKey : API_KEY,
+      vapid: { publicKey: "vapid-public", privateKey: "vapid-private", subject: "mailto:test@example.com" },
+      browseRoots: [join(h, "work")],
+      sessionTtlMs: 3600_000,
+      staticDir,
+      version: "0.0.0-test",
+      idleParkMs: 60_000,
+      heartbeatMs: 60_000,
     },
-    staticDir,
-    browseRoots: [join(h, "work")],
-    defaultCwd: join(h, "work"),
-    sessionTtlMs: 3600_000,
-    publicOrigin: "https://mac.test.ts.net",
-    heartbeatMs: 60_000,
-  });
+    { agents, pushSend: async () => undefined },
+  );
 
   const stack: Stack = {
     home: h,
-    fetch: app.fetch,
+    fetch: server.fetch,
     agents,
-    logs,
-    supervisor,
-    offers,
-    pushSubs,
+    logs: server.logs,
+    supervisor: server.supervisor,
+    offers: server.offers,
+    subscriptions: async () => Object.values(JSON.parse(await readFile(join(h, "push", "subscriptions.json"), "utf8").catch(() => "{}")) as Record<string, PushSubscriptionRecord>),
     api: (method, path, body, headers = {}) =>
-      app.fetch(
-        new Request(`https://mac.test.ts.net${path}`, {
+      server.fetch(
+        new Request(`https://${HOST}${path}`, {
           method,
           headers: { "x-helm-key": API_KEY, ...(body !== undefined ? { "content-type": "application/json", "content-length": String(Buffer.byteLength(JSON.stringify(body))) } : {}), ...headers },
           body: body !== undefined ? JSON.stringify(body) : undefined,
         }),
       ),
     restart: (nextScript) => buildStack(nextScript ?? script, h, opts),
-    shutdown: () => supervisor.shutdown(),
+    shutdown: () => server.shutdown(),
     cleanup: async () => {
-      await supervisor.shutdown();
+      await server.shutdown();
       await rm(h, { recursive: true, force: true });
     },
   };

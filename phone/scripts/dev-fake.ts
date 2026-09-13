@@ -1,5 +1,6 @@
 /**
- * Boot the HTTP stack on the scripted fake agent, serve a built client from
+ * Boot the server graph (the same composition root as production) on the
+ * scripted fake agent, serve a built client from
  * STATIC_DIR, and pre-mint a session cookie so a browser can open it without
  * a passkey. Run from a checkout: `node --import tsx <this file>`.
  * Prints the URL and the cookie to paste into devtools.

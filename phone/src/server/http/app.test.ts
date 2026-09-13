@@ -245,10 +245,10 @@ test("push routes: key, subscribe, unsubscribe", async () => {
   const s = await buildStack();
   assert.deepEqual(await (await s.api("GET", "/api/push/key")).json(), { key: "vapid-public" });
   assert.equal((await s.api("POST", "/api/push/subscribe", { subscription: { endpoint: "https://push/1", keys: { p256dh: "p", auth: "a" } } })).status, 204);
-  assert.equal(s.pushSubs[0]?.label, "curl");
+  assert.equal((await s.subscriptions())[0]?.label, "curl");
   assert.equal((await s.api("POST", "/api/push/subscribe", { subscription: { endpoint: 1 } })).status, 400);
   assert.equal((await s.api("DELETE", "/api/push/subscribe", { endpoint: "https://push/1" })).status, 204);
-  assert.equal(s.pushSubs.length, 0);
+  assert.equal((await s.subscriptions()).length, 0);
   await s.cleanup();
 });
 
