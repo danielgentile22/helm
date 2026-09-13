@@ -26,7 +26,7 @@ test("boot attaches watchers before recovery and resumes the mirror after repair
   const vault = join(home, "vault");
   const threadsRoot = join(home, "threads");
   await mkdir(vault, { recursive: true });
-  await new ThreadStore(threadsRoot).create({ threadId, cwd: vault, model, effort: "high", title: "Seeded" });
+  await new ThreadStore(threadsRoot).create({ threadId, cwd: vault, model, effort: "high", permissionMode: "bypass", title: "Seeded" });
   const seeded = await ThreadLog.open(threadId, join(threadsRoot, threadId));
   await appendTurn(seeded, "m1", "first prompt", "first reply");
   const note = mirrorPath(vault, threadId);

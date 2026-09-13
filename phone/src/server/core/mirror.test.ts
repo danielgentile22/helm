@@ -132,7 +132,7 @@ async function harness(): Promise<Harness> {
   await mkdir(vault, { recursive: true });
   await mkdir(cwd, { recursive: true });
   const store = new ThreadStore(threadsRoot);
-  await store.create({ threadId, cwd, model, effort: "high", title: "Vault triage" });
+  await store.create({ threadId, cwd, model, effort: "high", permissionMode: "bypass", title: "Vault triage" });
   const log = await ThreadLog.open(threadId, join(threadsRoot, threadId));
   return { vault, threadsRoot, store, log, note: mirrorPath(vault, threadId) };
 }
@@ -287,4 +287,45 @@ test("renderTurn lists a file sent to the phone with its size and note, never it
   assert.match(md, /^> sent to phone: report\.pdf \(2\.4 MB\): the Q3 one$/m);
   assert.ok(!md.includes("/Users/d"), "the path stays out of the vault note");
   assert.match(md, /^Sent\.$/m);
+});
+
+test("renderTurn writes an ask as what was asked and how it was answered, with expiry and rule denials told apart from a person's deny", () => {
+  const ask = (n: number, askId: string, payload: unknown) => ev(n, { kind: "ask.opened", turnId: "t:2" as TurnId, askId: askId as never, ask: payload as never });
+  const answered = (n: number, askId: string, answer: unknown, by: unknown) => ev(n, { kind: "ask.answered", turnId: "t:2" as TurnId, askId: askId as never, answer: answer as never, by: by as never });
+  const bash = (command: string) => ({ kind: "tool", toolName: "Bash", input: { command }, toolUseId: "tu" as never, title: null, description: null });
+  const md = renderTurn(turnOf([
+    ev(1, { kind: "input.queued", clientMsgId: "m9" as ClientMsgId, text: "ship it", uploads: [], origin }),
+    ev(2, { kind: "turn.started", turnId: "t:2" as TurnId, clientMsgId: "m9" as ClientMsgId, model, effort: "low", spawned: false }),
+    ask(3, "a1", bash("git push")),
+    answered(4, "a1", { kind: "allow" }, { by: "user", origin: { via: "pwa", label: "iphone" } }),
+    ask(5, "a2", bash("rm -rf build")),
+    answered(6, "a2", { kind: "deny", reason: "keep it" }, { by: "user", origin: { via: "key", label: "laptop" } }),
+    ask(7, "a3", bash("npm test")),
+    answered(8, "a3", { kind: "allowTurn" }, { by: "user", origin: { via: "pwa", label: "iphone" } }),
+    ask(9, "a4", { kind: "question", questions: [{ question: "Tabs or spaces?", header: "Style", options: [], multiSelect: false }] }),
+    answered(10, "a4", { kind: "answers", answers: [{ kind: "options", labels: ["Tabs"] }] }, { by: "user", origin: { via: "pwa", label: "iphone" } }),
+    ask(11, "a5", { ...bash("curl x"), title: "Claude wants to fetch x" }),
+    answered(12, "a5", { kind: "deny", reason: "Bash(curl:*) is denied by a rule" }, { by: "system", reason: "rule" }),
+    ask(13, "a6", bash("git push --force")),
+    answered(14, "a6", { kind: "deny", reason: null }, { by: "system", reason: "interrupted" }),
+    ask(15, "a7", bash("never answered")),
+    ev(16, { kind: "turn.ended", turnId: "t:2" as TurnId, outcome: "interrupted", sessionId, usage: null, error: null }),
+  ]));
+  const lines = md.split("\n").filter((l) => l.startsWith("> a"));
+  assert.deepEqual(lines, [
+    "> asked: Bash git push",
+    "> answered: allowed [iphone]",
+    "> asked: Bash rm -rf build",
+    "> answered: denied: keep it [laptop]",
+    "> asked: Bash npm test",
+    "> answered: allowed for the turn [iphone]",
+    "> asked: Tabs or spaces?",
+    "> answered: Tabs [iphone]",
+    "> asked: Claude wants to fetch x",
+    "> answered: auto-denied: Bash(curl:*) is denied by a rule",
+    "> asked: Bash git push --force",
+    "> answered: expired (interrupted)",
+    "> asked: Bash never answered",
+    "> answered: (none)",
+  ]);
 });

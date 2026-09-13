@@ -1,6 +1,9 @@
 /**
  * Web push. A projection of the log: subscribes to every open ThreadLog and
- * fires on `turn.ended` when nobody is watching that thread over SSE.
+ * fires on `turn.ended`, and on an `ask.opened` still pending after a short
+ * grace, when nobody is watching that thread over SSE. The grace exists
+ * because a rule denial arrives as an opened-and-answered pair; a
+ * notification for a question nobody can answer would be noise.
  *
  * Subscriptions live in ~/.helm2/push/subscriptions.json keyed by endpoint,
  * written atomically. A 404/410 from the push service deletes the entry.
@@ -15,7 +18,8 @@
  */
 
 import webpush from "web-push";
-import type { PushPayload, ThreadEvent, ThreadId } from "../../shared/protocol";
+import { askSummary } from "../../shared/protocol";
+import type { AskPayload, PushPayload, ThreadEvent, ThreadId } from "../../shared/protocol";
 import { atomicWrite } from "../util/atomicWrite";
 import type { ThreadLog } from "./log";
 import type { ThreadStore } from "./thread-store";
@@ -34,6 +38,9 @@ const PREVIEW_CHARS = 120;
 
 /** Status codes that mean the subscription is gone for good, not failing transiently. */
 const DEAD_CODES = new Set([404, 410]);
+
+/** Long enough for a same-tick auto-denial to land, short enough that a real prompt reaches the phone at once. */
+const ASK_GRACE_MS = 250;
 
 export interface VapidKeys {
   readonly publicKey: string;
@@ -57,13 +64,15 @@ export class PushService {
   /** Serializes read-modify-write on the file so two changes cannot lose one. */
   private writes: Promise<unknown> = Promise.resolve();
   private readonly send: Send;
+  private readonly askGraceMs: number;
 
   constructor(
     private readonly file: string,
     private readonly vapid: VapidKeys,
     private readonly threads: ThreadStore,
-    deps?: { send?: Send },
+    deps?: { send?: Send; askGraceMs?: number },
   ) {
+    this.askGraceMs = deps?.askGraceMs ?? ASK_GRACE_MS;
     this.send =
       deps?.send ??
       ((sub, payload) =>
@@ -120,20 +129,27 @@ export class PushService {
    */
   watch(log: ThreadLog): void {
     log.subscribe("projection", (ev) => {
-      if (ev.kind !== "turn.ended" || log.viewerCount() > 0) return;
-      void this.notify(log, ev);
+      if (log.viewerCount() > 0) return;
+      if (ev.kind === "turn.ended") void this.notify(log, ev);
+      if (ev.kind === "ask.opened") {
+        const timer = setTimeout(() => {
+          if (log.viewerCount() === 0 && log.getHead().pendingAsks.some((a) => a.askId === ev.askId)) void this.notify(log, ev);
+        }, this.askGraceMs);
+        timer.unref();
+      }
     });
   }
 
   /** Gather the preview and title the payload needs, then fire. Never throws. */
-  private async notify(log: ThreadLog, ev: Extract<ThreadEvent, { kind: "turn.ended" }>): Promise<void> {
+  private async notify(log: ThreadLog, ev: Extract<ThreadEvent, { kind: "turn.ended" | "ask.opened" }>): Promise<void> {
     try {
       await this.loaded;
       if (this.records.size === 0) return;
+      const title = (await this.threads.get(log.threadId))?.title ?? null;
+      if (ev.kind === "ask.opened") return await this.fireAll(askPayloadFor(log.threadId, title, ev.seq, ev.ask));
       // The head already carries this turn's text, so a notification costs no disk read.
       const last = log.getHead().lastText;
-      const config = await this.threads.get(log.threadId);
-      await this.fireAll(payloadFor(log.threadId, config?.title ?? null, ev, last?.turnId === ev.turnId ? last.text : null));
+      await this.fireAll(payloadFor(log.threadId, title, ev, last?.turnId === ev.turnId ? last.text : null));
     } catch (err) {
       console.error(`[push] ${log.threadId}: notify failed`, err);
     }
@@ -177,6 +193,11 @@ export function payloadFor(
     seq: ev.seq,
     url: `/t/${threadId}#end`,
   };
+}
+
+/** Pure. The body is the one line the list row and the mirror use for the same ask. */
+export function askPayloadFor(threadId: ThreadId, title: string | null, seq: PushPayload["seq"], ask: AskPayload): PushPayload {
+  return { threadId, title: title ?? "Helm", body: askSummary(ask).slice(0, PREVIEW_CHARS), kind: "ask", seq, url: `/t/${threadId}#end` };
 }
 
 /**

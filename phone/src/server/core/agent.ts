@@ -18,6 +18,9 @@
  *   Query.reloadSkills() -> { skills: SlashCommand[] }      sdk.d.ts:2845
  *   Options.settingSources?: SettingSource[]                sdk.d.ts:2096
  *   Options.spawnClaudeCodeProcess?: (o) => SpawnedProcess  sdk.d.ts:2288
+ *   Options.canUseTool: CanUseTool                          sdk.d.ts:209
+ *   Query.setPermissionMode(mode)                           sdk.d.ts:2632
+ *   system.permission_denied                                sdk.d.ts:4922
  *
  * supportedCommands() tracks the `commands_changed` system message the CLI
  * pushes mid-session, so there is nothing to cache or invalidate here.
@@ -28,18 +31,24 @@
  */
 
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import type { ModelInfo, Options, Query, SDKMessage, SDKUserMessage, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
-import { EFFORTS, LIMITS, MODEL_POLICY_DENY } from "../../shared/protocol";
+import type { CanUseTool, ModelInfo, Options, PermissionResult, Query, SDKMessage, SDKUserMessage, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
+import { answerPhrase, EFFORTS, LIMITS, MODEL_POLICY_DENY } from "../../shared/protocol";
 import type {
+  AskAnswer,
+  AskId,
+  AskPayload,
+  AskQuestion,
   ClaudeSessionId,
   Effort,
   ModelId,
   ModelChoice,
   OfferedFile,
+  PermissionMode,
   SlashCommand,
   StagedUpload,
   ThreadEventBody,
@@ -54,6 +63,7 @@ export interface SpawnOptions {
   readonly cwd: string;
   readonly model: ModelId;
   readonly effort: Effort;
+  readonly permissionMode: PermissionMode;
   /** Present when we have a session to resume; absent on a brand-new thread. */
   readonly resume: ClaudeSessionId | null;
   /** `--add-dir` equivalents; from config, default ~/Projects ~/Desktop ~/Documents. */
@@ -78,6 +88,10 @@ export interface TurnInput {
  * Events the adapter produces, already in log vocabulary. `session.bound`
  * appears once per spawn; `turn.ended` exactly once per TurnInput, even on
  * error or interrupt (settle-exactly-once, carried over from the old route).
+ * `ask.opened` is yielded when the SDK's permission callback blocks; the
+ * adapter never yields the matching `ask.answered` for a person's answer
+ * (the supervisor logs that before forwarding it), only for a decision
+ * Claude Code made on its own, as an opened-and-answered pair.
  */
 export type AgentEvent = Extract<
   ThreadEventBody,
@@ -88,6 +102,8 @@ export type AgentEvent = Extract<
       | "assistant.thinking"
       | "tool.started"
       | "tool.finished"
+      | "ask.opened"
+      | "ask.answered"
       | "turn.ended";
   }
 >;
@@ -107,6 +123,13 @@ export interface AgentSession {
   interrupt(): Promise<void>;
   setModel(model: ModelId): Promise<void>;
   setEffort(effort: Effort): Promise<void>;
+  /** Live switch; takes effect at the next permission decision. */
+  setPermissionMode(mode: PermissionMode): Promise<void>;
+  /**
+   * Settle a pending ask. The adapter forwards the answer to the SDK exactly
+   * as given and never decides; an unknown or already-settled id is a no-op.
+   */
+  answer(askId: AskId, answer: AskAnswer): void;
   /** Ordered stream of AgentEvent for the life of the process. Ends when the process exits. */
   events(): AsyncIterable<AgentEvent>;
   /** The live slash-command menu, terminal-only entries removed. Empty when the session is dead. */
@@ -252,6 +275,7 @@ function scrubError(text: string): string {
  *
  * Mapping
  *   system.init                                  -> session.bound
+ *   system.permission_denied                     -> ask.opened + ask.answered {system: rule} (Claude Code decided alone)
  *   stream_event content_block_delta text_delta  -> assistant.text (blockIx from the event index)
  *   stream_event content_block_delta thinking_delta -> assistant.thinking
  *   assistant message tool_use block             -> tool.started (input truncated)
@@ -265,8 +289,17 @@ function agentMessageToEvents(turnId: TurnId, sdkMessage: unknown, ctx: MapConte
   if (typeof m.parent_tool_use_id === "string") return [];
 
   switch (m.type) {
-    case "system":
-      return m.subtype === "init" && typeof m.session_id === "string" ? [{ kind: "session.bound", sessionId: m.session_id as ClaudeSessionId }] : [];
+    case "system": {
+      if (m.subtype === "init" && typeof m.session_id === "string") return [{ kind: "session.bound", sessionId: m.session_id as ClaudeSessionId }];
+      if (m.subtype === "permission_denied" && typeof m.tool_name === "string" && typeof m.tool_use_id === "string" && typeof m.agent_id !== "string") {
+        const askId = `rule:${m.tool_use_id}` as AskId;
+        return [
+          { kind: "ask.opened", turnId, askId, ask: { kind: "tool", toolName: m.tool_name, input: {}, toolUseId: m.tool_use_id as ToolUseId, title: null, description: null } },
+          { kind: "ask.answered", turnId, askId, answer: { kind: "deny", reason: typeof m.message === "string" ? m.message : null }, by: { by: "system", reason: "rule" } },
+        ];
+      }
+      return [];
+    }
 
     case "stream_event": {
       const ev = m.event;
@@ -328,6 +361,57 @@ function agentMessageToEvents(turnId: TurnId, sdkMessage: unknown, ctx: MapConte
   }
 }
 
+// ---------------------------------------------------------------------------
+// Asks: the permission callback's input and output in log vocabulary
+// ---------------------------------------------------------------------------
+
+const optionalString = (v: unknown): string | null => (typeof v === "string" ? v : null);
+
+/** Parse an AskUserQuestion input (sdk-tools.d.ts AskUserQuestionInput). Malformed entries are dropped; an empty list means "not a question". */
+function questionsFrom(input: Record<string, unknown>): readonly AskQuestion[] {
+  if (!Array.isArray(input.questions)) return [];
+  const out: AskQuestion[] = [];
+  for (const q of input.questions) {
+    if (!isRecord(q) || typeof q.question !== "string") continue;
+    const options = Array.isArray(q.options) ? q.options.flatMap((o) => (isRecord(o) && typeof o.label === "string" ? [{ label: o.label, description: optionalString(o.description) ?? "" }] : [])) : [];
+    out.push({ question: q.question, header: optionalString(q.header) ?? "", options, multiSelect: q.multiSelect === true });
+  }
+  return out;
+}
+
+/** The boundary where an SDK permission request becomes an AskPayload. */
+export function askPayloadFrom(toolName: string, input: Record<string, unknown>, opts: { toolUseID: string; title?: string; description?: string }): AskPayload {
+  if (toolName === "AskUserQuestion") {
+    const questions = questionsFrom(input);
+    if (questions.length > 0) return { kind: "question", questions };
+  }
+  return { kind: "tool", toolName, input: truncateJson(input, LIMITS.TOOL_INPUT_MAX), toolUseId: opts.toolUseID as ToolUseId, title: opts.title ?? null, description: opts.description ?? null };
+}
+
+/**
+ * Pure: the SDK result an answer maps to. A question ask is answered through
+ * `updatedInput.answers` keyed by question text, the documented convention
+ * for AskUserQuestion; anything but an `answers` answer to a question, or an
+ * `answers` answer to a tool, is a mismatch the route rejects, so here it is a
+ * denial rather than a guess.
+ */
+export function permissionResultFor(ask: AskPayload, answer: AskAnswer, input: Record<string, unknown>): PermissionResult {
+  if (ask.kind === "question") {
+    if (answer.kind !== "answers") return { behavior: "deny", message: (answer.kind === "deny" && answer.reason) || "No answer" };
+    const answers = Object.fromEntries(ask.questions.map((q, i) => [q.question, answer.answers[i] ? answerPhrase(answer.answers[i]) : ""]));
+    return { behavior: "allow", updatedInput: { ...input, answers } };
+  }
+  switch (answer.kind) {
+    case "allow":
+    case "allowTurn":
+      return { behavior: "allow", updatedInput: input };
+    case "deny":
+      return { behavior: "deny", message: answer.reason ?? "Denied from the phone" };
+    case "answers":
+      return { behavior: "deny", message: "No answer" };
+  }
+}
+
 /**
  * Build the SDK user message text for a turn. Images become image content
  * blocks so the model sees them; every upload (images included) is also
@@ -381,7 +465,9 @@ export function helmToolServer(sendToPhone: SpawnOptions["sendToPhone"]) {
 // ---------------------------------------------------------------------------
 
 /** The slice of the SDK's Query the session drives. A recorded adapter implements this in tests. */
-export type SdkQuery = AsyncIterable<SDKMessage> & Pick<Query, "interrupt" | "setModel" | "applyFlagSettings" | "supportedCommands" | "supportedModels" | "reloadSkills" | "close">;
+export type SdkQuery = AsyncIterable<SDKMessage> & Pick<Query, "interrupt" | "setModel" | "applyFlagSettings" | "setPermissionMode" | "supportedCommands" | "supportedModels" | "reloadSkills" | "close">;
+
+const SDK_MODE: Record<PermissionMode, "default" | "bypassPermissions"> = { ask: "default", bypass: "bypassPermissions" };
 
 export type QueryFn = (args: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => SdkQuery;
 
@@ -423,6 +509,10 @@ class SdkSession implements AgentSession {
   private readonly q: SdkQuery;
   private readonly abort = new AbortController();
   private turn: { turnId: TurnId; interrupted: boolean; settle: () => void } | null = null;
+  /** Resolvers the SDK's permission callback is blocked on, by ask id. Emptied with a denial whenever the turn ends. */
+  private readonly asks = new Map<AskId, (answer: AskAnswer) => void>();
+  /** Tool names an `allowTurn` answer covered; the callback allows them without asking until the turn settles. */
+  private allowedThisTurn = new Set<string>();
   /** Command names the CLI tags as terminal-only; the phone menu hides them. */
   private terminalCommands: ReadonlySet<string> = new Set();
   private prevCostUsd = 0;
@@ -442,8 +532,10 @@ class SdkSession implements AgentSession {
       model: opts.model,
       effort: opts.effort,
       resume: opts.resume ?? undefined,
-      permissionMode: "bypassPermissions",
+      permissionMode: SDK_MODE[opts.permissionMode],
+      // A consent flag, not a behavior: it lets a live setPermissionMode reach bypass in a session spawned in ask.
       allowDangerouslySkipPermissions: true,
+      canUseTool: (toolName, input, o) => this.ask(toolName, input, o),
       settingSources: ["user", "project", "local"],
       additionalDirectories: [...opts.additionalDirectories],
       mcpServers: { helm: helmToolServer(opts.sendToPhone) },
@@ -497,7 +589,32 @@ class SdkSession implements AgentSession {
   private settleTurn(): void {
     const t = this.turn;
     this.turn = null;
+    this.allowedThisTurn = new Set();
+    // Whatever the callback is still waiting on gets a denial, so the SDK never hangs on a turn that is over.
+    for (const id of [...this.asks.keys()]) this.answer(id, { kind: "deny", reason: "turn ended" });
     t?.settle();
+  }
+
+  /** The SDK's permission callback: emit `ask.opened`, block until answer() or the turn's end, and forward the verdict verbatim. */
+  private async ask(toolName: string, input: Record<string, unknown>, o: Parameters<CanUseTool>[2]): Promise<PermissionResult> {
+    const turn = this.turn;
+    if (!turn) return { behavior: "deny", message: "turn ended" };
+    const ask = askPayloadFrom(toolName, input, o);
+    if (ask.kind === "tool" && this.allowedThisTurn.has(toolName)) return { behavior: "allow", updatedInput: input };
+    const askId = randomUUID() as AskId;
+    const answer = await new Promise<AskAnswer>((resolve) => {
+      this.asks.set(askId, resolve);
+      o.signal.addEventListener("abort", () => this.answer(askId, { kind: "deny", reason: "cancelled" }), { once: true });
+      this.out.push({ kind: "ask.opened", turnId: turn.turnId, askId, ask });
+    });
+    if (ask.kind === "tool" && answer.kind === "allowTurn") this.allowedThisTurn.add(toolName);
+    return permissionResultFor(ask, answer, input);
+  }
+
+  answer(askId: AskId, answer: AskAnswer): void {
+    const resolve = this.asks.get(askId);
+    this.asks.delete(askId);
+    resolve?.(answer);
   }
 
   async send(input: TurnInput): Promise<void> {
@@ -528,6 +645,11 @@ class SdkSession implements AgentSession {
   async setEffort(effort: Effort): Promise<void> {
     if (this.dead) return;
     await this.q.applyFlagSettings({ effortLevel: effort });
+  }
+
+  async setPermissionMode(mode: PermissionMode): Promise<void> {
+    if (this.dead) return;
+    await this.q.setPermissionMode(SDK_MODE[mode]);
   }
 
   events(): AsyncIterable<AgentEvent> {

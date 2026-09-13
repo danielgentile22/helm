@@ -83,6 +83,7 @@ a { color: var(--accent); }
 .statusbar { display: flex; align-items: center; gap: var(--s-3); padding: 5px var(--s-6); font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: .03em; color: var(--accent); background: var(--accent-soft); border-bottom: 1px solid var(--hair); animation: dropin var(--d-base) var(--e-out) both; }
 @keyframes dropin { from { transform: translateY(-100%); opacity: 0; } }
 .statusbar.cool { color: var(--cool); background: var(--cool-soft); }
+.statusbar.wait { color: var(--ink); background: var(--accent-soft); font-weight: 600; }
 .statusbar.mute { color: var(--ink-2); background: var(--sunken); }
 .statusbar .bar { flex: 1; height: 3px; border-radius: var(--r-pill); background: color-mix(in srgb, currentColor 22%, transparent); overflow: hidden; }
 .statusbar .bar i { display: block; height: 100%; background: currentColor; border-radius: var(--r-pill); transition: width var(--d-base) linear; }
@@ -199,6 +200,35 @@ a { color: var(--accent); }
 /* Three cues on a removed line: the glyph, the indigo tint, and the strikethrough. */
 .diff .del { background: var(--cool-soft); box-shadow: inset 3px 0 0 var(--cool); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--cool) 55%, transparent); }
 .diff .del::before { color: var(--cool); text-decoration: none; }
+
+/* The ask card. Allow and Deny are separated by their words and their fixed
+   places in the row; the accent marks the primary action only. */
+.askcard { background: var(--surface); border: 1px solid var(--accent-solid); border-radius: var(--r-md); padding: var(--s-5); display: flex; flex-direction: column; gap: var(--s-4); align-items: flex-start; }
+.askcard.is-settled { border-color: var(--hair); }
+.askcard .aq { font-size: var(--t-sm); }
+.askcard .aq b { font-weight: 600; }
+.askcard .aarg { font-family: var(--mono); font-size: var(--t-xs); color: var(--ink-2); overflow-wrap: anywhere; }
+.askcard .atitle { font-size: var(--t-sm); font-weight: 600; }
+.askcard .adesc { font-size: var(--t-sm); color: var(--ink-2); }
+.askcard .io { align-self: stretch; margin: 0; padding: var(--s-4); max-height: 40vh; overflow: auto; white-space: pre; font-family: var(--mono); font-size: var(--t-xs); background: var(--bg); border: 1px solid var(--hair); border-radius: var(--r-md); }
+.askcard .arow { display: flex; align-self: stretch; align-items: center; gap: var(--s-4); }
+.askcard .arow .grow { flex: 1; }
+.askcard .ain { flex: 1; min-width: 0; padding: var(--s-3) var(--s-4); font-size: var(--t-sm); background: var(--bg); border: 1px solid var(--hair); border-radius: var(--r-md); }
+.askcard .aqblock { align-self: stretch; display: flex; flex-direction: column; gap: var(--s-3); }
+.askcard .qhdr { align-self: flex-start; padding: 2px 8px; font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); background: var(--sunken); border-radius: var(--r-pill); }
+.askcard .aopts { display: flex; flex-direction: column; gap: var(--s-3); }
+.askcard .aopt { display: flex; align-items: baseline; gap: var(--s-4); width: 100%; padding: var(--s-4); text-align: left; background: var(--bg); border: 1px solid var(--hair); border-radius: var(--r-md); }
+.askcard .aopt[aria-pressed="true"] { border-color: var(--accent-solid); }
+.askcard .aopt .box { flex: none; display: grid; place-items: center; width: 16px; height: 16px; font-size: var(--t-xs); border: 1px solid var(--ink-3); border-radius: 4px; }
+.askcard .aopt .l { display: flex; flex-direction: column; gap: 2px; }
+.askcard .aopt .l i { font-style: normal; font-size: var(--t-xs); color: var(--ink-3); }
+.askcard .aans { font-family: var(--mono); font-size: var(--t-mono-xs); color: var(--ink-2); }
+.blk-ask::before { color: var(--accent); }
+.state.denied { color: var(--ink-2); }
+.state.waiting { color: var(--ink); font-weight: 600; }
+.ghead .live.wait { color: var(--ink); }
+.row.is-waiting { background: var(--accent-soft); }
+.row .waitbar { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 2px; background: var(--accent-solid); }
 
 .endline { display: flex; align-items: center; gap: var(--s-3); font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: .03em; color: var(--ink-3); }
 .endline.bad { color: var(--alert); }

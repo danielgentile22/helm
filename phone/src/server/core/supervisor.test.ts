@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ClientMsgId, ModelId, ThreadEvent, ThreadId } from "../../shared/protocol";
+import type { AskId, AskPayload, ClientMsgId, ModelId, ThreadEvent, ThreadId } from "../../shared/protocol";
 import { FakeAgentFactory, echoScript, type FakeScript } from "./agent.fake";
 import { LogRegistry } from "./log";
 import { Supervisor, titleFrom } from "./supervisor";
@@ -21,7 +21,7 @@ async function harness(script: FakeScript = echoScript, idleParkMs = 60_000) {
   const agents = new FakeAgentFactory(script);
   const sup = new Supervisor(logs, threads, agents, { additionalDirectories: [], idleParkMs, offers: new Offers(threads, logs) });
   const threadId = "0f0f0f0f-0000-4000-8000-00000000abcd" as ThreadId;
-  await threads.create({ threadId, cwd: home, model, effort: "high" });
+  await threads.create({ threadId, cwd: home, model, effort: "high", permissionMode: "bypass" });
   const log = await logs.get(threadId);
   await log.append({ kind: "thread.created", config: (await threads.get(threadId))! });
   const kinds = async (): Promise<string[]> => {
@@ -214,7 +214,7 @@ test("archive kills the process, drops queued inputs, appends thread.archived, a
 test("shutdown kills every live process", async () => {
   const h = await harness();
   const other = "0f0f0f0f-0000-4000-8000-00000000ef01" as ThreadId;
-  await h.threads.create({ threadId: other, cwd: h.home, model, effort: "high" });
+  await h.threads.create({ threadId: other, cwd: h.home, model, effort: "high", permissionMode: "bypass" });
   await h.sup.send(h.threadId, msg("m1"));
   await h.sup.send(other, msg("m1"));
   await waitFor(async () => h.sup.status(h.threadId).session === "idle" && h.sup.status(other).session === "idle");
@@ -222,6 +222,125 @@ test("shutdown kills every live process", async () => {
   assert.deepEqual(h.agents.sessions.map((s) => s.killed), [true, true]);
   assert.equal(h.sup.status(h.threadId).session, "cold");
   await rm(h.home, { recursive: true });
+});
+
+const bashAsk: AskPayload = { kind: "tool", toolName: "Bash", input: { command: "git push" }, toolUseId: "tu-1" as never, title: null, description: null };
+const questionAsk: AskPayload = { kind: "question", questions: [{ question: "A or B?", header: "Pick", options: [{ label: "A", description: "" }, { label: "B", description: "" }], multiSelect: false }] };
+
+/** A script that asks once and reports what came back as text. */
+const askScript = (ask: AskPayload = bashAsk): FakeScript => async (t) => {
+  const answer = await t.ask(ask);
+  t.text(`answer:${answer.kind}${answer.kind === "deny" ? `:${answer.reason}` : ""}`);
+  t.end();
+};
+
+async function pendingAskId(h: Awaited<ReturnType<typeof harness>>): Promise<AskId> {
+  await waitFor(() => h.log.getHead().pendingAsks.length === 1);
+  return h.log.getHead().pendingAsks[0]!.askId;
+}
+
+const sealReasons = (evs: ThreadEvent[]) => evs.flatMap((e) => (e.kind === "ask.answered" ? [`${e.answer.kind}:${e.by.by === "system" ? e.by.reason : e.by.origin.label}`] : []));
+
+test("answer: the first answer is logged and reaches the process, a second is a conflict, a stranger is unknown, a wrong shape is a mismatch", async () => {
+  const h = await harness(askScript());
+  const ended = h.nextTurnEnd();
+  await h.sup.send(h.threadId, msg("m1"));
+  const askId = await pendingAskId(h);
+  assert.equal(h.sup.status(h.threadId).session, "running");
+  assert.equal(await h.sup.answer(h.threadId, askId, { kind: "answers", answers: [{ kind: "text", text: "x" }] }, origin), "mismatch", "a tool ask takes no question answers");
+  assert.equal(await h.sup.answer(h.threadId, "never-opened" as AskId, { kind: "allow" }, origin), "unknown");
+  assert.equal(await h.sup.answer(h.threadId, askId, { kind: "allow" }, origin), "ok");
+  assert.equal(await h.sup.answer(h.threadId, askId, { kind: "deny", reason: null }, origin), "conflict");
+  await ended;
+  assert.deepEqual(h.agents.last.answers, [{ askId, answer: { kind: "allow" } }]);
+  const evs = await h.events();
+  assert.deepEqual(sealReasons(evs), ["allow:iphone"]);
+  assert.ok(evs.some((e) => e.kind === "assistant.text" && e.delta === "answer:allow"), "the script saw the answer");
+  assert.equal(h.log.getHead().pendingAsks.length, 0);
+  assert.equal(await h.sup.answer(h.threadId, askId, { kind: "allow" }, origin), "conflict", "still a conflict after the turn ended");
+  await h.cleanup();
+});
+
+test("answer: a question ask takes answers or deny, and never allow", async () => {
+  const h = await harness(askScript(questionAsk));
+  const ended = h.nextTurnEnd();
+  await h.sup.send(h.threadId, msg("m1"));
+  const askId = await pendingAskId(h);
+  assert.equal(await h.sup.answer(h.threadId, askId, { kind: "allow" }, origin), "mismatch");
+  assert.equal(await h.sup.answer(h.threadId, askId, { kind: "answers", answers: [{ kind: "options", labels: ["B"] }] }, origin), "ok");
+  await ended;
+  assert.ok((await h.events()).some((e) => e.kind === "assistant.text" && e.delta === "answer:answers"));
+  await h.cleanup();
+});
+
+test("interrupt seals every pending ask as {system: interrupted} before the turn ends, and the process gets a denial", async () => {
+  const h = await harness(async (t) => {
+    const answer = await t.ask(bashAsk);
+    t.text(`answer:${answer.kind}`);
+    await t.interrupted;
+  });
+  const ended = h.nextTurnEnd();
+  await h.sup.send(h.threadId, msg("m1"));
+  const askId = await pendingAskId(h);
+  await h.sup.interrupt(h.threadId);
+  const end = await ended;
+  assert.equal(end.kind === "turn.ended" && end.outcome, "interrupted");
+  const kinds = await h.kinds();
+  assert.ok(kinds.indexOf("ask.answered") < kinds.indexOf("turn.ended:interrupted"), "sealed before the end");
+  assert.deepEqual(sealReasons(await h.events()), ["deny:interrupted"]);
+  assert.deepEqual(h.agents.last.answers, [{ askId, answer: { kind: "deny", reason: null } }]);
+  assert.equal(await h.sup.answer(h.threadId, askId, { kind: "allow" }, origin), "conflict");
+  await h.cleanup();
+});
+
+test("archive seals pending asks as {system: archived}, not interrupted", async () => {
+  const h = await harness(async (t) => {
+    await t.ask(bashAsk);
+    await t.interrupted;
+  });
+  await h.sup.send(h.threadId, msg("m1"));
+  await pendingAskId(h);
+  await h.sup.archive(h.threadId);
+  assert.deepEqual(sealReasons(await h.events()), ["deny:archived"]);
+  assert.deepEqual((await h.kinds()).slice(-3), ["ask.answered", "turn.ended:interrupted", "thread.archived"]);
+  await h.cleanup();
+});
+
+test("a process that dies with an ask pending seals it as {system: exited} before the error end", async () => {
+  const h = await harness(async (t) => {
+    void t.ask(bashAsk);
+    await new Promise((r) => setTimeout(r, 10));
+    t.crash();
+  });
+  const ended = h.nextTurnEnd();
+  await h.sup.send(h.threadId, msg("m1"));
+  const end = await ended;
+  assert.equal(end.kind === "turn.ended" && end.error, "Claude Code session exited");
+  assert.deepEqual(sealReasons(await h.events()), ["deny:exited"]);
+  assert.equal(h.log.getHead().pendingAsks.length, 0);
+  await h.cleanup();
+});
+
+test("permission mode reaches spawn, a change during warming is applied after, and reconfigure switches a live process", async () => {
+  const h = await harness();
+  await h.threads.patch(h.threadId, { permissionMode: "ask" });
+  const origSpawn = h.agents.spawn.bind(h.agents);
+  h.agents.spawn = async (opts) => {
+    await new Promise((r) => setTimeout(r, 30));
+    return origSpawn(opts);
+  };
+  const ended = h.nextTurnEnd();
+  await h.sup.send(h.threadId, msg("m1"));
+  await h.sup.reconfigure(h.threadId, { permissionMode: "bypass" }, origin);
+  await ended;
+  assert.equal(h.agents.last.spawnOpts.permissionMode, "ask");
+  assert.deepEqual(h.agents.last.setPermissionModeCalls, ["bypass"]);
+  await waitFor(async () => h.sup.status(h.threadId).session === "idle");
+  await h.sup.reconfigure(h.threadId, { permissionMode: "ask" }, origin);
+  assert.deepEqual(h.agents.last.setPermissionModeCalls, ["bypass", "ask"]);
+  assert.ok((await h.events()).some((e) => e.kind === "thread.config" && e.patch.permissionMode === "ask"));
+  assert.equal((await h.threads.get(h.threadId))!.permissionMode, "ask");
+  await h.cleanup();
 });
 
 test("titleFrom: first line, 60 chars max, no trailing punctuation", () => {
@@ -276,7 +395,7 @@ test("hardening: a throw inside a turn seals it and leaves the thread cold, not 
   h.agents.script = () => {
     throw new Error("script exploded synchronously");
   };
-  h.agents.spawn = async () => ({ ...(await new FakeAgentFactory().spawn({ cwd: h.home, model, effort: "high", resume: null, additionalDirectories: [], appendSystemPrompt: "", sendToPhone: () => Promise.reject(new Error("no")) })), send: () => { throw new Error("send exploded"); } }) as never;
+  h.agents.spawn = async () => ({ ...(await new FakeAgentFactory().spawn({ cwd: h.home, model, effort: "high", permissionMode: "bypass", resume: null, additionalDirectories: [], appendSystemPrompt: "", sendToPhone: () => Promise.reject(new Error("no")) })), send: () => { throw new Error("send exploded"); } }) as never;
   const ended = h.nextTurnEnd();
   await h.sup.send(h.threadId, msg("m1"));
   const end = await ended;

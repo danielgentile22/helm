@@ -12,6 +12,7 @@
   import ModelEffort from "../sheets/ModelEffort.svelte";
   import Rename from "../sheets/Rename.svelte";
   import ThreadInfo from "../sheets/ThreadInfo.svelte";
+  import { isWaiting } from "../fold";
   import { openThread } from "../thread.svelte";
   import type { ThreadSession } from "../thread";
   import { blockCount, jumpCount, toBlocks } from "../transcript";
@@ -111,9 +112,9 @@
         {/if}
       </div>
     </header>
-    <StatusBar conn={s.conn} seen={s.view.headSeq} head={s.view.logHead} />
+    <StatusBar conn={s.conn} seen={s.view.headSeq} head={s.view.logHead} waiting={isWaiting(s.view)} />
     </div>
-    <Transcript {sections} openTurn={s.view.openTurn} replaying={s.view.replaying} onResend={(text) => void s.submit(text, [])} onQuote={(quoted) => insert(quoted)} uploadUrl={(uploadId) => api.uploadUrl(threadId, uploadId)} fileUrl={(fileId) => api.fileUrl(threadId, fileId)} fetchFile={(fileId, onProgress) => api.fetchFile(threadId, fileId, onProgress)} />
+    <Transcript {sections} openTurn={s.view.openTurn} replaying={s.view.replaying} onResend={(text) => void s.submit(text, [])} onQuote={(quoted) => insert(quoted)} onAnswer={(askId, answer) => s.answer(askId, answer)} uploadUrl={(uploadId) => api.uploadUrl(threadId, uploadId)} fileUrl={(fileId) => api.fileUrl(threadId, fileId)} fetchFile={(fileId, onProgress) => api.fetchFile(threadId, fileId, onProgress)} />
     {#if s.error}
       <div class="inline-error">
         <span class="glyph">▲</span>
@@ -132,7 +133,7 @@
     {:else if openSheet === "model"}
       <ModelEffort {api} config={s.config} onClose={() => (openSheet = null)} />
     {:else if openSheet === "info"}
-      <ThreadInfo view={s.view} onClose={() => (openSheet = null)} />
+      <ThreadInfo {api} view={s.view} onClose={() => (openSheet = null)} />
     {:else if openSheet === "archive"}
       <ArchiveConfirm {api} {threadId} onClose={() => (openSheet = null)} />
     {/if}

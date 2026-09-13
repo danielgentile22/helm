@@ -1,7 +1,7 @@
 <script lang="ts" module>
   import type { RowState } from "../groups";
 
-  const STATE_GLYPH: Record<RowState, string> = { running: "◆", done: "✓", orphaned: "⊘", error: "▲", archived: "▢", idle: "○" };
+  const STATE_GLYPH: Record<RowState, string> = { waiting: "?", running: "◆", done: "✓", orphaned: "⊘", error: "▲", archived: "▢", idle: "○" };
 </script>
 
 <script lang="ts">
@@ -132,6 +132,9 @@
         {@const path = splitPath(g.cwd)}
         <section class="group">
           <div class="ghead">
+            {#if g.waiting > 0}
+              <span class="live wait"><span class="glyph">?</span>{g.waiting} waiting</span>
+            {/if}
             {#if g.running > 0}
               <span class="live"><span class="dot pulse"></span>{g.running} running</span>
             {/if}
@@ -145,12 +148,14 @@
                 class="row"
                 type="button"
                 class:is-running={r.state === "running"}
+                class:is-waiting={r.state === "waiting"}
                 class:is-archived={r.state === "archived"}
                 class:is-open={router.route.name === "thread" && router.route.threadId === r.summary.config.threadId}
                 animate:flip={{ duration: motion.base }}
                 onclick={() => router.navigate(`/t/${r.summary.config.threadId}`)}
               >
                 {#if r.state === "running"}<span class="rail" aria-hidden="true"><i></i></span>{/if}
+                {#if r.state === "waiting"}<span class="waitbar" aria-hidden="true"></span>{/if}
                 <span class="r1">
                   <span class="title">{r.summary.config.title ?? "Untitled"}</span>
                   <span class="when">{fmtRelative(r.when, new Date())}</span>

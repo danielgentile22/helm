@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PushService, payloadFor, type PushSubscriptionRecord } from "./push";
+import { PushService, askPayloadFor, payloadFor, type PushSubscriptionRecord } from "./push";
 import { ThreadLog } from "./log";
 import { ThreadStore } from "./thread-store";
 import type {
+  AskId,
+  AskPayload,
   ClientMsgId,
   EventOf,
   ModelId,
@@ -112,10 +114,11 @@ async function rig(opts: { title?: string | null; fail?: (endpoint: string) => u
   const threadsRoot = join(home, "threads");
   const file = join(home, "push", "subscriptions.json");
   const threads = new ThreadStore(threadsRoot);
-  await threads.create({ threadId, cwd: home, model: "claude-opus-5" as ModelId, effort: "high", title: opts.title ?? "Vault cleanup" });
+  await threads.create({ threadId, cwd: home, model: "claude-opus-5" as ModelId, effort: "high", permissionMode: "bypass", title: opts.title ?? "Vault cleanup" });
   const log = await ThreadLog.open(threadId, join(threadsRoot, threadId));
   const sent: { endpoint: string; payload: PushPayload }[] = [];
   const push = new PushService(file, vapid, threads, {
+    askGraceMs: 10,
     send: async (record, payload) => {
       const err = opts.fail?.(record.endpoint);
       if (err) throw err;
@@ -300,6 +303,43 @@ test("a missing subscriptions file is tolerated and means no sends", async () =>
     await settle();
     assert.deepEqual(r.sent, []);
     assert.equal(r.push.publicKey(), "pub-key");
+  } finally {
+    await r.cleanup();
+  }
+});
+
+const bashAsk: AskPayload = { kind: "tool", toolName: "Bash", input: { command: "git push" }, toolUseId: "tu-1" as never, title: null, description: null };
+
+test("askPayloadFor carries the ask summary as the body and ask as the kind", () => {
+  assert.deepEqual(askPayloadFor(threadId, "Vault cleanup", 7 as Seq, bashAsk), { threadId, title: "Vault cleanup", body: "Bash git push", kind: "ask", seq: 7 as Seq, url: `/t/${threadId}#end` });
+  assert.equal(askPayloadFor(threadId, null, 7 as Seq, { kind: "question", questions: [{ question: "A or B?", header: "", options: [], multiSelect: false }] }).body, "A or B?");
+});
+
+test("an ask still pending after the grace notifies once; one answered inside it, or one with a viewer attached, does not", async () => {
+  const r = await rig();
+  try {
+    await r.push.subscribe(sub("https://push.example/a"));
+    r.push.watch(r.log);
+    await r.log.append({ kind: "turn.started", turnId, clientMsgId: "m1" as ClientMsgId, model: "claude-opus-5" as ModelId, effort: "high", spawned: true });
+
+    await r.log.append({ kind: "ask.opened", turnId, askId: "a1" as AskId, ask: bashAsk });
+    await r.log.append({ kind: "ask.answered", turnId, askId: "a1" as AskId, answer: { kind: "deny", reason: "rule" }, by: { by: "system", reason: "rule" } });
+    await settle(40);
+    assert.equal(r.sent.length, 0, "an opened-and-answered pair is not a question for the phone");
+
+    const opened = await r.log.append({ kind: "ask.opened", turnId, askId: "a2" as AskId, ask: bashAsk });
+    await waitFor(() => r.sent.length === 1, "the pending ask");
+    assert.equal(r.sent[0]!.payload.kind, "ask");
+    assert.equal(r.sent[0]!.payload.body, "Bash git push");
+    assert.equal(r.sent[0]!.payload.seq, opened.seq);
+    await settle(40);
+    assert.equal(r.sent.length, 1, "no repeat while it stays pending");
+
+    const detach = r.log.subscribe("viewer", () => undefined);
+    await r.log.append({ kind: "ask.opened", turnId, askId: "a3" as AskId, ask: bashAsk });
+    await settle(40);
+    assert.equal(r.sent.length, 1, "a viewer sees the card; no push");
+    detach();
   } finally {
     await r.cleanup();
   }

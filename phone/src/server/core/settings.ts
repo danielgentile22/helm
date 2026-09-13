@@ -11,8 +11,8 @@
 
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { DEFAULT_EFFORT, EFFORTS, THEMES } from "../../shared/protocol";
-import type { Effort, HelmSettings, ModelId, SettingsPatch } from "../../shared/protocol";
+import { DEFAULT_EFFORT, EFFORTS, PERMISSION_MODES, THEMES } from "../../shared/protocol";
+import type { Effort, HelmSettings, ModelId, PermissionMode, SettingsPatch } from "../../shared/protocol";
 import { atomicWrite } from "../util/atomicWrite";
 
 /** Pure: the settings a file's contents describe, with every unknown or ill-typed field ignored. */
@@ -24,6 +24,7 @@ export function settingsFrom(raw: unknown, defaults: HelmSettings): HelmSettings
     defaultModel: typeof r.defaultModel === "string" ? (r.defaultModel as ModelId) : r.defaultModel === null ? null : defaults.defaultModel,
     defaultEffort: EFFORTS.includes(r.defaultEffort as Effort) ? (r.defaultEffort as Effort) : defaults.defaultEffort,
     defaultCwd: typeof r.defaultCwd === "string" && r.defaultCwd.startsWith("/") ? r.defaultCwd : defaults.defaultCwd,
+    defaultPermissionMode: PERMISSION_MODES.includes(r.defaultPermissionMode as PermissionMode) ? (r.defaultPermissionMode as PermissionMode) : defaults.defaultPermissionMode,
   };
 }
 
@@ -33,7 +34,8 @@ export class SettingsStore {
   private writes: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly file: string, defaults: { defaultCwd: string }) {
-    this.defaults = { theme: "system", defaultModel: null, defaultEffort: DEFAULT_EFFORT, defaultCwd: defaults.defaultCwd };
+    // New threads outside the vault get the gate; the vault root itself is always bypass at creation (http/app.ts).
+    this.defaults = { theme: "system", defaultModel: null, defaultEffort: DEFAULT_EFFORT, defaultCwd: defaults.defaultCwd, defaultPermissionMode: "ask" };
   }
 
   async get(): Promise<HelmSettings> {

@@ -13,6 +13,7 @@ const config: ThreadConfig = {
   cwd: "/tmp",
   model: "claude-opus-5" as ModelId,
   effort: "high",
+  permissionMode: "bypass",
   title: null,
   createdAt: "2026-09-11T00:00:00.000Z",
   archivedAt: null,
@@ -31,6 +32,8 @@ const head = (over: Partial<ThreadHead>): ThreadHead => ({
   lastText: null,
   usageTotal: null,
   contextWindow: null,
+  pendingAsks: [],
+  recentAskIds: new Set(),
   ...over,
 });
 
@@ -90,4 +93,16 @@ test("preview keeps the first 120 chars and the tail keeps the last 120 of the s
   assert.equal(s.preview?.startsWith("START"), true);
   assert.equal(s.doing?.kind === "text" && s.doing.tail.length, 120);
   assert.equal(s.doing?.kind === "text" && s.doing.tail.endsWith("END"), true);
+});
+
+test("waiting: a pending ask while running flips waiting and names the ask as what the thread is doing", () => {
+  const pending = (ask: Parameters<typeof threadSummary>[0]["pendingAsks"][number]["ask"]) => head({ pendingAsks: [{ askId: "a1" as never, turnId: "t:1" as TurnId, ask }], activeTool: tool("Read", { file_path: "/x" }), lastText: { turnId: "t:1" as TurnId, text: "thinking" } });
+  const bash = pending({ kind: "tool", toolName: "Bash", input: { command: "  git   push " }, toolUseId: "tu-1" as ToolUseId, title: null, description: null });
+  assert.equal(threadSummary(bash, config, "running").waiting, true);
+  assert.deepEqual(threadSummary(bash, config, "running").doing, { kind: "tool", name: "Bash", arg: "git push" });
+  assert.equal(threadSummary(bash, config, "cold").waiting, false, "no process, nothing waits");
+  assert.deepEqual(threadSummary(bash, config, "cold").doing, { kind: "text", tail: "thinking" });
+  const q = pending({ kind: "question", questions: [{ question: "Tabs or spaces?", header: "Style", options: [], multiSelect: false }] });
+  assert.deepEqual(threadSummary(q, config, "running").doing, { kind: "tool", name: "Question", arg: "Tabs or spaces?" });
+  assert.equal(threadSummary(head({}), config, "running").waiting, false);
 });

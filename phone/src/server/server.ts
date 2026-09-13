@@ -47,6 +47,8 @@ export interface ServerConfig {
   readonly version: string;
   readonly idleParkMs?: number;
   readonly heartbeatMs?: number;
+  /** How long a pending ask waits before a push fires for it. */
+  readonly askGraceMs?: number;
 }
 
 export interface ServerDeps {
@@ -96,7 +98,7 @@ export async function buildServer(cfg: ServerConfig, deps: ServerDeps): Promise<
   const publicOrigin = `https://${cfg.hostname}`;
   const webauthn = new WebAuthn({ rpId: cfg.hostname, origin: publicOrigin, credentialsFile: join(cfg.home, "auth", "credentials.json"), sessions, sessionTtlMs: cfg.sessionTtlMs });
   const enroll = new EnrollTokens();
-  const push = new PushService(join(cfg.home, "push", "subscriptions.json"), cfg.vapid, threads, { send: deps.pushSend });
+  const push = new PushService(join(cfg.home, "push", "subscriptions.json"), cfg.vapid, threads, { send: deps.pushSend, askGraceMs: cfg.askGraceMs });
   const mirror = new Mirror(cfg.vaultRoot, threads);
 
   logs.onOpen((log) => {
@@ -123,6 +125,7 @@ export async function buildServer(cfg: ServerConfig, deps: ServerDeps): Promise<
     staticDir: cfg.staticDir,
     browseRoots: cfg.browseRoots,
     defaultCwd: cfg.vaultRoot,
+    vaultRoot: cfg.vaultRoot,
     publicOrigin,
     heartbeatMs: cfg.heartbeatMs,
   });

@@ -10,6 +10,7 @@ interface Fixture {
   lastTurnEndedAt?: string | null;
   archivedAt?: string | null;
   createdAt?: string;
+  waiting?: boolean;
 }
 
 const summary = (f: Fixture = {}): ThreadSummary => ({
@@ -20,6 +21,7 @@ const summary = (f: Fixture = {}): ThreadSummary => ({
     effort: "high",
     title: null,
     createdAt: f.createdAt ?? "2026-09-01T00:00:00.000Z",
+    permissionMode: "ask",
     archivedAt: f.archivedAt ?? null,
   },
   headSeq: 0,
@@ -31,6 +33,7 @@ const summary = (f: Fixture = {}): ThreadSummary => ({
   doing: null,
   usageTotal: null,
   contextWindow: null,
+  waiting: f.waiting ?? false,
 });
 
 test("rowState puts archived first, then a live session, then the outcome table", () => {
@@ -42,6 +45,21 @@ test("rowState puts archived first, then a live session, then the outcome table"
   assert.equal(rowState(summary({ lastOutcome: "orphaned" })), "orphaned");
   assert.equal(rowState(summary({ lastOutcome: "interrupted" })), "idle");
   assert.equal(rowState(summary({ lastOutcome: null })), "idle");
+});
+
+test("a thread blocked on an ask reads waiting, outranks running, and is counted by its group", () => {
+  assert.equal(rowState(summary({ waiting: true, session: "running" })), "waiting");
+  assert.equal(rowState(summary({ waiting: true, archivedAt: "2026-09-02T00:00:00.000Z" })), "archived", "an archived thread cannot be waiting on anyone");
+  const [group] = groupThreads(
+    [
+      summary({ cwd: "/a", session: "idle", lastOutcome: "ok", lastTurnEndedAt: "2026-09-10T00:00:00.000Z" }),
+      summary({ cwd: "/a", session: "running" }),
+      summary({ cwd: "/a", session: "running", waiting: true }),
+    ],
+    false,
+  );
+  assert.deepEqual(group!.rows.map((r) => r.state), ["waiting", "running", "done"]);
+  assert.deepEqual([group!.waiting, group!.running], [1, 1]);
 });
 
 test("groups are ordered by their last activity, newest first", () => {

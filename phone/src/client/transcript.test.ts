@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Seq, ThreadEvent, ThreadId, TurnId } from "../shared/protocol";
 import { applySync, emptyView, foldAll, type ThreadView } from "./fold";
-import { diffLines, jumpCount, summarize, toBlocks as toSections, toolDiff, type Block, type Section } from "./transcript";
+import { answerLine, diffLines, jumpCount, summarize, toBlocks as toSections, toolDiff, type Block, type Section } from "./transcript";
 
 const threadId = "t-1" as ThreadId;
 const origin = { via: "pwa", label: "iphone" } as const;
@@ -39,7 +39,7 @@ const ended = (outcome = "ok", durationMs = 42_000, error: string | null = null)
 
 /** Fold the events, then mark the stream live with the turn left open or closed. */
 function build(events: ThreadEvent[], openTurn: TurnId | null): ThreadView {
-  const view = foldAll(emptyView({ threadId: threadId, cwd: "/v", model: "m" as never, effort: "high", title: null, createdAt: "", archivedAt: null }), events);
+  const view = foldAll(emptyView({ threadId: threadId, cwd: "/v", model: "m" as never, effort: "high", permissionMode: "ask", title: null, createdAt: "", archivedAt: null }), events);
   return applySync(view, { headSeq: view.headSeq, session: openTurn ? "running" : "idle", openTurn, queuedCount: 0 });
 }
 
@@ -187,4 +187,73 @@ test("a file line is its own block and does not split or join the activity aroun
   );
   const f = blocks[2];
   assert.ok(f?.kind === "file" && f.file.fileId === "f1" && f.file.name === "report.pdf");
+});
+
+const askEv = (askId: string, toolUseId: string): ThreadEvent =>
+  ev({ kind: "ask.opened", turnId: T, askId, ask: { kind: "tool", toolName: "Bash", input: { command: "rm -rf build" }, toolUseId, title: null, description: null } });
+
+const answeredEv = (askId: string, answer: object, by: object): ThreadEvent => ev({ kind: "ask.answered", turnId: T, askId, answer, by });
+
+test("an ask is its own block, breaks a run of tools, and is live only while the turn waits on it", () => {
+  const events = [...started(), ...tool("Read"), askEv("a1", "tu9"), ...tool("Bash")];
+  const blocks = toBlocks(build(events, T));
+  assert.deepEqual(kinds(blocks), ["prompt", "activity", "ask", "activity"]);
+  const card = blocks[2]!;
+  assert.ok(card.kind === "ask");
+  assert.equal(card.live, true);
+  assert.equal(card.ask.askId, "a1");
+
+  const closed = toBlocks(build(events, null)).find((b) => b.kind === "ask")!;
+  assert.equal(closed.live, false, "a turn that is no longer open draws no buttons");
+
+  const settled = toBlocks(build([...events, answeredEv("a1", { kind: "allow" }, { by: "user", origin })], T)).find((b) => b.kind === "ask")!;
+  assert.equal(settled.live, false);
+});
+
+test("a tool the turn denied is marked denied for its activity block, and an allowed one is not", () => {
+  const events = [
+    ...started(),
+    ev({ kind: "ask.opened", turnId: T, askId: "a1", ask: { kind: "tool", toolName: "Bash", input: {}, toolUseId: "tu-denied", title: null, description: null } }),
+    answeredEv("a1", { kind: "deny", reason: "not that one" }, { by: "user", origin }),
+    ev({ kind: "ask.opened", turnId: T, askId: "a2", ask: { kind: "tool", toolName: "Bash", input: {}, toolUseId: "tu-allowed", title: null, description: null } }),
+    answeredEv("a2", { kind: "allow" }, { by: "user", origin }),
+    ev({ kind: "ask.opened", turnId: T, askId: "a3", ask: { kind: "tool", toolName: "Bash", input: {}, toolUseId: "tu-expired", title: null, description: null } }),
+    answeredEv("a3", { kind: "deny", reason: null }, { by: "system", reason: "interrupted" }),
+    ...tool("Bash"),
+  ];
+  const act = activity(toBlocks(build(events, null)))[0]!;
+  assert.deepEqual([...act.denied].sort(), ["tu-denied", "tu-expired"]);
+});
+
+test("a decision Claude Code made alone marks the tool row denied and draws no card", () => {
+  const events = [
+    ...started(),
+    ev({ kind: "ask.opened", turnId: T, askId: "r1", ask: { kind: "tool", toolName: "Bash", input: {}, toolUseId: "tu-rule", title: null, description: null } }),
+    answeredEv("r1", { kind: "deny", reason: "deny rule" }, { by: "system", reason: "rule" }),
+    ...tool("Bash"),
+  ];
+  const blocks = toBlocks(build(events, T));
+  assert.deepEqual(kinds(blocks), ["prompt", "activity"]);
+  assert.deepEqual([...activity(blocks)[0]!.denied], ["tu-rule"]);
+});
+
+test("answerLine names who answered and what, and tells an expiry apart from a denial", () => {
+  const item = (answer: object, by: object): Parameters<typeof answerLine>[0] => ({
+    kind: "ask",
+    askId: "a1" as never,
+    ask: { kind: "tool", toolName: "Bash", input: {}, toolUseId: "tu1" as never, title: null, description: null },
+    openedAt: at(0),
+    answer: { answer: answer as never, by: by as never, ts: at(0) },
+  });
+  const user = { by: "user", origin: { via: "pwa", label: "laptop" } };
+  const stamp = answerLine(item({ kind: "allow" }, user)).split(" · ")[1]!;
+  assert.equal(answerLine(item({ kind: "allow" }, user)), `Allowed by laptop · ${stamp}`);
+  assert.equal(answerLine(item({ kind: "allowTurn" }, user)), `Allowed for this turn by laptop · ${stamp}`);
+  assert.equal(answerLine(item({ kind: "deny", reason: "wrong branch" }, user)), `Denied by laptop: wrong branch · ${stamp}`);
+  assert.equal(answerLine(item({ kind: "deny", reason: null }, user)), `Denied by laptop · ${stamp}`);
+  assert.equal(answerLine(item({ kind: "answers", answers: [{ kind: "options", labels: ["Rebase"] }, { kind: "text", text: "both" }] }, user)), `Answered: Rebase · both · ${stamp}`);
+  assert.equal(answerLine(item({ kind: "deny", reason: null }, { by: "system", reason: "interrupted" })), `Expired (interrupted) · ${stamp}`);
+  assert.equal(answerLine(item({ kind: "deny", reason: null }, { by: "system", reason: "restart" })), `Expired (server restarted) · ${stamp}`);
+  assert.equal(answerLine(item({ kind: "deny", reason: null }, { by: "system", reason: "archived" })), `Expired (archived) · ${stamp}`);
+  assert.equal(answerLine(item({ kind: "deny", reason: "a deny rule matched" }, { by: "system", reason: "rule" })), `Auto-denied by a rule: a deny rule matched · ${stamp}`);
 });

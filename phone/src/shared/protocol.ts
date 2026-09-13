@@ -31,6 +31,8 @@ export type UploadId = Brand<string, "UploadId">;
 /** UUID minted when the model offers a file to the phone. */
 export type FileId = Brand<string, "FileId">;
 export type ToolUseId = Brand<string, "ToolUseId">;
+/** Minted by the adapter when Claude Code asks something mid-turn; echoed by the answer route. */
+export type AskId = Brand<string, "AskId">;
 
 // ---------------------------------------------------------------------------
 // Thread config (user-set inputs, stored in thread.json, not derived)
@@ -96,11 +98,22 @@ export interface HelmSettings {
   readonly defaultEffort: Effort;
   /** Absolute path to an existing directory. */
   readonly defaultCwd: string;
+  /** Seeds new threads outside the vault; a thread in the vault root always starts in `bypass`. */
+  readonly defaultPermissionMode: PermissionMode;
 }
 
 export const THEMES: readonly HelmSettings["theme"][] = ["system", "light", "dark"];
 
 export type SettingsPatch = Partial<HelmSettings>;
+
+/**
+ * Whether a turn may pause to ask before a gated tool call. `ask` runs Claude
+ * Code's default permission rules and forwards every prompt to the phone;
+ * `bypass` is the pre-gate behavior, everything runs. Thread config, so a
+ * vault chore and a repo can differ.
+ */
+export type PermissionMode = "ask" | "bypass";
+export const PERMISSION_MODES: readonly PermissionMode[] = ["ask", "bypass"];
 
 export interface ThreadConfig {
   readonly threadId: ThreadId;
@@ -108,13 +121,98 @@ export interface ThreadConfig {
   readonly cwd: string;
   readonly model: ModelId;
   readonly effort: Effort;
+  readonly permissionMode: PermissionMode;
   /** null until the server titles it from the first turn. */
   readonly title: string | null;
   readonly createdAt: string; // ISO
   readonly archivedAt: string | null;
 }
 
-export type ThreadConfigPatch = Partial<Pick<ThreadConfig, "model" | "effort" | "title">>;
+export type ThreadConfigPatch = Partial<Pick<ThreadConfig, "model" | "effort" | "title" | "permissionMode">>;
+
+// ---------------------------------------------------------------------------
+// Asks: a turn pausing on the user
+// ---------------------------------------------------------------------------
+
+export interface AskOption {
+  readonly label: string;
+  readonly description: string;
+}
+
+/** One question of an AskUserQuestion call. Free text is always accepted; the SDK adds "Other" itself. */
+export interface AskQuestion {
+  readonly question: string;
+  /** Chip text, at most a dozen characters. */
+  readonly header: string;
+  readonly options: readonly AskOption[];
+  readonly multiSelect: boolean;
+}
+
+/**
+ * What Claude Code is waiting on. A tool ask carries the same name and
+ * (truncated) input a `tool.started` does, so the card and the list row name
+ * it through toolSummary; `title` is the sentence the SDK rendered when it
+ * had one ("Claude wants to run npm test").
+ */
+export type AskPayload =
+  | { readonly kind: "tool"; readonly toolName: string; readonly input: unknown; readonly toolUseId: ToolUseId; readonly title: string | null; readonly description: string | null }
+  | { readonly kind: "question"; readonly questions: readonly AskQuestion[] };
+
+/** One question's answer: the labels picked, or typed text when no option fit. */
+export type QuestionAnswer = { readonly kind: "options"; readonly labels: readonly string[] } | { readonly kind: "text"; readonly text: string };
+
+export type AskAnswer =
+  | { readonly kind: "allow" }
+  /** Allow, and do not ask again for this tool name until the turn ends. */
+  | { readonly kind: "allowTurn" }
+  | { readonly kind: "deny"; readonly reason: string | null }
+  /** One entry per question, in the order asked. */
+  | { readonly kind: "answers"; readonly answers: readonly QuestionAnswer[] };
+
+/**
+ * Who settled an ask. A person answered through a device; the system answered
+ * on their behalf when the request could no longer be waited on (`interrupted`,
+ * `archived`), when the server rebooted with the turn open (`restart`), when
+ * the Claude Code process died under it (`exited`), or when
+ * Claude Code decided without asking (`rule`: a deny rule or classifier). A
+ * system answer is always a denial, which is how expiry stays distinct from a
+ * person's "Deny" in the transcript.
+ */
+export type AskSystemReason = "interrupted" | "restart" | "exited" | "archived" | "rule";
+export type AskAnsweredBy = { readonly by: "user"; readonly origin: Origin } | { readonly by: "system"; readonly reason: AskSystemReason };
+
+export interface AnswerRequest {
+  readonly askId: string;
+  readonly answer: AskAnswer;
+}
+
+/** The shape of `ask.opened` and `ask.answered`, reused by the log head and the phone's pending set. */
+export interface PendingAsk {
+  readonly askId: AskId;
+  readonly turnId: TurnId;
+  readonly ask: AskPayload;
+}
+
+/** Whether an answer has the shape the ask can take: a question takes answers or deny, a tool takes anything but answers. */
+export function answerFits(ask: AskPayload, answer: AskAnswer): boolean {
+  return ask.kind === "question" ? answer.kind === "answers" || answer.kind === "deny" : answer.kind !== "answers";
+}
+
+/** One question's answer in words: the labels picked, or the text typed. The SDK, the mirror and the card all say it this way. */
+export function answerPhrase(a: QuestionAnswer): string {
+  return a.kind === "options" ? a.labels.join(", ") : a.text;
+}
+
+/**
+ * The one line a push, a list row, and a mirror line say about an ask: what
+ * tool or what question. Shared so the three agree.
+ */
+export function askSummary(ask: AskPayload): string {
+  if (ask.kind === "question") return ask.questions[0]?.question ?? "Question";
+  if (ask.title) return tidy(ask.title).slice(0, 160);
+  const { label, arg } = toolSummary(ask.toolName, ask.input);
+  return arg ? `${label} ${arg}` : label;
+}
 
 // ---------------------------------------------------------------------------
 // Events: the whole vocabulary of the system
@@ -256,7 +354,10 @@ export type ThreadEventBody =
     }
   | { kind: "upload.staged"; upload: StagedUpload; origin: Origin }
   /** Appended by the tool handler, not the agent stream, so it is not tied to a turn. */
-  | { kind: "file.offered"; file: OfferedFile; origin: Origin };
+  | { kind: "file.offered"; file: OfferedFile; origin: Origin }
+  /** Claude Code paused on the user. Pending until an `ask.answered` with the same askId; the turn's end implies one. */
+  | { kind: "ask.opened"; turnId: TurnId; askId: AskId; ask: AskPayload }
+  | { kind: "ask.answered"; turnId: TurnId; askId: AskId; answer: AskAnswer; by: AskAnsweredBy };
 
 export type EventKind = ThreadEventBody["kind"];
 
@@ -294,6 +395,8 @@ export interface CreateThreadRequest {
   readonly model: ModelId;
   readonly effort: Effort;
   readonly title?: string | null;
+  /** Absent: bypass in the vault root, else the server's default. */
+  readonly permissionMode?: PermissionMode;
 }
 
 export interface SendRequest {
@@ -322,6 +425,8 @@ export interface ThreadSummary {
   readonly doing: DoingNow | null;
   readonly usageTotal: UsageTotal | null;
   readonly contextWindow: number | null;
+  /** A turn is open and blocked on an unanswered ask. Distinct from running: the process is waiting, not working. */
+  readonly waiting: boolean;
 }
 
 export interface DirEntry {
@@ -335,8 +440,8 @@ export interface PushPayload {
   readonly threadId: ThreadId;
   readonly title: string;
   readonly body: string;
-  /** How the turn ended, so the notification can be styled by outcome rather than by parsing the body. */
-  readonly kind: TurnOutcome;
+  /** How the turn ended, or `ask` when a request is waiting on the user; styled by kind rather than by parsing the body. */
+  readonly kind: TurnOutcome | "ask";
   readonly seq: Seq;
   readonly url: string; // `/t/<threadId>#end`
 }
@@ -354,6 +459,8 @@ export const LIMITS = {
   TOOL_INPUT_MAX: 4 * 1024,
   TOOL_OUTPUT_MAX: 16 * 1024,
   DELTA_COALESCE_MS: 40,
+  /** A deny reason or a free-text answer to a question. */
+  ANSWER_CHARS: 2_000,
   SSE_HEARTBEAT_MS: 15_000,
   IDLE_PARK_MS: 30 * 60_000,
 } as const;

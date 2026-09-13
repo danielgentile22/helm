@@ -26,9 +26,9 @@
 
 import { mkdir, readdir, readFile, stat, unlink, appendFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { fmtBytes, toolSummary } from "../../shared/protocol";
+import { answerPhrase, askSummary, fmtBytes, toolSummary } from "../../shared/protocol";
 import type { Cursor, Seq, ThreadConfig, ThreadEvent, ThreadId } from "../../shared/protocol";
-import { groupTurns, isCompleted, type CompletedTurn, type TurnEnd } from "../../shared/turns";
+import { groupTurns, isCompleted, type AskItem, type CompletedTurn, type TurnEnd } from "../../shared/turns";
 import type { ThreadLog, Unsubscribe } from "./log";
 import type { ThreadStore } from "./thread-store";
 
@@ -187,11 +187,38 @@ function footer(ended: TurnEnd): string {
 }
 
 /**
+ * How an ask was settled, in words. A system answer reads as expiry, not as
+ * a denial the person made; a rule denial reads as Claude Code's own call.
+ */
+function answerVerb(item: AskItem): string {
+  const a = item.answer;
+  if (!a) return "(none)";
+  if (a.by.by === "system") {
+    const reason = a.answer.kind === "deny" && a.answer.reason ? `: ${a.answer.reason}` : "";
+    return a.by.reason === "rule" ? `auto-denied${reason}` : `expired (${a.by.reason})`;
+  }
+  const verb = (() => {
+    switch (a.answer.kind) {
+      case "allow":
+        return "allowed";
+      case "allowTurn":
+        return "allowed for the turn";
+      case "deny":
+        return a.answer.reason ? `denied: ${a.answer.reason}` : "denied";
+      case "answers":
+        return a.answer.answers.map(answerPhrase).join("; ");
+    }
+  })();
+  return `${verb} [${a.by.origin.label}]`;
+}
+
+/**
  * Pure. Renders one completed turn. Tool calls are rendered as one line each
  * (`> Read Atlas/Areas/Health.md`) with no output, so the mirror stays a
  * readable conversation; the full detail is in events.jsonl. Thinking is
  * omitted for the same reason. A failed tool is marked with the word
- * "failed", never with color alone.
+ * "failed", never with color alone. An ask takes two lines in the same
+ * stream, what was asked and how it was answered.
  */
 export function renderTurn(turn: CompletedTurn): string {
   const ended = turn.end;
@@ -210,6 +237,8 @@ export function renderTurn(turn: CompletedTurn): string {
       tools.push(`${label}${arg ? ` ${arg}` : ""}${mark}`);
     } else if (item.kind === "file") {
       sent.push(`sent to phone: ${item.name} (${fmtBytes(item.bytes)})${item.note ? `: ${item.note}` : ""}`);
+    } else if (item.kind === "ask") {
+      tools.push(`asked: ${askSummary(item.ask)}`, `answered: ${answerVerb(item)}`);
     }
   }
 

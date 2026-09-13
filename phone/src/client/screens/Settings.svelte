@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { EFFORTS, THEMES, type Effort, type HelmSettings, type ModelChoice, type SettingsPatch } from "../../shared/protocol";
+  import { EFFORTS, PERMISSION_MODES, THEMES, type Effort, type HelmSettings, type ModelChoice, type PermissionMode, type SettingsPatch } from "../../shared/protocol";
   import type { HelmClient } from "../api";
   import DirBrowser from "../components/DirBrowser.svelte";
   import { shortPath } from "../format";
@@ -23,6 +23,8 @@
   const value = $derived(settings.value);
   const chosen = $derived(catalog.find((c) => c.id === value?.defaultModel));
   const pushWords = $derived(push === "enabled" ? "enabled on this device" : push === "disabled" ? "not enabled" : push === "unsupported" ? "not supported here" : "checking");
+
+  const MODE_WORDS: Record<PermissionMode, string> = { ask: "Ask", bypass: "Bypass" };
 
   const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
   const fail = (card: Card, e: unknown): void => void (errs = { ...errs, [card]: message(e) });
@@ -136,6 +138,14 @@
             <select aria-label="Default effort" value={value.defaultEffort} onchange={(e) => void patch("defaults", { defaultEffort: e.currentTarget.value as Effort })}>
               {#each chosen?.efforts ?? EFFORTS as e (e)}<option value={e}>{e}</option>{/each}
             </select>
+          </span>
+        </div>
+        <div class="item">
+          <span class="t"><span class="a">Permissions</span><span class="b">threads in the vault always start in bypass</span></span>
+          <span class="seg">
+            {#each PERMISSION_MODES as m (m)}
+              <button aria-pressed={value.defaultPermissionMode === m} onclick={() => void patch("defaults", { defaultPermissionMode: m })}>{MODE_WORDS[m]}</button>
+            {/each}
           </span>
         </div>
         <button

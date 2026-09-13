@@ -32,10 +32,17 @@ self.addEventListener("fetch", (e) => {
   }).catch(async () => (await caches.match(shellPath)) ?? Response.error()));
 });
 
+/**
+ * An ask carries its own tag so a turn-ended notification for the same thread
+ * neither replaces it nor is replaced by it, and it stays on screen until it
+ * is tapped: the turn cannot move until someone answers.
+ */
 export async function onPush(payload: PushPayload): Promise<void> {
+  const ask = payload.kind === "ask";
   await self.registration.showNotification(payload.title, {
     body: payload.body,
-    tag: `helm-${payload.threadId}`,
+    tag: ask ? `helm-ask-${payload.threadId}` : `helm-${payload.threadId}`,
+    requireInteraction: ask,
     data: { url: payload.url, threadId: payload.threadId },
     icon: "/icon-192.png",
   });

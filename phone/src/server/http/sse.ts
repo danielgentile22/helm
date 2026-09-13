@@ -64,7 +64,8 @@ export function threadStream(log: ThreadLog, supervisor: Supervisor, after: Curs
   return out.chunks;
 }
 
-const GLOBAL_KINDS = new Set<ThreadEvent["kind"]>(["thread.created", "thread.config", "thread.archived", "turn.started", "turn.ended", "input.queued"]);
+/** Thread boundaries plus ask events, so the list row moves into and out of "waiting". */
+const GLOBAL_KINDS = new Set<ThreadEvent["kind"]>(["thread.created", "thread.config", "thread.archived", "turn.started", "turn.ended", "input.queued", "ask.opened", "ask.answered"]);
 
 /**
  * GET /api/events   (global, not persisted)

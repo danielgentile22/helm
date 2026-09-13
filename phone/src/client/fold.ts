@@ -14,7 +14,7 @@
 
 import type { ClaudeSessionId, Cursor, SyncFrame, ThreadConfig, ThreadEvent, TurnId, UsageTotal } from "../shared/protocol";
 import { addUsage } from "../shared/protocol";
-import { foldTurn, pendingPrompt, type PromptUpload, type Turn } from "../shared/turns";
+import { foldTurn, pendingPrompt, type AskItem, type PromptUpload, type Turn } from "../shared/turns";
 
 export type { PromptUpload };
 
@@ -30,11 +30,16 @@ export interface ThreadView {
   readonly contextTokens: number | null;
   readonly contextWindow: number | null;
   readonly usageTotal: UsageTotal | null;
+  /** Opened and not yet answered inside the open turn, in the order asked. Both turn boundaries clear it: a turn's end answers everything it left pending. */
+  readonly pendingAsks: readonly AskItem[];
   readonly replaying: boolean;
 }
 
+/** A turn is open and blocked on the user. The one place the phone decides it is waiting rather than working. */
+export const isWaiting = (view: ThreadView): boolean => view.openTurn !== null && view.pendingAsks.length > 0;
+
 export function emptyView(config: ThreadConfig, logHead: Cursor = 0): ThreadView {
-  return { config, headSeq: 0, logHead, turns: [], openTurn: null, session: "cold", sessionId: null, contextTokens: null, contextWindow: null, usageTotal: null, replaying: true };
+  return { config, headSeq: 0, logHead, turns: [], openTurn: null, session: "cold", sessionId: null, contextTokens: null, contextWindow: null, usageTotal: null, pendingAsks: [], replaying: true };
 }
 
 /** Pure. Folds the event into the turns and the config and session state around them. */
@@ -49,9 +54,14 @@ export function fold(view: ThreadView, ev: ThreadEvent): ThreadView {
     case "session.bound":
       return { ...base, sessionId: ev.sessionId };
     case "turn.started":
-      return { ...base, openTurn: ev.turnId, session: "running" };
+      return { ...base, openTurn: ev.turnId, session: "running", pendingAsks: [] };
+    case "ask.opened":
+      if (ev.turnId !== view.openTurn) return base;
+      return { ...base, pendingAsks: [...view.pendingAsks, { kind: "ask", askId: ev.askId, ask: ev.ask, openedAt: ev.ts, answer: null }] };
+    case "ask.answered":
+      return { ...base, pendingAsks: view.pendingAsks.filter((a) => a.askId !== ev.askId) };
     case "turn.ended": {
-      const ended = { ...base, openTurn: null, session: view.session === "running" ? "idle" : view.session } as const;
+      const ended = { ...base, openTurn: null, session: view.session === "running" ? "idle" : view.session, pendingAsks: [] } as const;
       if (!ev.usage) return ended;
       return { ...ended, contextTokens: ev.usage.contextTokens, contextWindow: ev.usage.contextWindow ?? view.contextWindow, usageTotal: addUsage(view.usageTotal, ev.usage) };
     }

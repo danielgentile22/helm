@@ -20,10 +20,11 @@
  *   GET    /api/threads?archived=1                               -> ThreadSummary[]
  *   POST   /api/threads                                          -> create (idempotent on threadId)
  *   GET    /api/threads/:id                                      -> ThreadSummary
- *   PATCH  /api/threads/:id                                      -> reconfigure (model/effort/title)
+ *   PATCH  /api/threads/:id                                      -> reconfigure (model/effort/title/permissionMode)
  *   DELETE /api/threads/:id                                      -> archive
  *   POST   /api/threads/:id/send                                 -> SendResponse
  *   POST   /api/threads/:id/interrupt                            -> 204 always
+ *   POST   /api/threads/:id/answer                               -> 204; 409 already answered or expired; 404 unknown ask; 400 wrong shape
  *   GET    /api/threads/:id/commands                             -> { commands: SlashCommand[] }
  *   POST   /api/threads/:id/commands/reload                      -> { commands: SlashCommand[] } (rediscovers skills)
  *   POST   /api/threads/:id/uploads   (raw body, one file, Content-Length capped) -> StagedUpload[]
@@ -44,12 +45,15 @@
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
-import { extname, join, normalize } from "node:path";
+import { extname, join, normalize, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { DEFAULT_EFFORT, EFFORTS, LIMITS, THEMES } from "../../shared/protocol";
+import { DEFAULT_EFFORT, EFFORTS, LIMITS, PERMISSION_MODES, THEMES } from "../../shared/protocol";
 import type {
+  AnswerRequest,
+  AskAnswer,
+  AskId,
   ClientMsgId,
   CreateThreadRequest,
   Effort,
@@ -57,6 +61,8 @@ import type {
   ModelChoice,
   ModelId,
   Origin,
+  PermissionMode,
+  QuestionAnswer,
   SendRequest,
   SettingsPatch,
   ThreadConfig,
@@ -100,13 +106,15 @@ export interface AppDeps {
   readonly staticDir: string;
   readonly browseRoots: readonly string[];
   readonly defaultCwd: string;
+  /** A thread created here starts in bypass whatever the server default says. */
+  readonly vaultRoot: string;
   /** Public origin, for the enrollment link. */
   readonly publicOrigin: string;
   readonly heartbeatMs?: number;
 }
 
 /** The settings a PATCH may carry. Named once so the parser and the type cannot drift apart. */
-const SETTINGS_FIELDS: readonly (keyof HelmSettings)[] = ["theme", "defaultModel", "defaultEffort", "defaultCwd"];
+const SETTINGS_FIELDS: readonly (keyof HelmSettings)[] = ["theme", "defaultModel", "defaultEffort", "defaultCwd", "defaultPermissionMode"];
 
 type Env = { Variables: { origin: Origin } };
 
@@ -247,9 +255,10 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     const threadId = parsed.value.threadId ?? (randomUUID() as ThreadId);
     const existing = await deps.threads.get(threadId);
     if (existing) return c.json(existing);
+    const permissionMode = parsed.value.permissionMode ?? (resolve(parsed.value.cwd) === resolve(deps.vaultRoot) ? "bypass" : (await deps.settings.get()).defaultPermissionMode);
     let config;
     try {
-      config = await deps.threads.create({ ...parsed.value, threadId });
+      config = await deps.threads.create({ ...parsed.value, threadId, permissionMode });
     } catch (err) {
       return fail(c, 400, message(err));
     }
@@ -301,9 +310,7 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     } catch (err) {
       return fail(c, 400, message(err));
     }
-    const base = c.get("origin");
-    const origin: Origin = parsed.value.label ? { via: base.via, label: parsed.value.label } : base;
-    const res = await deps.supervisor.send(t.threadId, { clientMsgId: parsed.value.clientMsgId, text: parsed.value.text, uploads, origin });
+    const res = await deps.supervisor.send(t.threadId, { clientMsgId: parsed.value.clientMsgId, text: parsed.value.text, uploads, origin: originFor(c, parsed.value.label) });
     return c.json(res, res.accepted ? 200 : 409);
   });
 
@@ -312,6 +319,31 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     if (t instanceof Response) return t;
     await deps.supervisor.interrupt(t.threadId);
     return c.body(null, 204);
+  });
+
+  /** The route's origin, with the same optional label override /send takes. */
+  const originFor = (c: Context<Env>, label: string | undefined): Origin => {
+    const base = c.get("origin");
+    return label ? { via: base.via, label } : base;
+  };
+
+  app.post("/api/threads/:id/answer", async (c) => {
+    const t = await thread(c);
+    if (t instanceof Response) return t;
+    if (bodyTooLarge(c.req.raw.headers, LIMITS.SEND_BODY_BYTES)) return fail(c, 413, "body too large");
+    const parsed = parseAnswer(await json(c));
+    if (!parsed.ok) return fail(c, parsed.status, parsed.error);
+    const r = await deps.supervisor.answer(t.threadId, parsed.value.askId, parsed.value.answer, originFor(c, parsed.value.label));
+    switch (r) {
+      case "ok":
+        return c.body(null, 204);
+      case "conflict":
+        return c.json({ error: "already answered or expired" }, 409);
+      case "unknown":
+        return fail(c, 404, "no such ask");
+      case "mismatch":
+        return fail(c, 400, "answer does not fit the ask");
+    }
   });
 
   const commands = async (c: Context<Env>, reload: boolean): Promise<Response> => {
@@ -448,8 +480,7 @@ export function parseSend(body: unknown): Parsed<SendRequest & { clientMsgId: Cl
   const uploadIds = body.uploadIds === undefined ? undefined : Array.isArray(body.uploadIds) && body.uploadIds.every((u) => typeof u === "string") ? (body.uploadIds as string[]) : null;
   if (uploadIds === null) return { ok: false, status: 400, error: "uploadIds must be an array of strings" };
   if (body.text.trim() === "" && !uploadIds?.length) return { ok: false, status: 400, error: "empty message" };
-  const label = typeof body.label === "string" && body.label.trim() ? body.label.trim().slice(0, 40) : undefined;
-  return { ok: true, value: { clientMsgId, text: body.text, uploadIds, label } };
+  return { ok: true, value: { clientMsgId, text: body.text, uploadIds, label: label(body.label) } };
 }
 
 /**
@@ -468,7 +499,47 @@ export function parseCreateThread(body: unknown, catalog: readonly ModelChoice[]
   const title = body.title === undefined || body.title === null ? null : typeof body.title === "string" ? body.title.slice(0, 120) : undefined;
   if (title === undefined) return { ok: false, status: 400, error: "title must be a string" };
   const threadId = typeof body.threadId === "string" && ID_RE.test(body.threadId) ? (body.threadId as ThreadId) : undefined;
-  return { ok: true, value: { threadId, cwd, model, effort: effort as Effort, title } };
+  if (body.permissionMode !== undefined && !PERMISSION_MODES.includes(body.permissionMode as PermissionMode)) return { ok: false, status: 400, error: `permissionMode must be one of ${PERMISSION_MODES.join(", ")}` };
+  return { ok: true, value: { threadId, cwd, model, effort: effort as Effort, title, ...(body.permissionMode === undefined ? {} : { permissionMode: body.permissionMode as PermissionMode }) } };
+}
+
+const label = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim().slice(0, 40) : undefined);
+
+function parseQuestionAnswer(v: unknown): QuestionAnswer | null {
+  if (!isRecord(v)) return null;
+  if (v.kind === "options") return Array.isArray(v.labels) && v.labels.length > 0 && v.labels.every((l) => typeof l === "string" && l.length > 0) ? { kind: "options", labels: v.labels as string[] } : null;
+  if (v.kind === "text") return typeof v.text === "string" && v.text.trim() !== "" && v.text.length <= LIMITS.ANSWER_CHARS ? { kind: "text", text: v.text } : null;
+  return null;
+}
+
+/** Whether the ask can take the answer is the supervisor's call; this only checks the shape of each answer kind. */
+export function parseAnswer(body: unknown): Parsed<AnswerRequest & { askId: AskId; label: string | undefined }> {
+  if (!isRecord(body)) return { ok: false, status: 400, error: "body must be a JSON object" };
+  if (typeof body.askId !== "string" || body.askId === "") return { ok: false, status: 400, error: "askId must be a non-empty string" };
+  const a = body.answer;
+  if (!isRecord(a)) return { ok: false, status: 400, error: "answer must be an object" };
+  let answer: AskAnswer;
+  switch (a.kind) {
+    case "allow":
+    case "allowTurn":
+      answer = { kind: a.kind };
+      break;
+    case "deny":
+      if (a.reason !== undefined && a.reason !== null && typeof a.reason !== "string") return { ok: false, status: 400, error: "reason must be a string or null" };
+      if (typeof a.reason === "string" && a.reason.length > LIMITS.ANSWER_CHARS) return { ok: false, status: 413, error: `reason longer than ${LIMITS.ANSWER_CHARS} chars` };
+      answer = { kind: "deny", reason: typeof a.reason === "string" && a.reason.trim() ? a.reason : null };
+      break;
+    case "answers": {
+      if (!Array.isArray(a.answers) || a.answers.length < 1 || a.answers.length > 4) return { ok: false, status: 400, error: "answers must hold 1 to 4 entries" };
+      const answers = a.answers.map(parseQuestionAnswer);
+      if (answers.some((q) => q === null)) return { ok: false, status: 400, error: "each answer is {kind: options, labels: [...]} or {kind: text, text}" };
+      answer = { kind: "answers", answers: answers as QuestionAnswer[] };
+      break;
+    }
+    default:
+      return { ok: false, status: 400, error: "answer.kind must be allow, allowTurn, deny or answers" };
+  }
+  return { ok: true, value: { askId: body.askId as AskId, answer, label: label(body.label) } };
 }
 
 /**
@@ -509,6 +580,10 @@ export function parseSettingsPatch(body: unknown, catalog: readonly ModelChoice[
     if (typeof body.defaultCwd !== "string" || !body.defaultCwd.startsWith("/")) return { ok: false, status: 400, error: "defaultCwd must be an absolute path" };
     patch.defaultCwd = body.defaultCwd;
   }
+  if (body.defaultPermissionMode !== undefined) {
+    if (!PERMISSION_MODES.includes(body.defaultPermissionMode as PermissionMode)) return { ok: false, status: 400, error: `defaultPermissionMode must be one of ${PERMISSION_MODES.join(", ")}` };
+    patch.defaultPermissionMode = body.defaultPermissionMode as PermissionMode;
+  }
   if (Object.keys(patch).length === 0) return { ok: false, status: 400, error: "nothing to change" };
   return { ok: true, value: patch };
 }
@@ -528,6 +603,10 @@ export function parsePatch(body: unknown, catalog: readonly ModelChoice[]): Pars
   if (body.title !== undefined) {
     if (typeof body.title !== "string" || !body.title.trim()) return { ok: false, status: 400, error: "title must be a non-empty string" };
     patch.title = body.title.trim().slice(0, 120);
+  }
+  if (body.permissionMode !== undefined) {
+    if (!PERMISSION_MODES.includes(body.permissionMode as PermissionMode)) return { ok: false, status: 400, error: `permissionMode must be one of ${PERMISSION_MODES.join(", ")}` };
+    patch.permissionMode = body.permissionMode as PermissionMode;
   }
   if (Object.keys(patch).length === 0) return { ok: false, status: 400, error: "nothing to change" };
   return { ok: true, value: patch };

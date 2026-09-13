@@ -16,8 +16,13 @@
  *       to the last complete line. This is the only place the log is ever
  *       shortened, and it can only drop an event nobody was told about (I2).
  *   I4. A log never ends inside a turn after open(): if the last turn
- *       boundary is `turn.started`, open() appends `turn.ended {orphaned}`.
- *       Running open() twice is a no-op the second time.
+ *       boundary is `turn.started`, open() appends `turn.ended {orphaned}`,
+ *       preceded by `ask.answered {system: restart}` for every ask still
+ *       pending in that turn, so no replaying phone shows a live button for
+ *       a process that no longer exists. Running open() twice is a no-op
+ *       the second time.
+ *   I5. The pending ask set is a fold: `ask.opened` minus `ask.answered`,
+ *       cleared by `turn.ended`. There is no other record of it.
  */
 
 import { createReadStream } from "node:fs";
@@ -25,9 +30,11 @@ import { appendFile, mkdir, open as fsOpen, readdir, readFile, stat, truncate } 
 import { join } from "node:path";
 import { addUsage, LIMITS } from "../../shared/protocol";
 import type {
+  AskId,
   ClaudeSessionId,
   ClientMsgId,
   Cursor,
+  PendingAsk,
   Seq,
   ThreadEvent,
   ThreadEventBody,
@@ -63,6 +70,10 @@ export interface ThreadHead {
   readonly usageTotal: UsageTotal | null;
   /** From the most recent usage that carried one. */
   readonly contextWindow: number | null;
+  /** Asks opened in the open turn and not yet answered, in open order (I5). Always empty after open(). */
+  readonly pendingAsks: readonly PendingAsk[];
+  /** The last 64 ask ids ever opened, so an answer to a settled ask reads as a conflict rather than as unknown. */
+  readonly recentAskIds: ReadonlySet<AskId>;
 }
 
 export type Unsubscribe = () => void;
@@ -83,11 +94,11 @@ export type SubscriberKind = "viewer" | "projection";
 const RECENT_IDS = 64;
 const FILE = "events.jsonl";
 
-const emptyHead: ThreadHead = { lastSeq: 0, sessionId: null, openTurn: null, queued: [], recentClientMsgIds: new Map(), lastTurnEndedAt: null, lastOutcome: null, contextTokens: null, activeTool: null, lastText: null, usageTotal: null, contextWindow: null };
+const emptyHead: ThreadHead = { lastSeq: 0, sessionId: null, openTurn: null, queued: [], recentClientMsgIds: new Map(), lastTurnEndedAt: null, lastOutcome: null, contextTokens: null, activeTool: null, lastText: null, usageTotal: null, contextWindow: null, pendingAsks: [], recentAskIds: new Set() };
 
 /** Pure: the head after one more event. */
 function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
-  let { sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow } = h;
+  let { sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds } = h;
   switch (ev.kind) {
     case "session.bound":
       sessionId = ev.sessionId;
@@ -116,9 +127,22 @@ function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
     case "tool.finished":
       if (activeTool?.toolUseId === ev.toolUseId) activeTool = null;
       break;
+    case "ask.opened": {
+      if (ev.turnId !== openTurn) break;
+      pendingAsks = [...pendingAsks, { askId: ev.askId, turnId: ev.turnId, ask: ev.ask }];
+      const ids = new Set(recentAskIds);
+      ids.add(ev.askId);
+      while (ids.size > RECENT_IDS) ids.delete(ids.values().next().value!);
+      recentAskIds = ids;
+      break;
+    }
+    case "ask.answered":
+      pendingAsks = pendingAsks.filter((a) => a.askId !== ev.askId);
+      break;
     case "turn.ended":
       openTurn = null;
       activeTool = null;
+      pendingAsks = [];
       if (ev.sessionId) sessionId = ev.sessionId;
       lastTurnEndedAt = ev.ts;
       lastOutcome = ev.outcome;
@@ -132,7 +156,7 @@ function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
       queued = [];
       break;
   }
-  return { lastSeq: ev.seq, sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow };
+  return { lastSeq: ev.seq, sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds };
 }
 
 type DeltaBody = Extract<ThreadEventBody, { kind: "assistant.text" | "assistant.thinking" }>;
@@ -181,6 +205,9 @@ export class ThreadLog {
     const log = new ThreadLog(threadId, path, head, keep);
 
     if (head.openTurn) {
+      for (const a of head.pendingAsks) {
+        await log.append({ kind: "ask.answered", turnId: a.turnId, askId: a.askId, answer: { kind: "deny", reason: null }, by: { by: "system", reason: "restart" } });
+      }
       await log.append({ kind: "turn.ended", turnId: head.openTurn, outcome: "orphaned", sessionId: head.sessionId, usage: null, error: null });
     }
     for (const q of head.queued) {

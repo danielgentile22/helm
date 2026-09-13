@@ -1,13 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Seq, ThreadEvent, ThreadId, ThreadSummary, TurnId } from "../shared/protocol";
-import { HelmClient } from "./api";
+import { HelmClient, HttpError } from "./api";
 import { FakeES } from "./testkit";
 import { initialState, ThreadSession, type ThreadState } from "./thread";
 
 const threadId = "t-1" as ThreadId;
-const config = { threadId, cwd: "/v", model: "m" as never, effort: "high", title: null, createdAt: "", archivedAt: null } as const;
-const summary: ThreadSummary = { config, headSeq: 4 as Seq, session: "idle", lastTurnEndedAt: null, lastOutcome: null, contextTokens: null, preview: null, doing: null, usageTotal: null, contextWindow: null };
+const config = { threadId, cwd: "/v", model: "m" as never, effort: "high", permissionMode: "ask", title: null, createdAt: "", archivedAt: null } as const;
+const summary: ThreadSummary = { config, headSeq: 4 as Seq, session: "idle", lastTurnEndedAt: null, lastOutcome: null, contextTokens: null, preview: null, doing: null, usageTotal: null, contextWindow: null, waiting: false };
 const origin = { via: "pwa", label: "iphone" } as const;
 const ev = (seq: number, body: object): ThreadEvent => ({ seq: seq as Seq, ts: "", ...body }) as ThreadEvent;
 const usage = { inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 0, costUsd: null, contextTokens: 4, contextWindow: 200_000, durationMs: 5 };
@@ -104,5 +104,32 @@ test("a failed send keeps the pending prompt and records the error until dismiss
   assert.equal(session.commandsError, "unavailable");
   session.error = null;
   assert.equal(session.error, null);
+  session.stop();
+});
+
+test("an answer posts the ask id and body; a 409 records no error because the event settles the card", async () => {
+  FakeES.instances = [];
+  const posted: { url: string; body: unknown }[] = [];
+  let status = 204;
+  const fetch = (async (url: string, init: RequestInit) => {
+    if (!url.endsWith("/answer")) return new Response(JSON.stringify({ commands: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    posted.push({ url, body: JSON.parse(String(init.body)) });
+    return status === 204 ? new Response(null, { status: 204 }) : new Response(JSON.stringify({ error: "already answered" }), { status, headers: { "content-type": "application/json" } });
+  }) as unknown as typeof globalThis.fetch;
+  const api = new HelmClient({ baseUrl: "http://x", fetch, EventSource: FakeES, minBackoffMs: 1, maxBackoffMs: 4 });
+  let state: ThreadState = initialState(summary);
+  const session = new ThreadSession(api, threadId, "iphone", { get: () => state, set: (next) => (state = next) });
+
+  await session.answer("a1" as never, { kind: "deny", reason: "not yet" });
+  assert.deepEqual(posted, [{ url: "http://x/api/threads/t-1/answer", body: { askId: "a1", answer: { kind: "deny", reason: "not yet" } } }]);
+  assert.equal(session.error, null);
+
+  status = 409;
+  await assert.rejects(session.answer("a1" as never, { kind: "allow" }), (err: unknown) => err instanceof HttpError && err.status === 409);
+  assert.equal(session.error, null, "another device won the race, which is not this phone's failure");
+
+  status = 503;
+  await assert.rejects(session.answer("a1" as never, { kind: "allow" }));
+  assert.equal(session.error, "Answer failed: already answered");
   session.stop();
 });

@@ -10,8 +10,8 @@
  * their identity, which a deep proxy would not preserve.
  */
 
-import type { SlashCommand, ThreadConfig, ThreadId, ThreadSummary } from "../shared/protocol";
-import type { ConnState, HelmClient } from "./api";
+import type { AskAnswer, AskId, SlashCommand, ThreadConfig, ThreadId, ThreadSummary } from "../shared/protocol";
+import { HttpError, type ConnState, type HelmClient } from "./api";
 import { addPendingPrompt, applySync, emptyView, fold, type PromptUpload, type ThreadView } from "./fold";
 import { uuid } from "./format";
 
@@ -34,7 +34,7 @@ export interface StateCell {
   set(next: ThreadState): void;
 }
 
-export type SessionApi = Pick<HelmClient, "attach" | "send" | "upload" | "interrupt" | "listCommands" | "reloadCommands">;
+export type SessionApi = Pick<HelmClient, "attach" | "send" | "upload" | "interrupt" | "listCommands" | "reloadCommands" | "answerAsk">;
 
 /** The summary is the seed: its config and head stand in until the replay from zero has caught up. */
 export function initialState(summary: ThreadSummary): ThreadState {
@@ -128,6 +128,22 @@ export class ThreadSession {
       this.#patch({ commands, commandsError: null });
     } catch (err) {
       this.#patch({ commandsError: message(err) });
+    }
+  }
+
+  /**
+   * A 409 records nothing: the ask was already settled elsewhere, and the
+   * `ask.answered` event on its way replaces the card with the answered form.
+   * The card shows "Answered elsewhere" meanwhile, from its own local flag.
+   */
+  async answer(askId: AskId, answer: AskAnswer): Promise<void> {
+    try {
+      await this.#api.answerAsk(this.#threadId, askId, answer);
+      this.error = null;
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 409) throw err;
+      this.error = `Answer failed: ${message(err)}`;
+      throw err;
     }
   }
 

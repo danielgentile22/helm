@@ -10,9 +10,10 @@
  * screen.
  */
 
-import { toolSummary } from "../shared/protocol";
-import type { TurnId, Usage } from "../shared/protocol";
-import type { FileItem, Prompt, ToolItem, Turn } from "../shared/turns";
+import { answerPhrase, toolSummary } from "../shared/protocol";
+import type { ToolUseId, TurnId, Usage } from "../shared/protocol";
+import type { AskItem, FileItem, Item, Prompt, ToolItem, Turn } from "../shared/turns";
+import { fmtTime } from "./format";
 import type { ThreadView } from "./fold";
 
 export interface ActivityCounts {
@@ -35,9 +36,13 @@ export type Block =
       running: boolean;
       durationMs: number | null;
       startedAt: string;
+      /** Tool calls this turn denied. Their row reads "denied" rather than "failed". */
+      denied: ReadonlySet<ToolUseId>;
     }
   | { kind: "end"; key: string; outcome: "interrupted" | "error" | "orphaned"; error: string | null }
   | { kind: "file"; key: string; file: FileItem }
+  /** `live` while the turn is open and nobody has answered: the only state that draws buttons. */
+  | { kind: "ask"; key: string; ask: AskItem; live: boolean }
   | { kind: "note"; key: string; text: string };
 
 export interface Section {
@@ -60,6 +65,7 @@ function turnBlocks(turn: Turn, open: boolean): Block[] {
   const lastTextIx = items.findLastIndex((i) => i.kind === "text");
   const isLast = (ix: number): boolean => ix === items.length - 1;
   const blocks: Block[] = [];
+  const denied = deniedTools(items);
   let tools: ToolItem[] | null = null;
   if (turn.prompt) blocks.push({ kind: "prompt", key: turn.key, prompt: turn.prompt });
   items.forEach((item, ix) => {
@@ -77,10 +83,15 @@ function turnBlocks(turn: Turn, open: boolean): Block[] {
           break;
         }
         tools = [item];
-        blocks.push({ kind: "activity", key: `${turn.key}:act:${ix}`, tools, counts: emptyCounts(), current: null, running: false, durationMs: null, startedAt: item.startedAt });
+        blocks.push({ kind: "activity", key: `${turn.key}:act:${ix}`, tools, counts: emptyCounts(), current: null, running: false, durationMs: null, startedAt: item.startedAt, denied });
         break;
       case "file":
         blocks.push({ kind: "file", key: `file:${item.fileId}`, file: item });
+        break;
+      case "ask":
+        // A decision Claude Code made alone is already on the tool row as "denied"; a card would ask the reader to answer something settled.
+        if (item.answer?.by.by === "system" && item.answer.by.reason === "rule") break;
+        blocks.push({ kind: "ask", key: `ask:${item.askId}`, ask: item, live: open && item.answer === null });
         break;
       case "note":
         blocks.push({ kind: "note", key: `${turn.key}:note:${ix}`, text: item.text });
@@ -98,6 +109,42 @@ function turnBlocks(turn: Turn, open: boolean): Block[] {
     b.durationMs = b.running ? null : finishedDuration(b, turn.end?.usage ?? null, activities.length === 1);
   }
   return blocks;
+}
+
+/** Every system answer is a denial, and a denied call reports itself as a failure, so the turn's own asks are what tell a refusal from a crash. */
+function deniedTools(items: readonly Item[]): ReadonlySet<ToolUseId> {
+  const out = new Set<ToolUseId>();
+  for (const item of items) {
+    if (item.kind !== "ask" || item.ask.kind !== "tool" || item.answer === null) continue;
+    if (item.answer.by.by === "system" || item.answer.answer.kind === "deny") out.add(item.ask.toolUseId);
+  }
+  return out;
+}
+
+/** What the answered card says it did, and who did it. Pure so the wording is pinned by a test. */
+export function answerLine(item: AskItem): string {
+  const settled = item.answer;
+  if (!settled) return "";
+  const stamp = fmtTime(settled.ts);
+  if (settled.by.by === "system") {
+    const reason = settled.answer.kind === "deny" ? settled.answer.reason : null;
+    if (settled.by.reason === "rule") return reason ? `Auto-denied by a rule: ${reason} · ${stamp}` : `Auto-denied by a rule · ${stamp}`;
+    const words = { interrupted: "interrupted", restart: "server restarted", exited: "Claude Code exited", archived: "archived" }[settled.by.reason];
+    return `Expired (${words}) · ${stamp}`;
+  }
+  const who = settled.by.origin.label;
+  switch (settled.answer.kind) {
+    case "allow":
+      return `Allowed by ${who} · ${stamp}`;
+    case "allowTurn":
+      return `Allowed for this turn by ${who} · ${stamp}`;
+    case "deny":
+      return settled.answer.reason ? `Denied by ${who}: ${settled.answer.reason} · ${stamp}` : `Denied by ${who} · ${stamp}`;
+    case "answers": {
+      const said = settled.answer.answers.map(answerPhrase);
+      return `Answered: ${said.join(" · ")} · ${stamp}`;
+    }
+  }
 }
 
 const emptyCounts = (): ActivityCounts => ({ read: 0, run: 0, edit: 0, other: 0 });

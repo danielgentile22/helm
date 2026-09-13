@@ -2,9 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { setImmediate as tick } from "node:timers/promises";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { ModelInfo, SDKMessage, SDKUserMessage, SlashCommand as SdkSlashCommand } from "@anthropic-ai/claude-agent-sdk";
+import type { CanUseTool, ModelInfo, Options, PermissionResult, SDKMessage, SDKUserMessage, SlashCommand as SdkSlashCommand } from "@anthropic-ai/claude-agent-sdk";
 import { LIMITS } from "../../shared/protocol";
-import type { ModelId, TurnId, UploadId } from "../../shared/protocol";
+import type { AskId, ModelId, TurnId, UploadId } from "../../shared/protocol";
 import { killTree } from "../util/killTree";
 import { Pushable } from "../util/pushable";
 import { buildUserMessage, modelCatalog, parseModelId, toSlashCommands, SdkAgentFactory, PHONE_APPENDIX } from "./agent";
@@ -18,7 +18,7 @@ const result = (extra: Record<string, unknown> = {}): SDKMessage =>
   sdkFrame({ type: "result", subtype: "success", is_error: false, session_id: "s1", duration_ms: 1234, total_cost_usd: 0.5, usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 4000, cache_creation_input_tokens: 300 }, result: "done", ...extra });
 const textDelta = (text: string, index = 0): SDKMessage => sdkFrame({ type: "stream_event", parent_tool_use_id: null, event: { type: "content_block_delta", index, delta: { type: "text_delta", text } } });
 
-const spawnOpts: SpawnOptions = { cwd: "/tmp", model: "claude-opus-5" as ModelId, effort: "low", resume: null, additionalDirectories: [], appendSystemPrompt: PHONE_APPENDIX, sendToPhone: () => Promise.reject(new Error("not in this test")) };
+const spawnOpts: SpawnOptions = { cwd: "/tmp", model: "claude-opus-5" as ModelId, effort: "low", permissionMode: "ask", resume: null, additionalDirectories: [], appendSystemPrompt: PHONE_APPENDIX, sendToPhone: () => Promise.reject(new Error("not in this test")) };
 
 /** Poll until `pred` holds, with a real timeout, so the tests wait on a condition rather than a fixed number of ticks. */
 async function until(pred: () => boolean, what: string): Promise<void> {
@@ -42,6 +42,8 @@ function recorded() {
   const frames = new Pushable<SDKMessage>();
   const calls: string[] = [];
   const inputs: SDKUserMessage[] = [];
+  /** The Options the session handed query(), so a test can drive its permission callback. */
+  const spawned: { options: Options | null } = { options: null };
   const commands: SdkSlashCommand[] = [
     { name: "commit", description: "Commit", argumentHint: "" },
     { name: "exit", description: "Leave", argumentHint: "" },
@@ -56,6 +58,7 @@ function recorded() {
     },
     setModel: async (m) => void calls.push(`setModel:${m}`),
     applyFlagSettings: async (s) => void calls.push(`effort:${s.effortLevel}`),
+    setPermissionMode: async (m) => void calls.push(`mode:${m}`),
     supportedCommands: async () => commands,
     supportedModels: async () => models,
     reloadSkills: async () => ({ skills: [{ name: "fresh", description: "", argumentHint: "" }] }),
@@ -67,6 +70,7 @@ function recorded() {
   const deps: SdkDeps = {
     env: {},
     query: ({ prompt, options }) => {
+      spawned.options = options;
       const signal = options.abortController?.signal;
       if (signal) {
         signal.addEventListener("abort", () => {
@@ -82,7 +86,7 @@ function recorded() {
     },
     killTree: async (pid) => void calls.push(`killTree:${pid}`),
   };
-  return { frames, calls, inputs, deps };
+  return { frames, calls, inputs, deps, spawned };
 }
 
 async function liveSession() {
@@ -108,6 +112,160 @@ async function turnEvents(frames: readonly SDKMessage[], end: SDKMessage = resul
   await until(() => s.seen.at(-1)?.kind === "turn.ended", "turn.ended on the event stream");
   return s.seen.slice(before);
 }
+
+/** Drive the permission callback the way the CLI would: one call per tool use, blocked until the session answers. */
+function permissionDriver(s: Awaited<ReturnType<typeof liveSession>>) {
+  const canUseTool = s.spawned.options?.canUseTool;
+  assert.ok(canUseTool, "the session registered canUseTool");
+  let n = 0;
+  return (toolName: string, input: Record<string, unknown>, extra: Partial<Parameters<CanUseTool>[2]> = {}): Promise<PermissionResult> =>
+    canUseTool(toolName, input, { ...extra, signal: extra.signal ?? new AbortController().signal, toolUseID: `tu-${++n}`, requestId: `req-${n}` }) as Promise<PermissionResult>;
+}
+
+const lastAsk = (s: { seen: AgentEvent[] }) => {
+  const ev = s.seen.findLast((e) => e.kind === "ask.opened");
+  assert.ok(ev && ev.kind === "ask.opened");
+  return ev;
+};
+
+test("permission callback: ask.opened carries the tool and the SDK title, and the result matches the answer verbatim", async () => {
+  const s = await liveSession();
+  assert.equal(s.spawned.options?.permissionMode, "default", "ask mode spawns with the CLI's default rules");
+  void s.session.send({ turnId: t, text: "go", uploads: [] });
+  await until(() => s.inputs.length === 1, "the user message");
+  const permit = permissionDriver(s);
+
+  const first = permit("Bash", { command: "rm -rf build" }, { title: "Claude wants to run rm -rf build" });
+  await until(() => s.seen.some((e) => e.kind === "ask.opened"), "ask.opened");
+  const opened = lastAsk(s);
+  assert.deepEqual(opened.ask, { kind: "tool", toolName: "Bash", input: { command: "rm -rf build" }, toolUseId: "tu-1", title: "Claude wants to run rm -rf build", description: null });
+  assert.equal(opened.turnId, t);
+  s.session.answer(opened.askId, { kind: "allow" });
+  assert.deepEqual(await first, { behavior: "allow", updatedInput: { command: "rm -rf build" } });
+
+  const second = permit("Bash", { command: "git push" });
+  await until(() => s.seen.filter((e) => e.kind === "ask.opened").length === 2, "a second ask: plain allow does not cover the next call");
+  s.session.answer(lastAsk(s).askId, { kind: "deny", reason: "not yet" });
+  assert.deepEqual(await second, { behavior: "deny", message: "not yet" });
+
+  const third = permit("Bash", { command: "git push" });
+  await until(() => s.seen.filter((e) => e.kind === "ask.opened").length === 3, "third ask");
+  s.session.answer(lastAsk(s).askId, { kind: "deny", reason: null });
+  assert.deepEqual(await third, { behavior: "deny", message: "Denied from the phone" });
+  s.session.answer("nope" as AskId, { kind: "allow" });
+  assert.equal(s.seen.filter((e) => e.kind === "ask.answered").length, 0, "a person's answer is logged by the supervisor, never echoed by the adapter");
+});
+
+test("allowTurn covers later calls of the same tool in the same turn, not another tool, and not the next turn", async () => {
+  const s = await liveSession();
+  const done = s.session.send({ turnId: t, text: "go", uploads: [] });
+  await until(() => s.inputs.length === 1, "the user message");
+  const permit = permissionDriver(s);
+  const asks = () => s.seen.filter((e) => e.kind === "ask.opened").length;
+
+  const first = permit("Edit", { file_path: "/a" });
+  await until(() => asks() === 1, "first ask");
+  s.session.answer(lastAsk(s).askId, { kind: "allowTurn" });
+  assert.equal((await first).behavior, "allow");
+  assert.deepEqual(await permit("Edit", { file_path: "/b" }), { behavior: "allow", updatedInput: { file_path: "/b" } });
+  assert.equal(asks(), 1, "the second Edit did not ask");
+
+  const other = permit("Bash", { command: "ls" });
+  await until(() => asks() === 2, "a different tool still asks");
+  s.session.answer(lastAsk(s).askId, { kind: "allow" });
+  await other;
+
+  s.frames.push(result());
+  await done;
+  const next = s.session.send({ turnId: "t:8" as TurnId, text: "again", uploads: [] });
+  await until(() => s.inputs.length === 2, "the second turn");
+  const again = permit("Edit", { file_path: "/c" });
+  await until(() => asks() === 3, "the allowlist reset with the turn");
+  s.session.answer(lastAsk(s).askId, { kind: "deny", reason: null });
+  assert.equal((await again).behavior, "deny");
+  s.frames.push(result());
+  await next;
+});
+
+test("a question ask round-trips the answers into updatedInput.answers keyed by question text", async () => {
+  const s = await liveSession();
+  void s.session.send({ turnId: t, text: "go", uploads: [] });
+  await until(() => s.inputs.length === 1, "the user message");
+  const permit = permissionDriver(s);
+  const input = {
+    questions: [
+      { question: "Which library?", header: "Library", options: [{ label: "date-fns", description: "small" }, { label: "luxon" }], multiSelect: false },
+      { question: "Which features?", header: "Features", options: [{ label: "A", description: "" }, { label: "B", description: "" }], multiSelect: true },
+      { question: 42 },
+    ],
+  };
+  const pending = permit("AskUserQuestion", input);
+  await until(() => s.seen.some((e) => e.kind === "ask.opened"), "ask.opened");
+  const opened = lastAsk(s);
+  assert.deepEqual(opened.ask, {
+    kind: "question",
+    questions: [
+      { question: "Which library?", header: "Library", options: [{ label: "date-fns", description: "small" }, { label: "luxon", description: "" }], multiSelect: false },
+      { question: "Which features?", header: "Features", options: [{ label: "A", description: "" }, { label: "B", description: "" }], multiSelect: true },
+    ],
+  });
+  s.session.answer(opened.askId, { kind: "answers", answers: [{ kind: "text", text: "dayjs" }, { kind: "options", labels: ["A", "B"] }] });
+  assert.deepEqual(await pending, { behavior: "allow", updatedInput: { ...input, answers: { "Which library?": "dayjs", "Which features?": "A, B" } } });
+
+  const denied = permit("AskUserQuestion", input);
+  await until(() => s.seen.filter((e) => e.kind === "ask.opened").length === 2, "second question");
+  s.session.answer(lastAsk(s).askId, { kind: "allow" });
+  assert.deepEqual(await denied, { behavior: "deny", message: "No answer" }, "allow is not an answer to a question");
+
+  const malformed = permit("AskUserQuestion", { questions: "?" });
+  await until(() => s.seen.filter((e) => e.kind === "ask.opened").length === 3, "third ask");
+  assert.equal(lastAsk(s).ask.kind, "tool", "an AskUserQuestion with no parseable question is a plain tool ask");
+  s.session.answer(lastAsk(s).askId, { kind: "deny", reason: null });
+  await malformed;
+});
+
+test("the turn's end denies whatever is still pending, so the SDK callback never hangs", async () => {
+  const s = await liveSession();
+  const done = s.session.send({ turnId: t, text: "go", uploads: [] });
+  await until(() => s.inputs.length === 1, "the user message");
+  const permit = permissionDriver(s);
+  const pending = permit("Bash", { command: "ls" });
+  await until(() => s.seen.some((e) => e.kind === "ask.opened"), "ask.opened");
+  s.frames.push(result());
+  await done;
+  assert.deepEqual(await pending, { behavior: "deny", message: "turn ended" });
+
+  const aborter = new AbortController();
+  const next = s.session.send({ turnId: "t:8" as TurnId, text: "again", uploads: [] });
+  await until(() => s.inputs.length === 2, "the second turn");
+  const cancelled = permit("Bash", { command: "ls" }, { signal: aborter.signal });
+  await until(() => s.seen.filter((e) => e.kind === "ask.opened").length === 2, "second ask");
+  aborter.abort();
+  assert.deepEqual(await cancelled, { behavior: "deny", message: "cancelled" });
+  s.frames.push(result());
+  await next;
+  assert.deepEqual(await permit("Bash", { command: "ls" }), { behavior: "deny", message: "turn ended" }, "no turn in flight");
+});
+
+test("a permission_denied frame maps to an opened-and-answered pair with the rule as the answerer; subagent denials are ignored", async () => {
+  const denied = (extra: Record<string, unknown> = {}) => sdkFrame({ type: "system", subtype: "permission_denied", tool_name: "Bash", tool_use_id: "toolu_9", message: "Bash(rm:*) is denied by a rule", decision_reason_type: "rule", session_id: "abc", uuid: "u9", ...extra });
+  const evs = await turnEvents([denied(), denied({ agent_id: "sub-1", tool_use_id: "toolu_10" })]);
+  assert.deepEqual(evs.slice(0, -1), [
+    { kind: "ask.opened", turnId: t, askId: "rule:toolu_9", ask: { kind: "tool", toolName: "Bash", input: {}, toolUseId: "toolu_9", title: null, description: null } },
+    { kind: "ask.answered", turnId: t, askId: "rule:toolu_9", answer: { kind: "deny", reason: "Bash(rm:*) is denied by a rule" }, by: { by: "system", reason: "rule" } },
+  ]);
+});
+
+test("permission mode: bypass spawns with bypassPermissions and a live switch reaches the query", async () => {
+  const r = recorded();
+  await new SdkAgentFactory(r.deps).spawn({ ...spawnOpts, permissionMode: "bypass" });
+  assert.equal(r.spawned.options?.permissionMode, "bypassPermissions");
+  assert.equal(r.spawned.options?.allowDangerouslySkipPermissions, true);
+  const s = await liveSession();
+  await s.session.setPermissionMode("bypass");
+  await s.session.setPermissionMode("ask");
+  assert.deepEqual(s.calls, ["mode:bypassPermissions", "mode:default"]);
+});
 
 test("system init binds the session before any turn; stray frames with no turn in flight are dropped", async () => {
   const s = await liveSession();
@@ -320,7 +478,7 @@ test("real SDK: spawn, one short turn, interrupt a long one, kill-tree", { skip:
   assert.ok(catalog.length > 0, "catalog is empty");
   const model = catalog.find((c) => /sonnet/.test(c.id))?.id ?? catalog[0]!.id;
 
-  const session = await factory.spawn({ cwd: process.cwd(), model, effort: "low", resume: null, additionalDirectories: [], appendSystemPrompt: PHONE_APPENDIX, sendToPhone: () => Promise.reject(new Error("not in this test")) });
+  const session = await factory.spawn({ cwd: process.cwd(), model, effort: "low", permissionMode: "bypass", resume: null, additionalDirectories: [], appendSystemPrompt: PHONE_APPENDIX, sendToPhone: () => Promise.reject(new Error("not in this test")) });
   const seen: string[] = [];
   const reader = (async () => {
     for await (const ev of session.events()) {

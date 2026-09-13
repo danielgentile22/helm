@@ -16,7 +16,7 @@
  * identity of every other turn across an event.
  */
 
-import type { ClientMsgId, FileId, Seq, ThreadEvent, ToolUseId, TurnId, TurnOutcome, UploadId, Usage } from "./protocol";
+import type { AskAnswer, AskAnsweredBy, AskId, AskPayload, ClientMsgId, FileId, Seq, ThreadEvent, ToolUseId, TurnId, TurnOutcome, UploadId, Usage } from "./protocol";
 
 /** What a prompt remembers about a file sent with it: enough to name it or fetch its bytes. */
 export interface PromptUpload {
@@ -44,10 +44,13 @@ export type Item =
   | { kind: "tool"; toolUseId: ToolUseId; name: string; input: unknown; output: string | null; isError: boolean | null; startedAt: string; endedAt: string | null }
   /** A file the model offered to the phone; the card fetches it by id. */
   | { kind: "file"; fileId: FileId; name: string; mime: string; bytes: number; note: string | null; ts: string }
+  /** Claude Code paused on the user. `answer` is null while the card still waits; the turn's end never fills it, a sealing `ask.answered` does. */
+  | { kind: "ask"; askId: AskId; ask: AskPayload; openedAt: string; answer: { answer: AskAnswer; by: AskAnsweredBy; ts: string } | null }
   | { kind: "note"; text: string };
 
 export type ToolItem = Extract<Item, { kind: "tool" }>;
 export type FileItem = Extract<Item, { kind: "file" }>;
+export type AskItem = Extract<Item, { kind: "ask" }>;
 
 export interface TurnEnd {
   readonly outcome: TurnOutcome;
@@ -128,11 +131,20 @@ export function foldTurn(turns: readonly Turn[], ev: ThreadEvent): readonly Turn
       return withTurn(turns, ev.turnId, (t) => ({ ...t, end: { outcome: ev.outcome, usage: ev.usage, error: ev.error, seq: ev.seq, ts: ev.ts } }));
     case "file.offered":
       return loose(turns, ev.seq, { kind: "file", fileId: ev.file.fileId, name: ev.file.name, mime: ev.file.mime, bytes: ev.file.bytes, note: ev.file.note, ts: ev.ts });
+    case "ask.opened":
+      return withTurn(turns, ev.turnId, (t) => ({ ...t, items: [...t.items, { kind: "ask", askId: ev.askId, ask: ev.ask, openedAt: ev.ts, answer: null }] }));
+    case "ask.answered":
+      return withTurn(turns, ev.turnId, (t) => {
+        const ix = t.items.findLastIndex((i) => i.kind === "ask" && i.askId === ev.askId);
+        if (ix < 0) return t;
+        return { ...t, items: replace(t.items, ix, { ...(t.items[ix] as AskItem), answer: { answer: ev.answer, by: ev.by, ts: ev.ts } }) };
+      });
     case "thread.config": {
       const parts: string[] = [];
       if (ev.patch.title !== undefined) parts.push(`title set to "${ev.patch.title}"`);
       if (ev.patch.model !== undefined) parts.push(`model set to ${ev.patch.model}`);
       if (ev.patch.effort !== undefined) parts.push(`effort set to ${ev.patch.effort}`);
+      if (ev.patch.permissionMode !== undefined) parts.push(`permissions set to ${ev.patch.permissionMode}`);
       return loose(turns, ev.seq, { kind: "note", text: `[${ev.origin.label}] ${parts.join(", ")}` });
     }
     case "thread.archived":
