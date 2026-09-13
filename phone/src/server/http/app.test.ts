@@ -372,7 +372,7 @@ test("thread head: doing reports the open tool while running, the text tail once
 
   const first = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
   await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "run the tests" });
-  const mid = await until(get, (t) => t.doing !== null);
+  const mid = await until(get, (t) => t.doing?.kind === "tool");
   assert.equal(mid.session, "running");
   assert.deepEqual(mid.doing, { kind: "tool", name: "Bash", arg: "npm test" }, "the open tool wins over the text already emitted");
   openGate();
