@@ -59,6 +59,7 @@ import type {
   Origin,
   SendRequest,
   SettingsPatch,
+  ThreadConfig,
   ThreadConfigPatch,
   ThreadId,
   ThreadSummary,
@@ -66,7 +67,7 @@ import type {
 import type { AgentFactory } from "../core/agent";
 import { modelCatalog, parseModelId } from "../core/agent";
 import { parseClientMsgId, resolveThreadId } from "../core/ids";
-import { doingNow } from "../core/doing";
+import { threadSummary } from "../core/summary";
 import type { LogRegistry, ThreadLog } from "../core/log";
 import type { PushSubscriptionRecord } from "../core/push";
 import type { Supervisor } from "../core/supervisor";
@@ -230,23 +231,8 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     return c.json(await deps.settings.patch(parsed.value));
   });
 
-  const summary = (log: ThreadLog, config: ThreadSummary["config"]): ThreadSummary => {
-    const head = log.getHead();
-    const session = deps.supervisor.status(log.threadId).session;
-    const preview = head.lastText?.text.trim().slice(0, 120);
-    return {
-      config,
-      headSeq: head.lastSeq,
-      session,
-      lastTurnEndedAt: head.lastTurnEndedAt,
-      lastOutcome: head.lastOutcome,
-      contextTokens: head.contextTokens,
-      preview: preview ? preview : null,
-      doing: doingNow(head, session),
-      usageTotal: head.usageTotal,
-      contextWindow: head.contextWindow,
-    };
-  };
+  const summary = (log: ThreadLog, config: ThreadConfig): ThreadSummary =>
+    threadSummary(log.getHead(), config, deps.supervisor.status(log.threadId).session);
 
   app.get("/api/threads", async (c) => {
     const configs = await deps.threads.list({ includeArchived: c.req.query("archived") === "1" });
