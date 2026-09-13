@@ -17,7 +17,7 @@ function file(id: string): OfferedFile {
 async function harness() {
   const logs = new LogRegistry(await mkdtemp(join(tmpdir(), "helm2-index-")));
   const log = await logs.get(threadId);
-  await log.append({ kind: "thread.created", config: { threadId, cwd: "/tmp", model: "claude-opus-5" as ModelId, effort: "high", title: null, createdAt: "2026-09-13T00:00:00.000Z", archivedAt: null } });
+  await log.append({ kind: "thread.created", config: { threadId, cwd: "/tmp", model: "claude-opus-5" as ModelId, effort: "high", permissionMode: "bypass", title: null, createdAt: "2026-09-13T00:00:00.000Z", archivedAt: null } });
   const index = new LogIndex(logs, (ev) => (ev.kind === "file.offered" ? [ev.file.fileId, ev.file] : null));
   return { logs, log, index };
 }

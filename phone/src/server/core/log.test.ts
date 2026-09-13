@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LogRegistry, ThreadLog, turnIdFor } from "./log";
 import type {
+  AskId,
   ClaudeSessionId,
   ClientMsgId,
   Cursor,
@@ -28,6 +29,7 @@ function config(): ThreadConfig {
     cwd: "/tmp",
     model: "claude-opus-5" as ModelId,
     effort: "high",
+    permissionMode: "bypass",
     title: null,
     createdAt: "2026-09-11T00:00:00.000Z",
     archivedAt: null,
@@ -166,6 +168,34 @@ test("crash inside a turn: open appends turn.ended {orphaned} and input.dropped 
   await ThreadLog.open(threadId, dir);
   const bytesAfter = await readFile(join(dir, "events.jsonl"));
   assert.equal(bytesAfter.equals(bytesBefore), true, "second open must not repair again");
+  await rm(dir, { recursive: true });
+});
+
+const askOpened = (turnId: string, askId: string): ThreadEventBody => ({ kind: "ask.opened", turnId: turnId as TurnId, askId: askId as AskId, ask: { kind: "tool", toolName: "Bash", input: { command: "rm -rf build" }, toolUseId: "tu9" as never, title: null, description: null } });
+
+test("asks: the pending set is opened minus answered, cleared by turn.ended, and recent ids outlive it", async () => {
+  const dir = await freshDir();
+  const log = await writeLog(dir, [{ kind: "thread.created", config: config() }, queued("m1"), started("t:3", "m1"), askOpened("t:3", "a1"), askOpened("t:3", "a2")]);
+  assert.deepEqual(log.getHead().pendingAsks.map((a) => a.askId), ["a1", "a2"]);
+  await log.append({ kind: "ask.answered", turnId: "t:3" as TurnId, askId: "a1" as AskId, answer: { kind: "allow" }, by: { by: "user", origin } });
+  assert.deepEqual(log.getHead().pendingAsks.map((a) => a.askId), ["a2"]);
+  await log.append(ended("t:3"));
+  assert.deepEqual(log.getHead().pendingAsks, []);
+  assert.deepEqual([...log.getHead().recentAskIds], ["a1", "a2"]);
+  await rm(dir, { recursive: true });
+});
+
+test("crash with asks pending: open seals each as {system: restart} before the orphaned turn.ended, and only once", async () => {
+  const dir = await freshDir();
+  await writeLog(dir, [{ kind: "thread.created", config: config() }, queued("m1"), started("t:3", "m1"), askOpened("t:3", "a1"), askOpened("t:3", "a2")]);
+  const reopened = await ThreadLog.open(threadId, dir);
+  const tail = (await collect(reopened, 5 as Cursor)).map((e) => (e.kind === "ask.answered" ? `${e.kind}:${e.askId}:${e.answer.kind}:${e.by.by === "system" ? e.by.reason : "?"}` : e.kind === "turn.ended" ? `${e.kind}:${e.outcome}` : e.kind));
+  assert.deepEqual(tail, ["ask.answered:a1:deny:restart", "ask.answered:a2:deny:restart", "turn.ended:orphaned"]);
+  assert.deepEqual(reopened.getHead().pendingAsks, []);
+  assert.equal(reopened.getHead().recentAskIds.has("a2" as AskId), true);
+  const before = await readFile(join(dir, "events.jsonl"));
+  await ThreadLog.open(threadId, dir);
+  assert.equal((await readFile(join(dir, "events.jsonl"))).equals(before), true, "second open must not seal again");
   await rm(dir, { recursive: true });
 });
 

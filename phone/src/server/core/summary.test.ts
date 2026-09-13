@@ -13,6 +13,7 @@ const config: ThreadConfig = {
   cwd: "/tmp",
   model: "claude-opus-5" as ModelId,
   effort: "high",
+  permissionMode: "bypass",
   title: null,
   createdAt: "2026-09-11T00:00:00.000Z",
   archivedAt: null,
@@ -31,6 +32,8 @@ const head = (over: Partial<ThreadHead>): ThreadHead => ({
   lastText: null,
   usageTotal: null,
   contextWindow: null,
+  pendingAsks: [],
+  recentAskIds: new Set(),
   ...over,
 });
 
