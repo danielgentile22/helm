@@ -18,6 +18,7 @@
  *   GET    /api/settings                                         -> HelmSettings
  *   PATCH  /api/settings                                         -> HelmSettings
  *   GET    /api/threads?archived=1                               -> ThreadSummary[]
+ *   GET    /api/threads/search?q=..&archived=1&limit=N           -> SearchHit[]
  *   POST   /api/threads                                          -> create (idempotent on threadId)
  *   GET    /api/threads/:id                                      -> ThreadSummary
  *   PATCH  /api/threads/:id                                      -> reconfigure (model/effort/title/permissionMode)
@@ -63,6 +64,7 @@ import type {
   Origin,
   PermissionMode,
   QuestionAnswer,
+  SearchHit,
   SendRequest,
   SettingsPatch,
   ThreadConfig,
@@ -72,6 +74,7 @@ import type {
 } from "../../shared/protocol";
 import type { AgentFactory } from "../core/agent";
 import { modelCatalog, parseModelId } from "../core/agent";
+import { parseQuery, searchCorpus, ThreadSearch } from "../core/search";
 import { threadSummary } from "../core/summary";
 import type { LogRegistry, ThreadLog } from "../core/log";
 import type { PushSubscriptionRecord } from "../core/push";
@@ -241,11 +244,35 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
   const summary = (log: ThreadLog, config: ThreadConfig): ThreadSummary =>
     threadSummary(log.getHead(), config, deps.supervisor.status(log.threadId).session);
 
+  /** The search corpus is a cache over the logs, so it lives as long as the app does. */
+  const search = new ThreadSearch(deps.logs);
+
   app.get("/api/threads", async (c) => {
     const configs = await deps.threads.list({ includeArchived: c.req.query("archived") === "1" });
     const out = await Promise.all(configs.map(async (cfg) => summary(await deps.logs.get(cfg.threadId), cfg)));
-    out.sort((a, b) => (b.lastTurnEndedAt ?? b.config.createdAt).localeCompare(a.lastTurnEndedAt ?? a.config.createdAt));
+    out.sort((a, b) => activity(b).localeCompare(activity(a)));
     return c.json(out);
+  });
+
+  // Before /api/threads/:id so the static segment wins the match.
+  app.get("/api/threads/search", async (c) => {
+    const terms = parseQuery(c.req.query("q") ?? "");
+    if (terms.length === 0) return fail(c, 400, "q is required");
+    const raw = c.req.query("limit") ?? "20";
+    if (!/^-?\d+$/.test(raw)) return fail(c, 400, "limit must be an integer");
+    const limit = Math.min(100, Math.max(1, Number(raw)));
+    const configs = await deps.threads.list({ includeArchived: c.req.query("archived") === "1" });
+    const found = await Promise.all(
+      configs.map(async (cfg) => {
+        const match = searchCorpus(cfg.title, await search.corpus(cfg.threadId), terms);
+        if (!match) return null;
+        const hit: SearchHit = { summary: summary(await deps.logs.get(cfg.threadId), cfg), seq: match.seq, snippet: match.snippet, ranges: match.ranges };
+        return { hit, turnsMatched: match.turnsMatched };
+      }),
+    );
+    const rows = found.filter((r): r is { hit: SearchHit; turnsMatched: number } => r !== null);
+    rows.sort((a, b) => activity(b.hit.summary).localeCompare(activity(a.hit.summary)) || b.turnsMatched - a.turnsMatched);
+    return c.json(rows.slice(0, limit).map((r) => r.hit));
   });
 
   app.post("/api/threads", async (c) => {
@@ -623,6 +650,11 @@ async function json(c: Context): Promise<Record<string, unknown> | null> {
   } catch {
     return null;
   }
+}
+
+/** Last activity: when the thread last finished a turn, else when it was made. */
+function activity(s: ThreadSummary): string {
+  return s.lastTurnEndedAt ?? s.config.createdAt;
 }
 
 function message(err: unknown): string {

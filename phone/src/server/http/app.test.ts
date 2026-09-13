@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile, readdir, rm, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { LIMITS } from "../../shared/protocol";
-import type { AskPayload, HelmSettings, SlashCommand, ThreadConfig, ThreadEvent, ThreadId, ThreadSummary } from "../../shared/protocol";
+import type { AskPayload, HelmSettings, SearchHit, SlashCommand, ThreadConfig, ThreadEvent, ThreadId, ThreadSummary } from "../../shared/protocol";
 import { groupTurns } from "../../shared/turns";
 import { parseAnswer, parseCreateThread, parsePatch, parseSend, passkeyRows } from "./app";
 import { API_KEY, buildStack, eventSeqs, events, readSse, type Frame, type Stack } from "./testkit";
@@ -779,4 +779,129 @@ test("push fires for an ask left pending with no viewer attached, and not for a 
   await new Promise((r) => setTimeout(r, 40));
   assert.equal(s.pushed.length, 2, "no push for the ask while a viewer had the thread open");
   await s.cleanup();
+});
+
+test("search: prompts and replies match, tool output does not, terms narrow, a phrase is one term, archived is opt-in", async () => {
+  const s = await buildStack(async (t) => {
+    const p = t.input.text;
+    if (p.includes("grep")) {
+      t.tool("Grep", { pattern: "needle" }, "needle in the output");
+      t.text("Nothing to report.");
+    } else if (p.includes("crash")) {
+      t.text("A fatal error came from launchd.");
+    } else if (p.includes("weather")) {
+      t.text("It was a fatal mistake to ignore the error.");
+    } else {
+      t.text("Uploads are staged in a temp dir, then moved.");
+    }
+    t.end();
+  });
+  const ask = async (n: number, text: string): Promise<string> => {
+    const threadId = uuid(n);
+    await s.api("POST", "/api/threads", { threadId, model: "claude-opus-5" });
+    const done = readSse(await s.api("GET", `/api/threads/${threadId}/events?after=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+    await s.api("POST", `/api/threads/${threadId}/send`, { clientMsgId: uuid(100 + n), text });
+    await done;
+    await untilIdle(s, threadId);
+    return threadId;
+  };
+  const find = async (st: Stack, q: string, extra = ""): Promise<SearchHit[]> =>
+    (await (await st.api("GET", `/api/threads/search?q=${encodeURIComponent(q)}${extra}`)).json()) as SearchHit[];
+  const ids = async (q: string, extra = ""): Promise<string[]> => (await find(s, q, extra)).map((h) => h.summary.config.threadId);
+
+  const staging = await ask(1, "how are uploads staged, roughly");
+  const grep = await ask(2, "check the logs with grep");
+  const crash = await ask(3, "tell me about the crash");
+  const weather = await ask(4, "the weather today");
+
+  assert.deepEqual(await ids("roughly"), [staging], "a word only the prompt said");
+  assert.deepEqual(await ids("temp"), [staging], "a word only the reply said");
+  assert.deepEqual(await ids("needle"), [], "tool output is not searched");
+  assert.deepEqual(await ids("upload"), [staging], "case folds and the prefix of Uploads matches");
+  assert.deepEqual(await ids("load"), [], "a prefix only, never mid-word");
+  assert.deepEqual(await ids("uploads temp"), [staging], "both terms in one thread");
+  assert.deepEqual(await ids("uploads launchd"), [], "adding a term narrows to nothing");
+  assert.deepEqual((await ids("fatal error")).sort(), [crash, weather].sort(), "two terms, anywhere");
+  assert.deepEqual(await ids('"fatal error"'), [crash], "the quoted phrase only");
+
+  assert.equal((await s.api("DELETE", `/api/threads/${weather}`)).status, 204);
+  assert.deepEqual(await ids("fatal"), [crash], "an archived thread is out by default");
+  const withArchived = await find(s, "fatal", "&archived=1");
+  assert.deepEqual(withArchived.map((h) => h.summary.config.threadId).sort(), [crash, weather].sort());
+  assert.ok(withArchived.find((h) => h.summary.config.threadId === weather)!.summary.config.archivedAt, "the row says it is archived");
+
+  assert.equal((await s.api("GET", "/api/threads/search")).status, 400);
+  assert.equal((await s.api("GET", "/api/threads/search?q=%20%20")).status, 400);
+  assert.equal((await s.api("GET", "/api/threads/search?q=fatal&limit=two")).status, 400);
+  assert.equal((await s.api("GET", "/api/threads/search?q=fatal&limit=")).status, 400);
+  assert.equal((await s.api("GET", "/api/threads/search?q=fatal&limit=1e2")).status, 400);
+  assert.equal((await find(s, "fatal", "&archived=1&limit=1")).length, 1, "limit clamps the rows");
+  assert.equal((await find(s, "fatal", "&archived=1&limit=0")).length, 1, "and clamps up from nothing");
+  assert.equal((await find(s, "fatal", "&archived=1&limit=999")).length, 2, "and down from too many");
+  assert.equal((await (await s.api("GET", `/api/threads/${grep}`)).json() as ThreadSummary).config.threadId, grep, "the static segment does not shadow the id route");
+  await s.cleanup();
+});
+
+test("search: one row per thread at its best turn, live turns included, and identical rows after a restart", async () => {
+  let openGate = (): void => {};
+  const gate = new Promise<void>((r) => (openGate = r));
+  const script = async (t: { input: { text: string }; text: (d: string) => void; end: () => void }): Promise<void> => {
+    if (t.input.text.includes("hold")) {
+      t.text("Pineapple is the answer.");
+      await gate;
+    }
+    t.text("Noted.");
+    t.end();
+  };
+  const s = await buildStack(script);
+  const find = async (st: Stack, q: string): Promise<SearchHit[]> => (await (await st.api("GET", `/api/threads/search?q=${encodeURIComponent(q)}`)).json()) as SearchHit[];
+  const turnStarts = async (st: Stack): Promise<number[]> =>
+    events(await readSse(await st.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => f.some((x) => x.kind === "sync"))).filter((e) => e.kind === "turn.started").map((e) => e.seq);
+
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  const say = async (n: number, text: string): Promise<void> => {
+    const done = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => events(f).filter((e) => e.kind === "turn.ended").length >= n);
+    await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(n), text });
+    await done;
+    await untilIdle(s, THREAD);
+  };
+
+  await say(1, "first question about uploads");
+  const first = await find(s, "uploads");
+  assert.equal(first.length, 1);
+  assert.equal(first[0]!.seq, (await turnStarts(s))[0], "the first turn's boundary");
+
+  await say(2, "second question about uploads and staging");
+  const starts = await turnStarts(s);
+  assert.equal((await find(s, "uploads"))[0]!.seq, starts[1], "a tie on terms lands on the later turn");
+
+  const best = await find(s, "uploads staging");
+  assert.equal(best.length, 1, "a thread matching twice is still one row");
+  assert.equal(best[0]!.seq, starts[1], "the turn covering both terms");
+  for (const term of ["uploads", "staging"]) {
+    const range = best[0]!.ranges.find(([start, end]) => best[0]!.snippet.slice(start, end).toLowerCase() === term);
+    assert.ok(range, `${term} is highlighted in ${JSON.stringify(best[0]!.snippet)}`);
+  }
+
+  const r = await s.restart(script);
+  const again = await find(r, "uploads staging");
+  assert.deepEqual(
+    again.map((h) => [h.summary.config.threadId, h.seq, h.snippet, h.ranges]),
+    best.map((h) => [h.summary.config.threadId, h.seq, h.snippet, h.ranges]),
+    "search survives a restart with no warm-up",
+  );
+
+  const held = readSse(await r.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => events(f).some((e) => e.kind === "assistant.text" && e.delta.includes("Pineapple")));
+  await r.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(3), text: "hold this one" });
+  await held;
+  const live = await until(() => find(r, "pineapple"), (rows) => rows.length === 1);
+  assert.equal(live[0]!.seq, (await turnStarts(r)).at(-1), "the turn still running is searchable");
+
+  await r.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(4), text: "and later, mangosteen" });
+  const queued = await until(() => find(r, "mangosteen"), (rows) => rows.length === 1);
+  const queuedSeq = events(await readSse(await r.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => f.some((x) => x.kind === "sync"))).findLast((e) => e.kind === "input.queued")!.seq;
+  assert.equal(queued[0]!.seq, queuedSeq, "a prompt still waiting for its turn lands on the queued event");
+  openGate();
+  await untilIdle(r, THREAD);
+  await r.cleanup();
 });
