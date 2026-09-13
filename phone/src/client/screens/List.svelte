@@ -5,11 +5,13 @@
 </script>
 
 <script lang="ts">
+  import { tick } from "svelte";
   import { flip } from "svelte/animate";
-  import type { ModelChoice, ThreadSummary } from "../../shared/protocol";
+  import type { ModelChoice, SearchHit, ThreadSummary } from "../../shared/protocol";
   import type { HelmClient } from "../api";
   import { fmtRelative, shortPath } from "../format";
-  import { groupThreads } from "../groups";
+  import { groupThreads, rowState } from "../groups";
+  import { segments } from "../highlight";
   import { models } from "../models";
   import { motion } from "../motion";
   import { createWithDefaults } from "../newThread";
@@ -29,8 +31,27 @@
   let sheetOpen = $state(false);
   let showArchived = $state(false);
 
+  let query = $state("");
+  const trimmed = $derived(query.trim());
+  let results = $state<{ query: string; hits: readonly SearchHit[] } | null>(null);
+  let searching = $state(false);
+  let searchError = $state("");
+
   let pressTimer: ReturnType<typeof setTimeout> | null = null;
   let suppressClick = false;
+  let savedScroll = 0;
+  let wasSearching = false;
+  let issued = 0;
+  let screen: HTMLElement | null = null;
+
+  // On the two-pane layout the list scrolls inside .pane-list, not the window.
+  const scroller = (): HTMLElement | null => screen?.closest(".pane-list") ?? null;
+  const scrollTop = (): number => scroller()?.scrollTop ?? window.scrollY;
+  const scrollToTop = (y: number): void => {
+    const pane = scroller();
+    if (pane) pane.scrollTop = y;
+    else window.scrollTo(0, y);
+  };
 
   const groups = $derived(groupThreads(threads, showArchived));
 
@@ -89,6 +110,38 @@
   });
 
   $effect(() => {
+    const sent = trimmed;
+    if (sent && !wasSearching) savedScroll = scrollTop();
+    if (!sent && wasSearching) void tick().then(() => scrollToTop(savedScroll));
+    wasSearching = sent !== "";
+
+    searchError = "";
+    if (!sent) {
+      issued++;
+      results = null;
+      searching = false;
+      return;
+    }
+    searching = true;
+    const mine = ++issued;
+    const timer = setTimeout(() => {
+      void api.searchThreads(sent, true, 50).then(
+        (hits) => {
+          if (mine !== issued) return;
+          results = { query: sent, hits };
+          searching = false;
+        },
+        (err: unknown) => {
+          if (mine !== issued) return;
+          searchError = `Could not search: ${err instanceof Error ? err.message : String(err)}`;
+          searching = false;
+        },
+      );
+    }, 200);
+    return () => clearTimeout(timer);
+  });
+
+  $effect(() => {
     void models(api).then((m) => (catalog = m), () => undefined);
     let pending: ReturnType<typeof setTimeout> | null = null;
     const stop = api.attachGlobal(() => {
@@ -108,7 +161,7 @@
   });
 </script>
 
-<main class="screen">
+<main class="screen" bind:this={screen}>
   <header class="topbar">
     <h1>Helm</h1>
     <button class="icon-btn" aria-label="Settings" onclick={() => router.navigate("/settings")}>
@@ -123,11 +176,53 @@
     </span>
   </header>
 
+  <div class="searchbar">
+    <input class="search" type="search" bind:value={query} aria-label="Search threads" placeholder="Search" enterkeyhint="search" autocomplete="off" />
+  </div>
+
   {#if loadError}<p class="center error">▲ {loadError}</p>{/if}
   {#if createError}<p class="center error">▲ {createError}</p>{/if}
+  {#if searchError}<p class="center error">▲ {searchError}</p>{/if}
+
+  <div aria-live="polite">
+    {#if trimmed && searching}<p class="center muted">Searching…</p>{/if}
+    {#if trimmed && results && results.query === trimmed && results.hits.length === 0}
+      <p class="center muted">No matches for “{results.query}”</p>
+    {/if}
+  </div>
 
   <div class="groups">
-    {#if groups.length}
+    {#if trimmed}
+      {#if results}
+        <div class="rows">
+          {#each results.hits as hit (hit.summary.config.threadId)}
+            {@const st = rowState(hit.summary)}
+            <button
+              class="row"
+              type="button"
+              class:is-running={st === "running"}
+              class:is-waiting={st === "waiting"}
+              class:is-archived={st === "archived"}
+              class:is-open={router.route.name === "thread" && router.route.threadId === hit.summary.config.threadId}
+              onclick={() => router.navigate(hit.seq !== null ? `/t/${hit.summary.config.threadId}#seq=${hit.seq}` : `/t/${hit.summary.config.threadId}`)}
+            >
+              {#if st === "running"}<span class="rail" aria-hidden="true"><i></i></span>{/if}
+              {#if st === "waiting"}<span class="waitbar" aria-hidden="true"></span>{/if}
+              <span class="r1">
+                <span class="title">{hit.summary.config.title ?? "Untitled"}</span>
+                <span class="when">{fmtRelative(hit.summary.lastTurnEndedAt ?? hit.summary.config.createdAt, new Date())}</span>
+              </span>
+              <span class="r2">
+                <span class="state {st}"><span class="glyph" aria-hidden="true">{STATE_GLYPH[st]}</span>{st}</span>
+              </span>
+              {#if hit.snippet}
+                <span class="snip">{#each segments(hit.snippet, hit.ranges) as seg}{#if seg.hit}<mark>{seg.text}</mark>{:else}{seg.text}{/if}{/each}</span>
+              {/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
+    {:else if groups.length}
       {#each groups as g (g.cwd)}
         {@const path = splitPath(g.cwd)}
         <section class="group">

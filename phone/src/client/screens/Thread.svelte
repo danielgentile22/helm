@@ -7,6 +7,7 @@
   import Menu from "../components/Menu.svelte";
   import StatusBar from "../components/StatusBar.svelte";
   import Transcript from "../components/Transcript.svelte";
+  import { parseLanding } from "../route";
   import { router } from "../route.svelte";
   import ArchiveConfirm from "../sheets/ArchiveConfirm.svelte";
   import ModelEffort from "../sheets/ModelEffort.svelte";
@@ -79,12 +80,25 @@
     void tick().then(toBottom);
   });
 
-  // `/t/<id>#end` is where a push notification lands: hold at the newest block once the
-  // first sync has told us the replay is complete.
+  // `/t/<id>#end` is where a push notification lands, `#seq=<n>` where a search hit lands:
+  // act on the fragment once the first sync has told us the replay is complete.
   $effect(() => {
     if (deepLinked || !session || session.view.replaying) return;
     deepLinked = true;
-    if (location.hash === "#end") void tick().then(follow);
+    const landing = parseLanding(location.hash);
+    if (landing === null) return;
+    if (landing.at === "end") {
+      void tick().then(follow);
+      return;
+    }
+    // Drop the follow before the DOM settles, or the sections effect scrolls past the turn.
+    atBottom = false;
+    const { seq } = landing;
+    void tick().then(() => {
+      const el = document.querySelector(`[data-turn="t:${seq}"]`);
+      if (el) el.scrollIntoView({ block: "start" });
+      else follow();
+    });
   });
 
 </script>
