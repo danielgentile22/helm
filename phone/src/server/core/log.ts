@@ -68,6 +68,11 @@ export interface ThreadHead {
 
 export type Unsubscribe = () => void;
 
+/** `t:<seq>` of the turn.started event; derivable from the log so a TurnId can never dangle. */
+export function turnIdFor(seq: Seq): TurnId {
+  return `t:${seq}` as TurnId;
+}
+
 /**
  * Who a subscriber is. A viewer is a person with the thread open (an SSE
  * stream); a projection is server-side machinery (mirror, push, the global

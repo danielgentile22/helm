@@ -41,6 +41,7 @@
  * module -> log.ts.
  */
 
+import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
@@ -65,7 +66,6 @@ import type {
 } from "../../shared/protocol";
 import type { AgentFactory } from "../core/agent";
 import { modelCatalog, parseModelId } from "../core/agent";
-import { parseClientMsgId, resolveThreadId } from "../core/ids";
 import { threadSummary } from "../core/summary";
 import type { LogRegistry, ThreadLog } from "../core/log";
 import type { PushSubscriptionRecord } from "../core/push";
@@ -244,7 +244,7 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     if (bodyTooLarge(c.req.raw.headers, LIMITS.SEND_BODY_BYTES)) return fail(c, 413, "body too large");
     const parsed = parseCreateThread(await json(c), await models().catch(() => []), deps.defaultCwd);
     if (!parsed.ok) return fail(c, parsed.status, parsed.error);
-    const threadId = resolveThreadId(parsed.value.threadId);
+    const threadId = parsed.value.threadId ?? (randomUUID() as ThreadId);
     const existing = await deps.threads.get(threadId);
     if (existing) return c.json(existing);
     let config;
@@ -438,9 +438,12 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; status: 400 | 413; error: string };
 
+/** A client-minted id: uuid-like, so it is safe as a path segment and a filename. */
+const ID_RE = /^[a-f0-9-]{8,40}$/i;
+
 export function parseSend(body: unknown): Parsed<SendRequest & { clientMsgId: ClientMsgId }> {
   if (!isRecord(body)) return { ok: false, status: 400, error: "body must be a JSON object" };
-  const clientMsgId = parseClientMsgId(body.clientMsgId);
+  const clientMsgId = typeof body.clientMsgId === "string" && ID_RE.test(body.clientMsgId) ? (body.clientMsgId as ClientMsgId) : null;
   if (!clientMsgId) return { ok: false, status: 400, error: "clientMsgId must be a uuid-like token" };
   if (typeof body.text !== "string") return { ok: false, status: 400, error: "text must be a string" };
   if (body.text.length > LIMITS.MESSAGE_CHARS) return { ok: false, status: 413, error: `text longer than ${LIMITS.MESSAGE_CHARS} chars` };
@@ -451,7 +454,12 @@ export function parseSend(body: unknown): Parsed<SendRequest & { clientMsgId: Cl
   return { ok: true, value: { clientMsgId, text: body.text, uploadIds, label } };
 }
 
-export function parseCreateThread(body: unknown, catalog: readonly ModelChoice[], defaultCwd: string): Parsed<CreateThreadRequest> {
+/**
+ * The client may mint the thread id so create + first send are safely
+ * retriable. A malformed id parses to undefined and the route mints a fresh
+ * one; the message id is the idempotency key, so parseSend rejects it instead.
+ */
+export function parseCreateThread(body: unknown, catalog: readonly ModelChoice[], defaultCwd: string): Parsed<CreateThreadRequest & { threadId: ThreadId | undefined }> {
   if (!isRecord(body)) return { ok: false, status: 400, error: "body must be a JSON object" };
   const cwd = body.cwd === undefined ? defaultCwd : body.cwd;
   if (typeof cwd !== "string" || !cwd.startsWith("/")) return { ok: false, status: 400, error: "cwd must be an absolute path" };
@@ -461,7 +469,8 @@ export function parseCreateThread(body: unknown, catalog: readonly ModelChoice[]
   if (!EFFORTS.includes(effort as Effort)) return { ok: false, status: 400, error: `effort must be one of ${EFFORTS.join(", ")}` };
   const title = body.title === undefined || body.title === null ? null : typeof body.title === "string" ? body.title.slice(0, 120) : undefined;
   if (title === undefined) return { ok: false, status: 400, error: "title must be a string" };
-  return { ok: true, value: { threadId: typeof body.threadId === "string" ? body.threadId : undefined, cwd, model, effort: effort as Effort, title } };
+  const threadId = typeof body.threadId === "string" && ID_RE.test(body.threadId) ? (body.threadId as ThreadId) : undefined;
+  return { ok: true, value: { threadId, cwd, model, effort: effort as Effort, title } };
 }
 
 /**

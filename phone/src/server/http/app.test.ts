@@ -276,6 +276,13 @@ test("parsers: send, create, patch", () => {
   assert.deepEqual(parseSend({ clientMsgId: uuid(1), text: "hi", label: " laptop " }), { ok: true, value: { clientMsgId: uuid(1), text: "hi", uploadIds: undefined, label: "laptop" } });
 
   assert.deepEqual(parseCreateThread({ model: "m1" }, catalog, "/d"), { ok: true, value: { threadId: undefined, cwd: "/d", model: "m1", effort: "medium", title: null } });
+  const minted = parseCreateThread({ model: "m1", threadId: uuid(7) }, catalog, "/d");
+  assert.equal(minted.ok && minted.value.threadId, uuid(7));
+  for (const bad of ["not a uuid!", "abc", "x".repeat(41), 42, null]) {
+    const r = parseCreateThread({ model: "m1", threadId: bad }, catalog, "/d");
+    assert.equal(r.ok && r.value.threadId, undefined, `malformed thread id ${String(bad)} is replaced, not rejected`);
+  }
+  for (const bad of ["", "abc", "x".repeat(41), 42, undefined]) assert.equal(parseSend({ clientMsgId: bad, text: "x" }).ok, false, `message id ${String(bad)} is a 400`);
   assert.equal(parseCreateThread({ model: "m1", effort: "max" }, catalog, "/d").ok, true);
   assert.equal(parseCreateThread({ model: "m1", effort: "ultra" }, catalog, "/d").ok, false);
   assert.equal(parseCreateThread({ model: "m1", cwd: "relative" }, catalog, "/d").ok, false);

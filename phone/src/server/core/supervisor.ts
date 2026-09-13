@@ -39,7 +39,7 @@ import type {
 import type { AgentEvent, AgentFactory, AgentSession } from "./agent";
 import { PHONE_APPENDIX } from "./agent";
 import { MODEL_ORIGIN, type Offers } from "./offers";
-import { turnIdFor } from "./ids";
+import { turnIdFor } from "./log";
 import type { LogRegistry, ThreadLog } from "./log";
 import type { ThreadStore } from "./thread-store";
 
