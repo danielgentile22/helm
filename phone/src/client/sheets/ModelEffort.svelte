@@ -27,7 +27,7 @@
   });
 
   // Tracks the effort list only. Reading config.effort here would reset the user's pick every
-  // time an incoming thread.config event replaces the summary, a rename included.
+  // time an incoming thread.config event replaces the config, a rename included.
   $effect(() => {
     const list = efforts;
     effort = untrack(() => (list.includes(config.effort) ? config.effort : (list[0] ?? config.effort)));

@@ -142,7 +142,7 @@ test("the mirror and the phone agree on turn count, prompts, tool joins and text
     ev({ kind: "assistant.text", turnId: T2, blockIx: 1, delta: " reply" }),
     ev({ kind: "turn.ended", turnId: T2, outcome: "ok", sessionId: "s" as never, usage: null, error: null }),
   ];
-  const view = foldAll(emptyView("x" as never), events);
+  const view = foldAll(emptyView({ threadId: "x" as never, cwd: "/v", model: "m" as never, effort: "high", title: null, createdAt: "", archivedAt: null }), events);
   const sections = toBlocks(applySync(view, { headSeq: view.headSeq, session: "idle", openTurn: null, queuedCount: 0 }));
   const notes = groupTurns(events).filter(isCompleted).map(renderTurn);
 

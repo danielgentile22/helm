@@ -187,6 +187,16 @@ export interface UsageTotal {
   readonly cacheWriteTokens: number;
 }
 
+/** The running total after one more turn; the server's head and the phone's fold agree by sharing it. */
+export function addUsage(total: UsageTotal | null, u: Usage): UsageTotal {
+  return {
+    inputTokens: (total?.inputTokens ?? 0) + u.inputTokens,
+    outputTokens: (total?.outputTokens ?? 0) + u.outputTokens,
+    cacheReadTokens: (total?.cacheReadTokens ?? 0) + u.cacheReadTokens,
+    cacheWriteTokens: (total?.cacheWriteTokens ?? 0) + u.cacheWriteTokens,
+  };
+}
+
 /**
  * Event bodies. Every variant is a fact that happened; nothing here is a
  * command. Client folds these; server projections (mirror, push) read these.

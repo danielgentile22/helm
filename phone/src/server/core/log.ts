@@ -23,7 +23,7 @@
 import { createReadStream } from "node:fs";
 import { appendFile, mkdir, open as fsOpen, readdir, readFile, stat, truncate } from "node:fs/promises";
 import { join } from "node:path";
-import { LIMITS } from "../../shared/protocol";
+import { addUsage, LIMITS } from "../../shared/protocol";
 import type {
   ClaudeSessionId,
   ClientMsgId,
@@ -35,7 +35,6 @@ import type {
   ToolUseId,
   TurnId,
   TurnOutcome,
-  Usage,
   UsageTotal,
 } from "../../shared/protocol";
 
@@ -134,15 +133,6 @@ function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
       break;
   }
   return { lastSeq: ev.seq, sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow };
-}
-
-function addUsage(total: UsageTotal | null, u: Usage): UsageTotal {
-  return {
-    inputTokens: (total?.inputTokens ?? 0) + u.inputTokens,
-    outputTokens: (total?.outputTokens ?? 0) + u.outputTokens,
-    cacheReadTokens: (total?.cacheReadTokens ?? 0) + u.cacheReadTokens,
-    cacheWriteTokens: (total?.cacheWriteTokens ?? 0) + u.cacheWriteTokens,
-  };
 }
 
 type DeltaBody = Extract<ThreadEventBody, { kind: "assistant.text" | "assistant.thinking" }>;

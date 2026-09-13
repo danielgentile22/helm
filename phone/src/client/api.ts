@@ -2,10 +2,15 @@
  * Client contract over the HTTP surface. No rendering here. attach() owns
  * the reconnect loop; every other method is one fetch.
  *
- * Reconnect rule: on any error, close, or seq violation, reopen with
- * `after = lastSeqSeen`. Backoff 500 ms -> 5 s. On `visibilitychange` to
- * visible, reopen immediately (iOS suspends EventSource in the background;
- * the cursor makes that harmless).
+ * Reconnect rule: on any error, close, or seq violation (a gap or a
+ * duplicate), reopen with `after = lastSeqSeen`. A sync frame whose head is
+ * behind the cursor means the server's log is shorter than what the phone
+ * folded (a restore or a truncation): tell the handlers to reset and reopen
+ * from zero. This loop is the only place that cursor rule lives.
+ *
+ * Backoff 500 ms -> 5 s. On `visibilitychange` to visible, reopen
+ * immediately (iOS suspends EventSource in the background; the cursor makes
+ * that harmless).
  */
 
 import type {
@@ -28,10 +33,14 @@ import type {
   UploadId,
 } from "../shared/protocol";
 
+export type ConnState = "connecting" | "replaying" | "live" | "offline";
+
 export interface AttachHandlers {
   onEvent(ev: ThreadEvent): void;
   onSync(frame: SyncFrame): void;
-  onState(state: "connecting" | "replaying" | "live" | "offline"): void;
+  /** The server's log is shorter than what was folded: discard it all, a replay from zero follows. */
+  onReset(frame: SyncFrame): void;
+  onState(state: ConnState): void;
 }
 
 /** The subset of EventSource the attach loop uses; injectable for tests. */
@@ -219,7 +228,6 @@ export class HelmClient {
       src.onmessage = (m) => {
         const ev = JSON.parse(m.data) as ThreadEvent;
         if (ev.seq !== lastSeen + 1) {
-          // Gap or duplicate: drop the connection and re-attach from what we have.
           reconnect(0);
           return;
         }
@@ -229,9 +237,8 @@ export class HelmClient {
       src.addEventListener("sync", (m) => {
         const frame = JSON.parse(m.data) as SyncFrame;
         if (frame.headSeq < lastSeen) {
-          // The server's log is shorter than what we have folded: start over.
           lastSeen = 0;
-          handlers.onSync(frame);
+          handlers.onReset(frame);
           reconnect(0);
           return;
         }

@@ -4,6 +4,7 @@ import type { Seq, ThreadEvent, ThreadId, TurnId } from "../shared/protocol";
 import { addPendingPrompt, applySync, emptyView, fold, foldAll } from "./fold";
 
 const threadId = "t-1" as ThreadId;
+const config = { threadId, cwd: "/v", model: "m" as never, effort: "high", title: null, createdAt: "", archivedAt: null } as const;
 const origin = { via: "pwa", label: "iphone" } as const;
 let seq = 0;
 const ev = (body: object): ThreadEvent => ({ seq: ++seq as Seq, ts: "2026-09-11T10:00:00.000Z", ...body }) as ThreadEvent;
@@ -15,7 +16,7 @@ function turn(): ThreadEvent[] {
   seq = 0;
   const t = "t:3" as TurnId;
   return [
-    ev({ kind: "thread.created", config: { threadId, cwd: "/v", model: "m" as never, effort: "high", title: null, createdAt: "", archivedAt: null } }),
+    ev({ kind: "thread.created", config }),
     ev({ kind: "input.queued", clientMsgId: "c1" as never, text: "hi", uploads: [shot, note], origin }),
     ev({ kind: "turn.started", turnId: t, clientMsgId: "c1" as never, model: "m" as never, effort: "high", spawned: true }),
     ev({ kind: "session.bound", sessionId: "s" as never }),
@@ -31,7 +32,7 @@ function turn(): ThreadEvent[] {
 }
 
 test("fold builds prompt, thinking, text blocks, merged tool rows, and the turn end", () => {
-  const view = foldAll(emptyView(threadId), turn());
+  const view = foldAll(emptyView(config), turn());
   assert.equal(view.headSeq, 12);
   assert.equal(view.openTurn, null);
   assert.equal(view.contextTokens, 4);
@@ -46,7 +47,7 @@ test("fold builds prompt, thinking, text blocks, merged tool rows, and the turn 
 });
 
 test("a queued prompt keeps every upload's id, name and mime so images can be fetched back", () => {
-  const view = foldAll(emptyView(threadId), turn().slice(0, 2));
+  const view = foldAll(emptyView(config), turn().slice(0, 2));
   const prompt = view.turns[0]?.prompt;
   assert.ok(prompt);
   assert.deepEqual(prompt.uploads, [
@@ -55,17 +56,37 @@ test("a queued prompt keeps every upload's id, name and mime so images can be fe
   ]);
 });
 
-test("fold marks the turn open while running and requires seq to be exactly head plus one", () => {
+test("fold marks the turn open while running and refuses any seq but head plus one", () => {
   const events = turn();
-  const mid = foldAll(emptyView(threadId), events.slice(0, 7));
+  const mid = foldAll(emptyView(config), events.slice(0, 7));
   assert.equal(mid.openTurn, "t:3");
   assert.throws(() => fold(mid, events[9]!), /seq/);
   assert.throws(() => fold(mid, events[6]!), /seq/);
 });
 
+test("title, model, context window and usage totals are folded from the log, the same way the server's head derives them", () => {
+  const events = turn();
+  seq = events.length;
+  const view = foldAll(emptyView(config), [
+    ...events,
+    ev({ kind: "thread.config", patch: { title: "Listing" }, origin }),
+    ev({ kind: "thread.config", patch: { model: "claude-sonnet-5" as never }, origin }),
+    ev({ kind: "turn.started", turnId: "t:4" as TurnId, clientMsgId: "c2" as never, model: "m" as never, effort: "high", spawned: false }),
+    ev({ kind: "turn.ended", turnId: "t:4" as TurnId, outcome: "ok", sessionId: "s" as never, usage: { inputTokens: 10, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 1, costUsd: null, contextTokens: 40, contextWindow: 200_000, durationMs: 5 }, error: null }),
+  ]);
+  assert.equal(view.config.title, "Listing");
+  assert.equal(view.config.model, "claude-sonnet-5");
+  assert.equal(view.config.cwd, "/v", "a patch keeps the fields it does not name");
+  assert.equal(view.contextTokens, 40);
+  assert.equal(view.contextWindow, 200_000);
+  assert.deepEqual(view.usageTotal, { inputTokens: 11, outputTokens: 22, cacheReadTokens: 33, cacheWriteTokens: 1 });
+  const ended = fold(view, ev({ kind: "turn.ended", turnId: "t:5" as TurnId, outcome: "ok", sessionId: null, usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 1, cacheWriteTokens: 1, costUsd: null, contextTokens: 41, durationMs: 1 }, error: null }));
+  assert.equal(ended.contextWindow, 200_000, "a turn without a window keeps the last one");
+});
+
 test("a pending prompt is replaced by its input.queued and dropped inputs are marked", () => {
   const events = turn();
-  let view = fold(emptyView(threadId), events[0]!);
+  let view = fold(emptyView(config), events[0]!);
   view = addPendingPrompt(view, "c1", "hi", "iphone", [{ uploadId: shot.uploadId as never, name: shot.name, mime: shot.mime }]);
   assert.equal(view.turns.length, 1);
   assert.equal(view.turns[0]?.prompt?.state, "pending");
@@ -79,7 +100,7 @@ test("a pending prompt is replaced by its input.queued and dropped inputs are ma
 
 test("config changes, archive, and orphaned ends render as notes and ends", () => {
   seq = 0;
-  let view = emptyView(threadId);
+  let view = emptyView(config);
   view = fold(view, ev({ kind: "thread.config", patch: { model: "claude-sonnet-5" as never }, origin }));
   view = fold(view, ev({ kind: "turn.started", turnId: "t:2" as TurnId, clientMsgId: "c9" as never, model: "m" as never, effort: "low", spawned: false }));
   view = fold(view, ev({ kind: "turn.ended", turnId: "t:2" as TurnId, outcome: "orphaned", sessionId: null, usage: null, error: null }));
@@ -95,14 +116,12 @@ test("config changes, archive, and orphaned ends render as notes and ends", () =
   assert.equal(view.openTurn, null);
 });
 
-test("applySync marks live and copies session state; a stale head resets to empty so the client reattaches from zero", () => {
-  const view = foldAll(emptyView(threadId), turn());
+test("applySync marks live and copies the session state and the server's head", () => {
+  const view = foldAll(emptyView(config), turn());
   const live = applySync(view, { headSeq: 12 as Seq, session: "idle", openTurn: null, queuedCount: 0 });
   assert.equal(live.replaying, false);
   assert.equal(live.session, "idle");
-  const reset = applySync(view, { headSeq: 5 as Seq, session: "cold", openTurn: null, queuedCount: 0 });
-  assert.equal(reset.headSeq, 0);
-  assert.equal(reset.turns.length, 0);
+  assert.equal(live.logHead, 12);
 });
 
 test("a file offered to the phone becomes a file line carrying what the card needs, mid-turn or after it", () => {
@@ -117,7 +136,7 @@ test("a file offered to the phone becomes a file line carrying what the card nee
     ev({ kind: "turn.ended", turnId: t, outcome: "ok", sessionId: "s" as never, usage: null, error: null }),
     ev({ kind: "file.offered", file: { ...file, fileId: "f2", note: null }, origin: { via: "key", label: "model" } }),
   ];
-  const view = foldAll(emptyView(threadId), evs);
+  const view = foldAll(emptyView(config), evs);
   assert.deepEqual(
     view.turns.map((t) => t.items.map((i) => i.kind)),
     [["file", "text"], ["file"]],
