@@ -88,6 +88,8 @@ a { color: var(--accent); }
 .menuscrim { position: fixed; inset: 0; z-index: 5; }
 .menu { position: absolute; right: 0; top: calc(100% + var(--s-3)); z-index: 6; min-width: 160px; background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-md); box-shadow: var(--shadow); overflow: hidden; animation: popin var(--d-base) var(--e-out) both; }
 @keyframes popin { from { transform: translateY(-6px); opacity: 0; } }
+.menu.up { top: auto; right: auto; left: 0; bottom: calc(100% + var(--s-3)); animation: popup var(--d-base) var(--e-out) both; }
+.inputrow .anchor { position: relative; flex: none; }
 .mitem { display: block; width: 100%; padding: var(--s-4) var(--s-5); text-align: left; font-size: var(--t-sm); background: transparent; border: 0; border-bottom: 1px solid var(--hair); }
 .mitem:last-child { border-bottom: 0; }
 

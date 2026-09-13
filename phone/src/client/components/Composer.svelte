@@ -23,6 +23,8 @@
   let catalog = $state<readonly ModelChoice[]>([]);
   let uploading = $state(false);
   let fileEl: HTMLInputElement | null = $state(null);
+  let cameraEl: HTMLInputElement | null = $state(null);
+  let sourcesOpen = $state(false);
   let skillsOpen = $state(false);
 
   const config = $derived(session.summary.config);
@@ -130,14 +132,26 @@
     }
   }
 
-  async function pickFiles(): Promise<void> {
-    if (!fileEl) return;
-    const files = Array.from(fileEl.files ?? []);
-    fileEl.value = "";
+  async function stage(files: readonly File[]): Promise<void> {
     if (!files.length) return;
     uploading = true;
     await session.upload(files);
     uploading = false;
+  }
+
+  async function pickFrom(el: HTMLInputElement | null): Promise<void> {
+    if (!el) return;
+    const files = Array.from(el.files ?? []);
+    el.value = "";
+    await stage(files);
+  }
+
+  /** Images on the clipboard become attachments; anything else pastes as text. */
+  function onPaste(e: ClipboardEvent): void {
+    const images = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith("image/"));
+    if (!images.length) return;
+    e.preventDefault();
+    void stage(images);
   }
 </script>
 
@@ -183,7 +197,16 @@
       </div>
     {/if}
     <div class="inputrow">
-      <button class="attach" type="button" aria-label="Attach a file" disabled={uploading} onclick={() => fileEl?.click()}>+</button>
+      <div class="anchor">
+        <button class="attach" type="button" aria-label="Attach a file" disabled={uploading} onclick={() => (sourcesOpen = true)}>+</button>
+        {#if sourcesOpen}
+          <div class="menuscrim" onclick={() => (sourcesOpen = false)} role="presentation"></div>
+          <div class="menu up">
+            <button class="mitem" type="button" onclick={() => ((sourcesOpen = false), fileEl?.click())}>Photos and files</button>
+            <button class="mitem" type="button" onclick={() => ((sourcesOpen = false), cameraEl?.click())}>Take photo</button>
+          </div>
+        {/if}
+      </div>
       <div class="box">
         {#if draft.command}
           <span class="chip cmd">
@@ -191,7 +214,7 @@
             <button class="x" type="button" aria-label="Remove the command" onclick={clearCommand}>✕</button>
           </span>
         {/if}
-        <textarea bind:this={inputEl} bind:value={draft.text} class="ta" {placeholder} rows="1" oninput={onInput} onkeydown={onKeydown}></textarea>
+        <textarea bind:this={inputEl} bind:value={draft.text} class="ta" {placeholder} rows="1" oninput={onInput} onkeydown={onKeydown} onpaste={onPaste}></textarea>
       </div>
       <button class="send" class:stop={stopping} type="button" aria-label={stopping ? "Stop" : "Send"} onclick={() => (stopping ? session.interrupt() : void send())}>{stopping ? "■" : "↑"}</button>
     </div>
@@ -199,7 +222,8 @@
   <div class="helper">
     <span class="glyph">{phase.glyph}</span>{phase.word}{#if keysShown}<span class="keys">⌘↩ sends</span>{/if}
   </div>
-  <input type="file" multiple hidden bind:this={fileEl} onchange={pickFiles} />
+  <input type="file" multiple hidden bind:this={fileEl} onchange={() => void pickFrom(fileEl)} />
+  <input type="file" accept="image/*" capture="environment" hidden bind:this={cameraEl} onchange={() => void pickFrom(cameraEl)} />
 </div>
 {#if skillsOpen}
   <Skills {session} onPick={(c) => ((skillsOpen = false), pick(c))} onClose={() => (skillsOpen = false)} />
