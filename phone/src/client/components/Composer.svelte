@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { ModelChoice } from "../../shared/protocol";
+  import type { ModelChoice, SlashCommand } from "../../shared/protocol";
   import type { HelmClient } from "../api";
-  import { emptyDraft, sentText, type Draft } from "../commands";
+  import { commandLabel, emptyDraft, filterCommands, sentText, slashToken, type Draft } from "../commands";
   import { models } from "../models";
   import type { ThreadSession } from "../thread.svelte";
 
@@ -41,9 +41,36 @@
 
   const keysShown = typeof matchMedia === "function" && matchMedia("(pointer: fine)").matches;
 
+  const token = $derived(slashToken(draft));
+  /** Eight rows is what fits above the keyboard; the Skills sheet is where the whole list lives. */
+  const matches = $derived(token === null ? [] : filterCommands(session.commands, token).slice(0, 8));
+  /** Escape holds the popover shut for the token it was shut on; typing on reopens it. */
+  let dismissed = $state<string | null>(null);
+  const popOpen = $derived(token !== null && token !== dismissed && matches.length > 0);
+  let selected = $state(0);
+
+  const placeholder = $derived(draft.command ? draft.command.argumentHint || "Message" : "Message");
+
+  function pick(command: SlashCommand): void {
+    draft = { command, text: "" };
+    dismissed = null;
+    selected = 0;
+    inputEl?.focus();
+  }
+
+  function clearCommand(): void {
+    draft.command = null;
+    inputEl?.focus();
+  }
+
   $effect(() => {
     void models(api).then((list) => (catalog = list), () => undefined);
   });
+
+  function onInput(): void {
+    selected = 0;
+    autogrow();
+  }
 
   function autogrow(): void {
     if (!inputEl) return;
@@ -76,6 +103,28 @@
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       void send();
+      return;
+    }
+    if (popOpen) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        selected = (selected + (e.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length;
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        pick(matches[selected] ?? matches[0]!);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        dismissed = token;
+        return;
+      }
+    }
+    if (e.key === "Backspace" && draft.command !== null && draft.text === "") {
+      e.preventDefault();
+      clearCommand();
     }
   }
 
@@ -117,10 +166,32 @@
       {/each}
     </div>
   {/if}
-  <div class="inputrow">
-    <button class="attach" type="button" aria-label="Attach a file" disabled={uploading} onclick={() => fileEl?.click()}>+</button>
-    <textarea bind:this={inputEl} bind:value={draft.text} class="box" placeholder="Message" rows="1" oninput={autogrow} onkeydown={onKeydown}></textarea>
-    <button class="send" class:stop={stopping} type="button" aria-label={stopping ? "Stop" : "Send"} onclick={() => (stopping ? session.interrupt() : void send())}>{stopping ? "■" : "↑"}</button>
+  <div class="popanchor">
+    {#if popOpen}
+      <div class="pop">
+        <div class="ph">commands matching “{token}”</div>
+        {#each matches as c, ix (c.name)}
+          <button class="cmd-row" class:sel={ix === selected} type="button" onmousedown={(e) => e.preventDefault()} onclick={() => pick(c)}>
+            <span class="nm">{commandLabel(c)}</span>
+            <span class="ds">{c.description}</span>
+            <span class="ah">{c.argumentHint}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
+    <div class="inputrow">
+      <button class="attach" type="button" aria-label="Attach a file" disabled={uploading} onclick={() => fileEl?.click()}>+</button>
+      <div class="box">
+        {#if draft.command}
+          <span class="chip cmd">
+            <b>{commandLabel(draft.command)}</b>
+            <button class="x" type="button" aria-label="Remove the command" onclick={clearCommand}>✕</button>
+          </span>
+        {/if}
+        <textarea bind:this={inputEl} bind:value={draft.text} class="ta" {placeholder} rows="1" oninput={onInput} onkeydown={onKeydown}></textarea>
+      </div>
+      <button class="send" class:stop={stopping} type="button" aria-label={stopping ? "Stop" : "Send"} onclick={() => (stopping ? session.interrupt() : void send())}>{stopping ? "■" : "↑"}</button>
+    </div>
   </div>
   <div class="helper">
     <span class="glyph">{phase.glyph}</span>{phase.word}{#if keysShown}<span class="keys">⌘↩ sends</span>{/if}

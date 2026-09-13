@@ -210,7 +210,22 @@ a { color: var(--accent); }
 .stage .x { position: absolute; top: 3px; right: 3px; display: grid; place-items: center; width: 17px; height: 17px; padding: 0; font-size: 9px; line-height: 1; color: var(--bg); background: var(--ink); border: 0; border-radius: var(--r-pill); }
 .chip.file .x { position: static; width: 14px; height: 14px; display: grid; place-items: center; padding: 0; font-size: 9px; color: var(--ink-2); background: transparent; border: 0; }
 .inputrow { display: flex; gap: var(--s-4); align-items: flex-end; padding: var(--s-4) var(--s-5) 0; }
-.inputrow .box { flex: 1; min-width: 0; resize: none; min-height: 40px; max-height: 40vh; padding: 9px var(--s-5); font-size: var(--t-base); background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-lg); }
+.inputrow .box { display: flex; flex: 1; min-width: 0; align-items: center; flex-wrap: wrap; gap: var(--s-3); padding: 9px var(--s-5); background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-lg); }
+.inputrow .ta { flex: 1; min-width: 60px; resize: none; min-height: 22px; max-height: 40vh; padding: 0; font-size: var(--t-base); background: transparent; border: 0; outline: none; }
+.chip.cmd { color: var(--accent); background: var(--accent-soft); border-color: transparent; font-family: var(--mono); }
+.chip.cmd b { color: var(--accent); }
+.chip.cmd .x { width: 14px; height: 14px; display: grid; place-items: center; padding: 0; font-size: 9px; color: inherit; background: transparent; border: 0; }
+
+.popanchor { position: relative; }
+.pop { position: absolute; left: var(--s-5); right: var(--s-5); bottom: calc(100% + var(--s-3)); z-index: 4; background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-lg); box-shadow: var(--shadow); overflow: hidden; animation: popup var(--d-base) var(--e-out) both; }
+@keyframes popup { from { transform: translateY(8px); opacity: 0; } }
+.pop .ph { padding: var(--s-3) var(--s-5); font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--ink-3); border-bottom: 1px solid var(--hair); }
+.cmd-row { display: flex; width: 100%; align-items: baseline; gap: var(--s-4); padding: var(--s-4) var(--s-5); text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--hair); }
+.cmd-row:last-child { border-bottom: 0; }
+.cmd-row.sel { background: var(--accent-soft); }
+.cmd-row .nm { flex: none; font-family: var(--mono); font-size: var(--t-sm); font-weight: 600; color: var(--accent); }
+.cmd-row .ds { flex: 1; min-width: 0; font-size: var(--t-xs); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-row .ah { flex: none; font-family: var(--mono); font-size: var(--t-mono-xs); color: var(--ink-3); }
 .attach { display: grid; place-items: center; flex: none; width: 40px; height: 40px; font-size: var(--t-md); color: var(--ink-2); background: transparent; border: 1px solid var(--hair); border-radius: var(--r-pill); }
 .attach:disabled { opacity: .5; cursor: default; }
 /* The morph is border-radius and colour only, so the target never moves under the thumb. */
