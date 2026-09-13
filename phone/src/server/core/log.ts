@@ -68,6 +68,14 @@ export interface ThreadHead {
 
 export type Unsubscribe = () => void;
 
+/**
+ * Who a subscriber is. A viewer is a person with the thread open (an SSE
+ * stream); a projection is server-side machinery (mirror, push, the global
+ * list stream) that watches every log whether or not anyone is looking.
+ * Push notifies on turn.ended when viewerCount() is zero.
+ */
+export type SubscriberKind = "viewer" | "projection";
+
 const RECENT_IDS = 64;
 const FILE = "events.jsonl";
 
@@ -144,7 +152,7 @@ function deltaKey(b: DeltaBody): string {
 
 export class ThreadLog {
   private queue: Promise<unknown> = Promise.resolve();
-  private readonly listeners = new Set<(ev: ThreadEvent) => void>();
+  private readonly listeners = new Set<{ readonly kind: SubscriberKind; readonly listener: (ev: ThreadEvent) => void }>();
   private pendingDelta: { key: string; body: DeltaBody; timer: NodeJS.Timeout } | null = null;
 
   private constructor(
@@ -223,9 +231,9 @@ export class ThreadLog {
       }
       this.bytes += line.length;
       this.head = advance(this.head, ev);
-      for (const l of this.listeners) {
+      for (const { listener } of this.listeners) {
         try {
-          l(ev);
+          listener(ev);
         } catch (err) {
           console.error(`[log] ${this.threadId}: subscriber threw`, err);
         }
@@ -294,16 +302,19 @@ export class ThreadLog {
    * returns, in seq order. Attach BEFORE calling read() to get a gap-free
    * handoff; dedupe on seq to get a duplicate-free one (see http/sse.ts).
    */
-  subscribe(listener: (ev: ThreadEvent) => void): Unsubscribe {
-    this.listeners.add(listener);
+  subscribe(kind: SubscriberKind, listener: (ev: ThreadEvent) => void): Unsubscribe {
+    const entry = { kind, listener };
+    this.listeners.add(entry);
     return () => {
-      this.listeners.delete(listener);
+      this.listeners.delete(entry);
     };
   }
 
-  /** Number of live subscribers. push.ts uses "0" as "nobody is watching". */
-  subscriberCount(): number {
-    return this.listeners.size;
+  /** Live viewer subscribers. Zero means nobody has this thread open. */
+  viewerCount(): number {
+    let n = 0;
+    for (const { kind } of this.listeners) if (kind === "viewer") n++;
+    return n;
   }
 }
 

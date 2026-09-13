@@ -46,7 +46,7 @@ export async function streamThread(log: ThreadLog, supervisor: Supervisor, after
     lastSent = ev.seq;
     sink.event(ev);
   };
-  const unsub = log.subscribe((ev) => (live ? forward(ev) : buffer.push(ev)));
+  const unsub = log.subscribe("viewer", (ev) => (live ? forward(ev) : buffer.push(ev)));
   const heartbeat = setInterval(() => sink.comment("hb"), opts.heartbeatMs ?? LIMITS.SSE_HEARTBEAT_MS);
   try {
     for await (const ev of log.read(after)) forward(ev);
@@ -80,7 +80,7 @@ export async function streamGlobal(
 ): Promise<void> {
   const unsubs: (() => void)[] = [];
   const attach = (log: ThreadLog): void => {
-    unsubs.push(log.subscribe((ev) => GLOBAL_KINDS.has(ev.kind) && sink.event(log.threadId, ev)));
+    unsubs.push(log.subscribe("projection", (ev) => GLOBAL_KINDS.has(ev.kind) && sink.event(log.threadId, ev)));
   };
   const heartbeat = setInterval(() => sink.comment("hb"), opts.heartbeatMs ?? LIMITS.SSE_HEARTBEAT_MS);
   try {

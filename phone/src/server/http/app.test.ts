@@ -551,3 +551,22 @@ test("offering a file refuses a relative path, a directory, a missing file, and 
   assert.equal(offered.note, null);
   await s.cleanup();
 });
+
+test("push fires on a finished turn only when no SSE viewer is attached", async () => {
+  const s = await buildStack();
+  await s.api("POST", "/api/push/subscribe", { subscription: { endpoint: "https://push/phone", keys: { p256dh: "p", auth: "a" } } });
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  const log = await s.logs.get(THREAD as ThreadId);
+
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "first" });
+  await until(async () => s.pushed.length, (n) => n === 1);
+  assert.equal(s.pushed[0]!.threadId, THREAD);
+
+  const live = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${log.getHead().lastSeq}`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  await until(async () => log.viewerCount(), (n) => n === 1);
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(2), text: "second" });
+  await live;
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(s.pushed.length, 1, "no push while a viewer had the thread open");
+  await s.cleanup();
+});
