@@ -11,6 +11,7 @@ const settings = (s: Partial<HelmSettings> = {}): HelmSettings => ({
   defaultModel: s.defaultModel ?? null,
   defaultEffort: s.defaultEffort ?? "medium",
   defaultCwd: s.defaultCwd ?? "/Users/d/default",
+  defaultPermissionMode: s.defaultPermissionMode ?? "ask",
 });
 
 interface Recorder {

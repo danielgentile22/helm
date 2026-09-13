@@ -31,7 +31,7 @@ function twoTurns(): ThreadEvent[] {
 test("groupTurns joins prompt to turn, deltas by block, and tool start to finish", () => {
   seq = 0;
   const events = [
-    ev({ kind: "thread.created", config: { threadId: "x" as never, cwd: "/v", model: "m" as never, effort: "high", title: null, createdAt: "", archivedAt: null } }),
+    ev({ kind: "thread.created", config: { threadId: "x" as never, cwd: "/v", model: "m" as never, effort: "high", permissionMode: "ask", title: null, createdAt: "", archivedAt: null } }),
     ev({ kind: "input.queued", clientMsgId: "c1" as never, text: "hi", uploads: [{ uploadId: "u1", path: "/tmp/u1", name: "shot.png", mime: "image/png", bytes: 12 }], origin }),
     ev({ kind: "turn.started", turnId: T1, clientMsgId: "c1" as never, model: "m" as never, effort: "high", spawned: true }),
     ev({ kind: "assistant.text", turnId: T1, blockIx: 0, delta: "Hel" }),
@@ -142,7 +142,7 @@ test("the mirror and the phone agree on turn count, prompts, tool joins and text
     ev({ kind: "assistant.text", turnId: T2, blockIx: 1, delta: " reply" }),
     ev({ kind: "turn.ended", turnId: T2, outcome: "ok", sessionId: "s" as never, usage: null, error: null }),
   ];
-  const view = foldAll(emptyView({ threadId: "x" as never, cwd: "/v", model: "m" as never, effort: "high", title: null, createdAt: "", archivedAt: null }), events);
+  const view = foldAll(emptyView({ threadId: "x" as never, cwd: "/v", model: "m" as never, effort: "high", permissionMode: "ask", title: null, createdAt: "", archivedAt: null }), events);
   const sections = toBlocks(applySync(view, { headSeq: view.headSeq, session: "idle", openTurn: null, queuedCount: 0 }));
   const notes = groupTurns(events).filter(isCompleted).map(renderTurn);
 
@@ -164,4 +164,30 @@ test("the mirror and the phone agree on turn count, prompts, tool joins and text
   assert.match(notes[0]!, /^Hello$/m);
   assert.match(notes[1]!, /^Second$/m);
   assert.match(notes[1]!, /^reply$/m);
+});
+
+test("an ask lands in the turn it was opened in, its answer joins by askId, and an answer for an unknown ask changes nothing", () => {
+  seq = 0;
+  const ask = { kind: "tool", toolName: "Bash", input: { command: "git push" }, toolUseId: "tu1", title: "Claude wants to run git push", description: null };
+  const turns = groupTurns([
+    ev({ kind: "input.queued", clientMsgId: "c1" as never, text: "push it", uploads: [], origin }),
+    ev({ kind: "turn.started", turnId: T1, clientMsgId: "c1" as never, model: "m" as never, effort: "high", spawned: true }),
+    ev({ kind: "ask.opened", turnId: T1, askId: "a1" as never, ask }),
+    ev({ kind: "ask.answered", turnId: T1, askId: "a1" as never, answer: { kind: "deny", reason: "not yet" }, by: { by: "user", origin } }),
+    ev({ kind: "ask.answered", turnId: T1, askId: "ghost" as never, answer: { kind: "allow" }, by: { by: "user", origin } }),
+  ]);
+  assert.equal(turns.length, 1);
+  assert.deepEqual(turns[0]!.items.map((i) => i.kind), ["ask"]);
+  const item = turns[0]!.items[0]!;
+  assert.ok(item.kind === "ask");
+  assert.equal(item.askId, "a1");
+  assert.equal(item.ask.kind === "tool" && item.ask.toolUseId, "tu1");
+  assert.deepEqual(item.answer?.answer, { kind: "deny", reason: "not yet" });
+  assert.deepEqual(item.answer?.by, { by: "user", origin });
+});
+
+test("a permission mode change reads as a note beside the model changes", () => {
+  seq = 0;
+  const turns = groupTurns([ev({ kind: "thread.config", patch: { permissionMode: "ask" }, origin })]);
+  assert.equal(turns[0]?.items[0]?.kind === "note" && turns[0].items[0].text, "[iphone] permissions set to ask");
 });

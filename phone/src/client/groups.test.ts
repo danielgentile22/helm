@@ -10,6 +10,7 @@ interface Fixture {
   lastTurnEndedAt?: string | null;
   archivedAt?: string | null;
   createdAt?: string;
+  waiting?: boolean;
 }
 
 const summary = (f: Fixture = {}): ThreadSummary => ({
@@ -20,6 +21,7 @@ const summary = (f: Fixture = {}): ThreadSummary => ({
     effort: "high",
     title: null,
     createdAt: f.createdAt ?? "2026-09-01T00:00:00.000Z",
+    permissionMode: "ask",
     archivedAt: f.archivedAt ?? null,
   },
   headSeq: 0,
@@ -31,6 +33,7 @@ const summary = (f: Fixture = {}): ThreadSummary => ({
   doing: null,
   usageTotal: null,
   contextWindow: null,
+  waiting: f.waiting ?? false,
 });
 
 test("rowState puts archived first, then a live session, then the outcome table", () => {

@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Seq, ThreadEvent, ThreadId, TurnId } from "../shared/protocol";
-import { addPendingPrompt, applySync, emptyView, fold, foldAll } from "./fold";
+import { addPendingPrompt, applySync, emptyView, fold, foldAll, isWaiting } from "./fold";
 
 const threadId = "t-1" as ThreadId;
-const config = { threadId, cwd: "/v", model: "m" as never, effort: "high", title: null, createdAt: "", archivedAt: null } as const;
+const config = { threadId, cwd: "/v", model: "m" as never, effort: "high", permissionMode: "ask", title: null, createdAt: "", archivedAt: null } as const;
 const origin = { via: "pwa", label: "iphone" } as const;
 let seq = 0;
 const ev = (body: object): ThreadEvent => ({ seq: ++seq as Seq, ts: "2026-09-11T10:00:00.000Z", ...body }) as ThreadEvent;
@@ -40,7 +40,7 @@ test("fold builds prompt, thinking, text blocks, merged tool rows, and the turn 
   const t = view.turns[0]!;
   assert.equal(t.prompt && `prompt:${t.prompt.state}:${t.prompt.label}:${t.prompt.text}`, "prompt:started:iphone:hi");
   assert.deepEqual(
-    t.items.map((l) => (l.kind === "text" ? `text${l.blockIx}:${l.text}` : l.kind === "thinking" ? `think:${l.text}` : l.kind === "tool" ? `tool:${l.name}:${l.output}:${l.isError}` : l.kind === "file" ? `file:${l.name}` : `note:${l.text}`)),
+    t.items.map((l) => (l.kind === "text" ? `text${l.blockIx}:${l.text}` : l.kind === "thinking" ? `think:${l.text}` : l.kind === "tool" ? `tool:${l.name}:${l.output}:${l.isError}` : l.kind === "file" ? `file:${l.name}` : l.kind === "note" ? `note:${l.text}` : `ask:${l.askId}`)),
     ["think:hmm", "text0:Hello", "tool:Read:data:false", "text1:Done"],
   );
   assert.equal(t.end?.outcome, "ok");
@@ -146,4 +146,40 @@ test("a file offered to the phone becomes a file line carrying what the card nee
   assert.deepEqual(first, { kind: "file", fileId: "f1", name: "report.pdf", mime: "application/pdf", bytes: 4096, note: "the report", ts: "2026-09-11T10:00:00.000Z" });
   const second = view.turns[1]?.items[0];
   assert.ok(second?.kind === "file" && second.note === null);
+});
+
+test("the pending set is opened minus answered, an expired ask leaves it too, and a turn's end clears what it answers", () => {
+  const t = "t:3" as TurnId;
+  const toolAsk = { kind: "tool", toolName: "Bash", input: { command: "rm -rf build" }, toolUseId: "tu1", title: null, description: null };
+  seq = 0;
+  const open = [
+    ev({ kind: "input.queued", clientMsgId: "c1" as never, text: "clean", uploads: [], origin }),
+    ev({ kind: "turn.started", turnId: t, clientMsgId: "c1" as never, model: "m" as never, effort: "high", spawned: true }),
+    ev({ kind: "ask.opened", turnId: t, askId: "a1" as never, ask: toolAsk }),
+    ev({ kind: "ask.opened", turnId: t, askId: "a2" as never, ask: { kind: "question", questions: [{ question: "Which?", header: "pick", options: [], multiSelect: false }] } }),
+  ];
+  const waiting = foldAll(emptyView(config), open);
+  assert.deepEqual(waiting.pendingAsks.map((a) => a.askId), ["a1", "a2"]);
+  assert.equal(isWaiting(waiting), true);
+
+  const answered = fold(waiting, ev({ kind: "ask.answered", turnId: t, askId: "a1" as never, answer: { kind: "allow" }, by: { by: "user", origin } }));
+  assert.deepEqual(answered.pendingAsks.map((a) => a.askId), ["a2"]);
+  assert.equal(answered.turns[0]?.items[0]?.kind === "ask" && answered.turns[0].items[0].answer?.by.by, "user");
+
+  const expired = fold(answered, ev({ kind: "ask.answered", turnId: t, askId: "a2" as never, answer: { kind: "deny", reason: null }, by: { by: "system", reason: "interrupted" } }));
+  assert.deepEqual(expired.pendingAsks, []);
+  assert.equal(isWaiting(expired), false);
+});
+
+test("a turn that ends while an ask is open clears the pending set, and a closed turn is never waiting", () => {
+  const t = "t:2" as TurnId;
+  seq = 0;
+  const view = foldAll(emptyView(config), [
+    ev({ kind: "turn.started", turnId: t, clientMsgId: "c1" as never, model: "m" as never, effort: "high", spawned: true }),
+    ev({ kind: "ask.opened", turnId: t, askId: "a1" as never, ask: { kind: "tool", toolName: "Bash", input: {}, toolUseId: "tu1", title: null, description: null } }),
+  ]);
+  assert.equal(isWaiting(view), true);
+  const ended = fold(view, ev({ kind: "turn.ended", turnId: t, outcome: "interrupted", sessionId: null, usage: null, error: null }));
+  assert.deepEqual(ended.pendingAsks, []);
+  assert.equal(isWaiting(ended), false);
 });

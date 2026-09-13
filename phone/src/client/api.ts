@@ -14,6 +14,8 @@
  */
 
 import type {
+  AskAnswer,
+  AskId,
   CreateThreadRequest,
   Cursor,
   DirEntry,
@@ -140,6 +142,11 @@ export class HelmClient {
   }
   interrupt(threadId: ThreadId): Promise<void> {
     return this.call("POST", `/api/threads/${threadId}/interrupt`);
+  }
+
+  /** 204 when the answer was appended. A 409 means the ask is no longer pending: another device answered it, or it expired. */
+  answerAsk(threadId: ThreadId, askId: AskId, answer: AskAnswer): Promise<void> {
+    return this.call("POST", `/api/threads/${threadId}/answer`, { askId, answer });
   }
 
   /** 503 while the agent is unreachable, which the composer treats as an empty list. */
