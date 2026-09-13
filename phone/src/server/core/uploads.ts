@@ -17,6 +17,7 @@ import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import type { Origin, StagedUpload, ThreadId, UploadId } from "../../shared/protocol";
 import type { LogRegistry } from "./log";
+import { safeName, sniffMime } from "./files";
 import type { ThreadStore } from "./thread-store";
 
 export class Uploads {
@@ -36,7 +37,7 @@ export class Uploads {
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, ".gitignore"), "*\n", { flag: "wx" }).catch(() => undefined);
 
-    const uploadId = mintUploadId();
+    const uploadId = randomUUID() as UploadId;
     const safe = safeName(part.name);
     const path = join(dir, `${uploadId}-${safe}`);
     const tmp = `${path}.part`;
@@ -85,28 +86,4 @@ export class Uploads {
     if (config) await rm(this.threads.uploadsDir(config), { recursive: true, force: true });
     this.staged.delete(threadId);
   }
-}
-
-export function safeName(name: string): string {
-  const base = name.split(/[\\/]/).pop() ?? "";
-  return base.replace(/[^\w.\-]+/g, "_").replace(/^\.+/, "").slice(0, 80) || "file";
-}
-
-export function isImageMime(mime: string): boolean {
-  return /^image\/(png|jpeg|gif|webp)$/.test(mime);
-}
-
-/** Magic bytes for the image types the model accepts; anything else keeps the client's mime. */
-export function sniffMime(head: Uint8Array): string | null {
-  const b = Buffer.from(head);
-  if (b.length >= 8 && b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
-  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
-  if (b.length >= 6 && (b.subarray(0, 6).toString("ascii") === "GIF87a" || b.subarray(0, 6).toString("ascii") === "GIF89a")) return "image/gif";
-  if (b.length >= 12 && b.subarray(0, 4).toString("ascii") === "RIFF" && b.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
-  if (b.length >= 5 && b.subarray(0, 5).toString("ascii") === "%PDF-") return "application/pdf";
-  return null;
-}
-
-export function mintUploadId(): UploadId {
-  return randomUUID() as UploadId;
 }

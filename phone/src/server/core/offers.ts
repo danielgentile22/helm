@@ -10,11 +10,11 @@
 
 import { randomUUID } from "node:crypto";
 import { open, stat } from "node:fs/promises";
-import { basename, extname, isAbsolute } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import { LIMITS, type FileId, type OfferedFile, type Origin, type ThreadId } from "../../shared/protocol";
 import type { LogRegistry } from "./log";
 import type { ThreadStore } from "./thread-store";
-import { safeName, sniffMime } from "./uploads";
+import { mimeFromExtension, safeName, sniffMime } from "./files";
 
 /** The origin stamped on offers made by the model's tool call. */
 export const MODEL_ORIGIN: Origin = { via: "key", label: "model" };
@@ -82,27 +82,4 @@ async function sniffFile(path: string): Promise<string | null> {
   } finally {
     await fh.close();
   }
-}
-
-const EXT_MIME: Readonly<Record<string, string>> = {
-  ".txt": "text/plain",
-  ".md": "text/markdown",
-  ".csv": "text/csv",
-  ".json": "application/json",
-  ".html": "text/html",
-  ".svg": "image/svg+xml",
-  ".heic": "image/heic",
-  ".mp4": "video/mp4",
-  ".mov": "video/quicktime",
-  ".m4a": "audio/mp4",
-  ".mp3": "audio/mpeg",
-  ".zip": "application/zip",
-  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-};
-
-/** What the share sheet keys on when the magic bytes say nothing. Unknown extensions are plain bytes. */
-export function mimeFromExtension(path: string): string {
-  return EXT_MIME[extname(path).toLowerCase()] ?? "application/octet-stream";
 }
