@@ -22,6 +22,27 @@ mount(AskCard, {
   target: document.querySelector("#q")!,
   props: { ask: { kind: "ask", askId: "a2" as never, ask: { kind: "question", questions: [{ question: "Rebase or merge?", header: "strategy", options: [{ label: "Rebase", description: "linear history" }, { label: "Merge", description: "keeps both" }], multiSelect: false }] }, openedAt: new Date().toISOString(), answer: null }, live: true, onAnswer },
 });
+mount(AskCard, {
+  target: document.querySelector("#multi")!,
+  props: {
+    ask: {
+      kind: "ask",
+      askId: "a5" as never,
+      ask: {
+        kind: "question",
+        questions: [
+          { question: "Which branch?", header: "branch", options: [{ label: "main", description: "" }, { label: "next", description: "" }], multiSelect: false },
+          { question: "Which checks?", header: "checks", options: [{ label: "unit", description: "" }, { label: "e2e", description: "" }], multiSelect: true },
+        ],
+      },
+      openedAt: new Date().toISOString(),
+      answer: null,
+    },
+    live: true,
+    onAnswer,
+  },
+});
+
 const onAnswerFailing = async (answer: AskAnswer): Promise<void> => {
   sent.push(answer);
   throw new HttpError(503, "the Mac is unreachable");

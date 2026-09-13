@@ -13,34 +13,36 @@
 
   let { ask, live, onAnswer }: { ask: AskItem; live: boolean; onAnswer: (answer: AskAnswer) => Promise<void> } = $props();
 
-  let sent = $state(false);
-  let elsewhere = $state(false);
+  /** The whole submission lifecycle: idle takes taps, sending and elsewhere do not, and only a failure returns to idle. */
+  let phase = $state<"idle" | "sending" | "elsewhere">("idle");
   let denying = $state(false);
   let reason = $state("");
   let showInput = $state(false);
   /** One entry per question: the labels ticked, or the typed text. */
   let picks = $state<(QuestionAnswer | null)[]>([]);
-  let othering = $state<number | null>(null);
-  let otherText = $state("");
+  /** Per question, so opening the free-text field on one never discards what was typed in another. */
+  let othering = $state<boolean[]>([]);
+  let otherText = $state<string[]>([]);
 
   const payload = $derived(ask.ask);
   const settled = $derived(ask.answer !== null);
-  const busy = $derived(sent || settled);
+  const busy = $derived(phase !== "idle" || settled);
   const summary = $derived(payload.kind === "tool" ? toolSummary(payload.toolName, payload.input) : null);
   const input = $derived(payload.kind === "tool" ? (typeof payload.input === "string" ? payload.input : JSON.stringify(payload.input, null, 1)) : "");
   const questions = $derived<readonly AskQuestion[]>(payload.kind === "question" ? payload.questions : []);
   const complete = $derived(questions.length > 0 && questions.every((_, i) => picks[i]));
+  /** A card in a closed turn is a record: it reads back, it does not take answers. */
+  const locked = $derived(busy || !live);
 
   async function submit(answer: AskAnswer): Promise<void> {
     if (busy) return;
-    sent = true;
+    phase = "sending";
     try {
       await onAnswer(answer);
     } catch (err) {
       // A 409 is settled: someone else answered, and the event is on its way.
       // Anything else appended nothing, so the buttons come back for a retry.
-      if (err instanceof HttpError && err.status === 409) elsewhere = true;
-      else sent = false;
+      phase = err instanceof HttpError && err.status === 409 ? "elsewhere" : "idle";
     }
   }
 
@@ -51,9 +53,11 @@
     }
   }
 
+  const chosenLabels = (pick: QuestionAnswer | null | undefined): readonly string[] => (pick?.kind === "options" ? pick.labels : []);
+
   function pick(ix: number, label: string, multi: boolean): void {
     if (multi) {
-      const chosen = picks[ix]?.kind === "options" ? (picks[ix] as { labels: readonly string[] }).labels : [];
+      const chosen = chosenLabels(picks[ix]);
       const next = chosen.includes(label) ? chosen.filter((l) => l !== label) : [...chosen, label];
       picks[ix] = next.length ? { kind: "options", labels: next } : null;
       return;
@@ -63,15 +67,14 @@
   }
 
   function sendOther(ix: number): void {
-    const text = otherText.trim();
+    const text = (otherText[ix] ?? "").trim();
     if (!text) return;
     picks[ix] = { kind: "text", text };
-    othering = null;
-    otherText = "";
+    othering[ix] = false;
     if (questions.length === 1) void submit({ kind: "answers", answers: [picks[0]!] });
   }
 
-  const ticked = (ix: number, label: string): boolean => picks[ix]?.kind === "options" && (picks[ix] as { labels: readonly string[] }).labels.includes(label);
+  const ticked = (ix: number, label: string): boolean => chosenLabels(picks[ix]).includes(label);
 </script>
 
 <div class="askcard" class:is-settled={settled}>
@@ -89,28 +92,28 @@
         <div class="aq">{q.question}</div>
         <div class="aopts">
           {#each q.options as o (o.label)}
-            <button class="aopt" type="button" disabled={busy} aria-pressed={ticked(ix, o.label)} onclick={() => pick(ix, o.label, q.multiSelect)}>
+            <button class="aopt" type="button" disabled={locked} aria-pressed={ticked(ix, o.label)} onclick={() => pick(ix, o.label, q.multiSelect)}>
               {#if q.multiSelect}<span class="box">{ticked(ix, o.label) ? "✓" : ""}</span>{/if}
               <span class="l"><b>{o.label}</b>{#if o.description}<i>{o.description}</i>{/if}</span>
             </button>
           {/each}
         </div>
-        {#if othering === ix}
+        {#if othering[ix]}
           <div class="arow">
-            <input class="ain" type="text" placeholder="Your answer" bind:value={otherText} disabled={busy} onkeydown={(e) => e.key === "Enter" && (e.preventDefault(), sendOther(ix))} />
-            <button class="btn small primary" type="button" disabled={busy} onclick={() => sendOther(ix)}>Send</button>
+            <input class="ain" type="text" placeholder="Your answer" bind:value={otherText[ix]} disabled={locked} onkeydown={(e) => e.key === "Enter" && (e.preventDefault(), sendOther(ix))} />
+            <button class="btn small primary" type="button" disabled={locked} onclick={() => sendOther(ix)}>Send</button>
           </div>
-        {:else if !busy}
-          <button class="btn small" type="button" onclick={() => ((othering = ix), (otherText = ""))}>Other…</button>
+        {:else if !locked}
+          <button class="btn small" type="button" onclick={() => (othering[ix] = true)}>Other…</button>
         {/if}
-        {#if picks[ix]?.kind === "text"}<div class="aarg">{(picks[ix] as { text: string }).text}</div>{/if}
+        {#if picks[ix]?.kind === "text"}<div class="aarg">{picks[ix].text}</div>{/if}
       </div>
     {/each}
   {/if}
 
   {#if settled}
     <div class="aans">{answerLine(ask)}</div>
-  {:else if elsewhere}
+  {:else if phase === "elsewhere"}
     <div class="aans">Answered elsewhere</div>
   {:else if live && payload.kind === "tool"}
     {#if denying}

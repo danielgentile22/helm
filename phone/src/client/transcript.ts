@@ -109,10 +109,7 @@ function turnBlocks(turn: Turn, open: boolean): Block[] {
   return blocks;
 }
 
-/**
- * A denied tool call still reports itself as a failure, so the turn's own asks
- * are what tell the two apart. Every system answer is a denial.
- */
+/** Every system answer is a denial, and a denied call reports itself as a failure, so the turn's own asks are what tell a refusal from a crash. */
 function deniedTools(items: readonly Item[]): ReadonlySet<ToolUseId> {
   const out = new Set<ToolUseId>();
   for (const item of items) {
@@ -129,9 +126,9 @@ export function answerLine(item: AskItem): string {
   const stamp = fmtTime(settled.ts);
   if (settled.by.by === "system") {
     const reason = settled.answer.kind === "deny" ? settled.answer.reason : null;
-    if (settled.by.reason === "rule") return reason ? `Auto-denied by a rule: ${reason}` : "Auto-denied by a rule";
+    if (settled.by.reason === "rule") return reason ? `Auto-denied by a rule: ${reason} · ${stamp}` : `Auto-denied by a rule · ${stamp}`;
     const words = { interrupted: "interrupted", restart: "server restarted", archived: "archived" }[settled.by.reason];
-    return `Expired (${words})`;
+    return `Expired (${words}) · ${stamp}`;
   }
   const who = settled.by.origin.label;
   switch (settled.answer.kind) {

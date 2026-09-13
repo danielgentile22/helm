@@ -11,7 +11,7 @@ import sveltePlugin from "esbuild-svelte";
 const SP = mkdtempSync(join(tmpdir(), "helm2-ask-")) + "/";
 await build({ bundle: true, format: "esm", target: ["es2022"], entryPoints: ["scripts/ask-card-fixture.ts"], outfile: `${SP}app.js`, plugins: [sveltePlugin({ compilerOptions: { css: "external" } })], logLevel: "error" });
 await build({ bundle: true, entryPoints: ["src/client/app.css"], outfile: `${SP}app.css`, logLevel: "error" });
-writeFileSync(`${SP}index.html`, `<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="app.css"><body style="margin:0;max-width:400px"><div id="tool"></div><div id="q"></div><div id="retry"></div><div id="done"></div><script type="module" src="app.js"></script></body>`);
+writeFileSync(`${SP}index.html`, `<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="app.css"><body style="margin:0;max-width:400px"><div id="tool"></div><div id="q"></div><div id="multi"></div><div id="retry"></div><div id="done"></div><script type="module" src="app.js"></script></body>`);
 const types = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html" };
 const srv = createServer((req, res) => {
   const p = req.url === "/" ? "index.html" : req.url.slice(1);
@@ -62,6 +62,19 @@ await evaluate(`[...document.querySelectorAll('#q .aopt')][0].click()`);
 await sleep(300);
 check("a single-select question answers on tap", (await evaluate(`JSON.stringify(sent[1])`)) === JSON.stringify({ kind: "answers", answers: [{ kind: "options", labels: ["Rebase"] }] }), await evaluate(`JSON.stringify(sent[1])`));
 check("a 409 shows answered elsewhere", (await evaluate(`document.querySelector('#q').innerText`)).includes("Answered elsewhere"));
+
+const confirm = `[...document.querySelectorAll('#multi .btn')].find((b)=>b.textContent.trim()==='Confirm')`;
+check("a multi-question ask waits for every answer", await evaluate(`${confirm}.disabled`));
+await evaluate(`document.querySelectorAll('#multi .aqblock')[0].querySelectorAll('.aopt')[1].click()`);
+await sleep(150);
+check("one question answered is still not enough", await evaluate(`${confirm}.disabled`));
+await evaluate(`(()=>{const o=document.querySelectorAll('#multi .aqblock')[1].querySelectorAll('.aopt');o[0].click();o[1].click()})()`);
+await sleep(150);
+check("a multi-select question ticks every option tapped", await evaluate(`document.querySelectorAll('#multi .aqblock')[1].querySelectorAll('.aopt[aria-pressed="true"]').length === 2`));
+check("Confirm opens once every question has an answer", await evaluate(`!${confirm}.disabled`));
+await evaluate(`${confirm}.click()`);
+await sleep(300);
+check("Confirm sends one answer per question, in the order asked", (await evaluate(`JSON.stringify(sent.at(-1))`)) === JSON.stringify({ kind: "answers", answers: [{ kind: "options", labels: ["next"] }, { kind: "options", labels: ["unit", "e2e"] }] }), await evaluate(`JSON.stringify(sent.at(-1))`));
 
 await evaluate(`[...document.querySelectorAll('#retry .btn')].find((b)=>b.textContent.trim()==='Allow').click()`);
 await sleep(300);

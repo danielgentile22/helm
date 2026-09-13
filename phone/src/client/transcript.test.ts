@@ -240,8 +240,8 @@ test("answerLine names who answered and what, and tells an expiry apart from a d
   assert.equal(answerLine(item({ kind: "deny", reason: "wrong branch" }, user)), `Denied by laptop: wrong branch · ${stamp}`);
   assert.equal(answerLine(item({ kind: "deny", reason: null }, user)), `Denied by laptop · ${stamp}`);
   assert.equal(answerLine(item({ kind: "answers", answers: [{ kind: "options", labels: ["Rebase"] }, { kind: "text", text: "both" }] }, user)), `Answered: Rebase · both · ${stamp}`);
-  assert.equal(answerLine(item({ kind: "deny", reason: null }, { by: "system", reason: "interrupted" })), "Expired (interrupted)");
-  assert.equal(answerLine(item({ kind: "deny", reason: null }, { by: "system", reason: "restart" })), "Expired (server restarted)");
-  assert.equal(answerLine(item({ kind: "deny", reason: null }, { by: "system", reason: "archived" })), "Expired (archived)");
-  assert.equal(answerLine(item({ kind: "deny", reason: "a deny rule matched" }, { by: "system", reason: "rule" })), "Auto-denied by a rule: a deny rule matched");
+  assert.equal(answerLine(item({ kind: "deny", reason: null }, { by: "system", reason: "interrupted" })), `Expired (interrupted) · ${stamp}`);
+  assert.equal(answerLine(item({ kind: "deny", reason: null }, { by: "system", reason: "restart" })), `Expired (server restarted) · ${stamp}`);
+  assert.equal(answerLine(item({ kind: "deny", reason: null }, { by: "system", reason: "archived" })), `Expired (archived) · ${stamp}`);
+  assert.equal(answerLine(item({ kind: "deny", reason: "a deny rule matched" }, { by: "system", reason: "rule" })), `Auto-denied by a rule: a deny rule matched · ${stamp}`);
 });

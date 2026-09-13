@@ -171,6 +171,17 @@ test("the pending set is opened minus answered, an expired ask leaves it too, an
   assert.equal(isWaiting(expired), false);
 });
 
+test("a stray ask outside the open turn never makes the next turn look blocked", () => {
+  seq = 0;
+  const ask = { kind: "tool", toolName: "Bash", input: {}, toolUseId: "tu1", title: null, description: null };
+  const view = foldAll(emptyView(config), [
+    ev({ kind: "ask.opened", turnId: "t:1" as TurnId, askId: "a1" as never, ask }),
+    ev({ kind: "turn.started", turnId: "t:2" as TurnId, clientMsgId: "c1" as never, model: "m" as never, effort: "high", spawned: true }),
+  ]);
+  assert.deepEqual(view.pendingAsks, [], "a turn starts owing nobody an answer");
+  assert.equal(isWaiting(view), false);
+});
+
 test("a turn that ends while an ask is open clears the pending set, and a closed turn is never waiting", () => {
   const t = "t:2" as TurnId;
   seq = 0;

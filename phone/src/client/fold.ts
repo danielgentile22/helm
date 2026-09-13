@@ -30,7 +30,7 @@ export interface ThreadView {
   readonly contextTokens: number | null;
   readonly contextWindow: number | null;
   readonly usageTotal: UsageTotal | null;
-  /** Opened and not yet answered, in the order asked. Cleared by the turn's end, which answers them all. */
+  /** Opened and not yet answered inside the open turn, in the order asked. Both turn boundaries clear it: a turn's end answers everything it left pending. */
   readonly pendingAsks: readonly AskItem[];
   readonly replaying: boolean;
 }
@@ -54,7 +54,7 @@ export function fold(view: ThreadView, ev: ThreadEvent): ThreadView {
     case "session.bound":
       return { ...base, sessionId: ev.sessionId };
     case "turn.started":
-      return { ...base, openTurn: ev.turnId, session: "running" };
+      return { ...base, openTurn: ev.turnId, session: "running", pendingAsks: [] };
     case "ask.opened":
       return { ...base, pendingAsks: [...view.pendingAsks, { kind: "ask", askId: ev.askId, ask: ev.ask, openedAt: ev.ts, answer: null }] };
     case "ask.answered":
