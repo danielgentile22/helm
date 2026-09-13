@@ -2,12 +2,31 @@
   import type { TurnId, UploadId } from "../../shared/protocol";
   import ActivityBlock from "../blocks/ActivityBlock.svelte";
   import EndLine from "../blocks/EndLine.svelte";
+  import FileCard from "../blocks/FileCard.svelte";
   import PromptBlock from "../blocks/PromptBlock.svelte";
   import TextBlock from "../blocks/TextBlock.svelte";
   import ThinkingBlock from "../blocks/ThinkingBlock.svelte";
   import type { Block } from "../transcript";
 
-  let { blocks, openTurn, replaying, onResend, onQuote, uploadUrl }: { blocks: readonly Block[]; openTurn: TurnId | null; replaying: boolean; onResend: (text: string) => void; onQuote: (quoted: string) => void; uploadUrl: (uploadId: UploadId) => string } = $props();
+  let {
+    blocks,
+    openTurn,
+    replaying,
+    onResend,
+    onQuote,
+    uploadUrl,
+    fileUrl,
+    fetchFile,
+  }: {
+    blocks: readonly Block[];
+    openTurn: TurnId | null;
+    replaying: boolean;
+    onResend: (text: string) => void;
+    onQuote: (quoted: string) => void;
+    uploadUrl: (uploadId: UploadId) => string;
+    fileUrl: (fileId: string) => string;
+    fetchFile: (fileId: string, onProgress: (bytes: number) => void) => Promise<Blob>;
+  } = $props();
 
   interface Turn {
     key: string;
@@ -15,7 +34,7 @@
     blocks: { block: Block; key: string; glyph: string }[];
   }
 
-  const GLYPH: Readonly<Record<Block["kind"], string>> = { prompt: "❯", thinking: "∴", text: "·", activity: "$", end: "", note: "" };
+  const GLYPH: Readonly<Record<Block["kind"], string>> = { prompt: "❯", thinking: "∴", text: "·", activity: "$", end: "", file: "↓", note: "" };
 
   function keyOf(block: Block, ix: number): string {
     switch (block.kind) {
@@ -29,6 +48,8 @@
         return block.key;
       case "end":
         return `${block.turnId}:end`;
+      case "file":
+        return `file:${block.line.fileId}`;
       case "note":
         return `note:${ix}`;
     }
@@ -46,7 +67,7 @@
     let adoptable = false;
     list.forEach((block, ix) => {
       const entry = { block, key: keyOf(block, ix), glyph: GLYPH[block.kind] };
-      const turnId = block.kind === "prompt" || block.kind === "note" ? null : block.turnId;
+      const turnId = block.kind === "prompt" || block.kind === "note" || block.kind === "file" ? null : block.turnId;
       if (block.kind === "prompt") {
         cur = { key: `p:${block.line.clientMsgId}`, turnId: null, blocks: [entry] };
         adoptable = block.line.state === "started";
@@ -122,6 +143,8 @@
             <ActivityBlock {block} />
           {:else if block.kind === "end"}
             <EndLine outcome={block.outcome} error={block.error} />
+          {:else if block.kind === "file"}
+            <FileCard line={block.line} url={fileUrl(block.line.fileId)} fetch={(onProgress) => fetchFile(block.line.fileId, onProgress)} />
           {:else}
             <div class="note">{block.text}</div>
           {/if}

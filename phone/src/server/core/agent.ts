@@ -29,7 +29,8 @@
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
+import { z } from "zod";
 import type { ModelInfo, Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { EFFORTS, LIMITS, MODEL_POLICY_DENY } from "../../shared/protocol";
 import type {
@@ -37,6 +38,7 @@ import type {
   Effort,
   ModelId,
   ModelChoice,
+  OfferedFile,
   SlashCommand,
   StagedUpload,
   ThreadEventBody,
@@ -58,6 +60,11 @@ export interface SpawnOptions {
   readonly additionalDirectories: readonly string[];
   /** Short phone-context appendix; never the vault. */
   readonly appendSystemPrompt: string;
+  /**
+   * Backs the `send_to_phone` tool: offer a file on the Mac to the phone.
+   * Throws with a sentence the model can relay when the path is refused.
+   */
+  readonly sendToPhone: (path: string, note: string | null) => Promise<OfferedFile>;
 }
 
 /** What the supervisor hands the adapter for one turn. */
@@ -337,7 +344,37 @@ export function buildUserMessage(input: TurnInput): { text: string; imagePaths: 
 /** The only system-prompt addition Helm makes. Deliberately short; no vault preload. */
 export const PHONE_APPENDIX =
   "You are being driven from a phone via Helm. Reply tightly; prefer doing the task over narrating it. " +
-  "Paths you mention should be absolute. Do not paste large files back; say what you changed.";
+  "Paths you mention should be absolute. Do not paste large files back; say what you changed. " +
+  "When the user asks for a file on their phone (to see it, save it, share it), call the send_to_phone tool with its absolute path " +
+  "rather than printing the path; it appears on the phone as a tappable card. One file per call. If the tool refuses, tell the user why.";
+
+/**
+ * The one MCP server Helm adds: in-process, one tool. The handler runs inside
+ * the Helm process, so the offer is logged directly rather than parsed back
+ * out of the model's text.
+ */
+export function helmToolServer(sendToPhone: SpawnOptions["sendToPhone"]) {
+  return createSdkMcpServer({
+    name: "helm",
+    version: "1.0.0",
+    alwaysLoad: true,
+    tools: [
+      tool(
+        "send_to_phone",
+        "Send one file on this Mac to the user's phone, where it appears as a tappable card with save and share options. Use when the user asks to see, save, or share a file on their phone.",
+        { path: z.string().describe("Absolute path of the file on this Mac"), note: z.string().optional().describe("One short line on what this file is, shown on the card") },
+        async ({ path, note }) => {
+          try {
+            const f = await sendToPhone(path, note ?? null);
+            return { content: [{ type: "text", text: `Sent ${f.name} (${f.mime}, ${f.bytes} bytes) to the phone.` }] };
+          } catch (err) {
+            return { content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }], isError: true };
+          }
+        },
+      ),
+    ],
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Real SDK session
@@ -389,6 +426,7 @@ class SdkSession implements AgentSession {
       allowDangerouslySkipPermissions: true,
       settingSources: ["user", "project", "local"],
       additionalDirectories: [...opts.additionalDirectories],
+      mcpServers: { helm: helmToolServer(opts.sendToPhone) },
       systemPrompt: { type: "preset", preset: "claude_code", append: opts.appendSystemPrompt },
       includePartialMessages: true,
       abortController: this.abort,

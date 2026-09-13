@@ -149,6 +149,33 @@ export class HelmClient {
     return `${this.opts.baseUrl}/api/threads/${threadId}/uploads/${uploadId}`;
   }
 
+  /** Where a file the model offered is served; the card opens it in a tab when the share sheet is unavailable. */
+  fileUrl(threadId: ThreadId, fileId: string): string {
+    return `${this.opts.baseUrl}/api/threads/${threadId}/files/${fileId}`;
+  }
+
+  /**
+   * Fetch an offered file as a Blob for the share sheet. `onProgress` gets
+   * bytes so far; a 404 means the file is gone from the Mac.
+   */
+  async fetchFile(threadId: ThreadId, fileId: string, onProgress?: (bytes: number) => void): Promise<Blob> {
+    const res = await this.fetchImpl(this.fileUrl(threadId, fileId), { credentials: "include" });
+    if (!res.ok) throw new HttpError(res.status, res.status === 404 ? "the file is no longer on the Mac" : `download failed: ${await res.text()}`);
+    const type = res.headers.get("content-type") ?? "application/octet-stream";
+    if (!res.body || !onProgress) return new Blob([await res.arrayBuffer()], { type });
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      got += value.byteLength;
+      onProgress(got);
+    }
+    return new Blob(chunks as BlobPart[], { type });
+  }
+
   async upload(threadId: ThreadId, files: readonly File[]): Promise<readonly StagedUpload[]> {
     const out: StagedUpload[] = [];
     for (const f of files) {

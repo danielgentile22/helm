@@ -15,6 +15,7 @@ import type { PushSubscriptionRecord } from "../core/push";
 import { SettingsStore } from "../core/settings";
 import { Supervisor } from "../core/supervisor";
 import { ThreadStore } from "../core/thread-store";
+import { Offers } from "../core/offers";
 import { Uploads } from "../core/uploads";
 import { buildApp } from "./app";
 import { EnrollTokens, FileSessionStore, WebAuthn } from "./auth";
@@ -27,6 +28,8 @@ export interface Stack {
   readonly agents: FakeAgentFactory;
   readonly logs: LogRegistry;
   readonly supervisor: Supervisor;
+  /** What the model's `send_to_phone` tool calls; tests call it directly since the fake agent has no tools. */
+  readonly offers: Offers;
   readonly pushSubs: PushSubscriptionRecord[];
   /** Authenticated JSON request helper using the API key door. */
   api(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<Response>;
@@ -50,7 +53,8 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
   await logs.recoverAll();
   const threads = new ThreadStore(threadsRoot);
   const agents = new FakeAgentFactory(script);
-  const supervisor = new Supervisor(logs, threads, agents, { additionalDirectories: [], idleParkMs: 60_000 });
+  const offers = new Offers(threads, logs);
+  const supervisor = new Supervisor(logs, threads, agents, { additionalDirectories: [], idleParkMs: 60_000, offers });
   const uploads = new Uploads(threads, logs);
   const settings = new SettingsStore(join(h, "settings.json"), { defaultCwd: join(h, "work") });
   const sessions = new FileSessionStore(join(h, "auth", "sessions.json"));
@@ -65,6 +69,7 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
     supervisor,
     agents,
     uploads,
+    offers,
     settings,
     about: { version: "0.0.0-test", host: "mac.test.ts.net" },
     push: {
@@ -86,6 +91,7 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
     agents,
     logs,
     supervisor,
+    offers,
     pushSubs,
     api: (method, path, body, headers = {}) =>
       app.fetch(

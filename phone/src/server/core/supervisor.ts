@@ -38,6 +38,7 @@ import type {
 } from "../../shared/protocol";
 import type { AgentEvent, AgentFactory, AgentSession } from "./agent";
 import { PHONE_APPENDIX } from "./agent";
+import { MODEL_ORIGIN, type Offers } from "./offers";
 import { turnIdFor } from "./ids";
 import type { LogRegistry, ThreadLog } from "./log";
 import type { ThreadStore } from "./thread-store";
@@ -77,7 +78,7 @@ export class Supervisor {
     private readonly logs: LogRegistry,
     private readonly threads: ThreadStore,
     private readonly agents: AgentFactory,
-    private readonly opts: { additionalDirectories: readonly string[]; idleParkMs: number },
+    private readonly opts: { additionalDirectories: readonly string[]; idleParkMs: number; offers: Offers },
   ) {}
 
   private state(threadId: ThreadId): SessionState {
@@ -310,6 +311,7 @@ export class Supervisor {
         resume: log.getHead().sessionId,
         additionalDirectories: this.opts.additionalDirectories,
         appendSystemPrompt: PHONE_APPENDIX,
+        sendToPhone: (path, note) => this.opts.offers.offer(threadId, path, note, MODEL_ORIGIN),
       });
       if (this.stopped) {
         await agent.kill();

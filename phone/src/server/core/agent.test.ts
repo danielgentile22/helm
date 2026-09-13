@@ -151,7 +151,7 @@ test("real SDK: spawn, one short turn, interrupt a long one, kill-tree", { skip:
   assert.ok(catalog.length > 0, "catalog is empty");
   const model = catalog.find((c) => /sonnet/.test(c.id))?.id ?? catalog[0]!.id;
 
-  const session = await factory.spawn({ cwd: process.cwd(), model, effort: "low", resume: null, additionalDirectories: [], appendSystemPrompt: PHONE_APPENDIX });
+  const session = await factory.spawn({ cwd: process.cwd(), model, effort: "low", resume: null, additionalDirectories: [], appendSystemPrompt: PHONE_APPENDIX, sendToPhone: () => Promise.reject(new Error("not in this test")) });
   const seen: string[] = [];
   const reader = (async () => {
     for await (const ev of session.events()) {

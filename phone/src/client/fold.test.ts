@@ -36,7 +36,7 @@ test("fold builds prompt, thinking, text blocks, merged tool rows, and the turn 
   assert.equal(view.openTurn, null);
   assert.equal(view.contextTokens, 4);
   assert.deepEqual(
-    view.lines.map((l) => (l.kind === "prompt" ? `prompt:${l.state}:${l.label}:${l.text}` : l.kind === "text" ? `text${l.blockIx}:${l.text}` : l.kind === "thinking" ? `think:${l.text}` : l.kind === "tool" ? `tool:${l.name}:${l.output}:${l.isError}` : l.kind === "end" ? `end:${l.outcome}` : `note:${l.text}`)),
+    view.lines.map((l) => (l.kind === "prompt" ? `prompt:${l.state}:${l.label}:${l.text}` : l.kind === "text" ? `text${l.blockIx}:${l.text}` : l.kind === "thinking" ? `think:${l.text}` : l.kind === "tool" ? `tool:${l.name}:${l.output}:${l.isError}` : l.kind === "end" ? `end:${l.outcome}` : l.kind === "file" ? `file:${l.name}` : `note:${l.text}`)),
     ["prompt:started:iphone:hi", "think:hmm", "text0:Hello", "tool:Read:data:false", "text1:Done", "end:ok"],
   );
 });
@@ -93,4 +93,28 @@ test("applySync marks live and copies session state; a stale head resets to empt
   const reset = applySync(view, { headSeq: 5 as Seq, session: "cold", openTurn: null, queuedCount: 0 });
   assert.equal(reset.headSeq, 0);
   assert.equal(reset.lines.length, 0);
+});
+
+test("a file offered to the phone becomes a file line carrying what the card needs, mid-turn or after it", () => {
+  const t = "t:3" as TurnId;
+  const file = { fileId: "f1", path: "/Users/d/Desktop/report.pdf", name: "report.pdf", mime: "application/pdf", bytes: 4096, note: "the report" };
+  seq = 0;
+  const evs = [
+    ev({ kind: "input.queued", clientMsgId: "c1" as never, text: "send it", uploads: [], origin }),
+    ev({ kind: "turn.started", turnId: t, clientMsgId: "c1" as never, model: "m" as never, effort: "high", spawned: true }),
+    ev({ kind: "file.offered", file, origin: { via: "key", label: "model" } }),
+    ev({ kind: "assistant.text", turnId: t, blockIx: 0, delta: "Sent." }),
+    ev({ kind: "turn.ended", turnId: t, outcome: "ok", sessionId: "s" as never, usage: null, error: null }),
+    ev({ kind: "file.offered", file: { ...file, fileId: "f2", note: null }, origin: { via: "key", label: "model" } }),
+  ];
+  const view = foldAll(emptyView(threadId), evs);
+  assert.deepEqual(
+    view.lines.map((l) => l.kind),
+    ["prompt", "file", "text", "end", "file"],
+  );
+  const first = view.lines[1];
+  assert.ok(first?.kind === "file");
+  assert.deepEqual(first, { kind: "file", fileId: "f1", name: "report.pdf", mime: "application/pdf", bytes: 4096, note: "the report", ts: "2026-09-11T10:00:00.000Z" });
+  const second = view.lines[4];
+  assert.ok(second?.kind === "file" && second.note === null);
 });

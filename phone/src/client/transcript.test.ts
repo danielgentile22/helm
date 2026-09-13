@@ -172,3 +172,15 @@ test("config changes and the archive marker survive as note blocks", () => {
   const view = build([ev({ kind: "thread.config", patch: { model: "claude-opus-5" as never }, origin }), ev({ kind: "thread.archived" })], null);
   assert.deepEqual(kinds(toBlocks(view)), ["note", "note"]);
 });
+
+test("a file line is its own block and does not split or join the activity around it", () => {
+  const file = { fileId: "f1", path: "/x/report.pdf", name: "report.pdf", mime: "application/pdf", bytes: 10, note: null };
+  const evs = [...started(), ...tool("Bash"), ev({ kind: "file.offered", file, origin: { via: "key", label: "model" } }), ...tool("Read"), ended()];
+  const blocks = toBlocks(build(evs, null));
+  assert.deepEqual(
+    blocks.map((b) => b.kind),
+    ["prompt", "activity", "file", "activity"],
+  );
+  const f = blocks[2];
+  assert.ok(f?.kind === "file" && f.line.fileId === "f1" && f.line.name === "report.pdf");
+});

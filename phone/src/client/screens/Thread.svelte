@@ -112,7 +112,7 @@
     </header>
     <StatusBar conn={s.conn} seen={s.view.headSeq} head={s.summary.headSeq} />
     </div>
-    <Transcript {blocks} openTurn={s.view.openTurn} replaying={s.view.replaying} onResend={(text) => void s.submit(text, [])} onQuote={(quoted) => insert(quoted)} uploadUrl={(uploadId) => api.uploadUrl(threadId, uploadId)} />
+    <Transcript {blocks} openTurn={s.view.openTurn} replaying={s.view.replaying} onResend={(text) => void s.submit(text, [])} onQuote={(quoted) => insert(quoted)} uploadUrl={(uploadId) => api.uploadUrl(threadId, uploadId)} fileUrl={(fileId) => api.fileUrl(threadId, fileId)} fetchFile={(fileId, onProgress) => api.fetchFile(threadId, fileId, onProgress)} />
     {#if s.error}
       <div class="inline-error">
         <span class="glyph">▲</span>

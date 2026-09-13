@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, rm, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { LIMITS } from "../../shared/protocol";
-import type { HelmSettings, SlashCommand, ThreadConfig, ThreadSummary } from "../../shared/protocol";
+import type { HelmSettings, SlashCommand, ThreadConfig, ThreadId, ThreadSummary } from "../../shared/protocol";
 import { parseCreateThread, parsePatch, parseSend, passkeyRows } from "./app";
 import { API_KEY, buildStack, eventSeqs, events, readSse, type Frame, type Stack } from "./testkit";
 
@@ -486,4 +486,68 @@ test("passkeys: empty before enrollment, and the mapping never leaks the credent
     { label: "laptop", createdAt: "2026-09-02T10:00:00.000Z" },
   ]);
   assert.deepEqual(rows.flatMap((r) => Object.keys(r)), ["label", "createdAt", "label", "createdAt"], "no third key rides along");
+});
+
+test("files offered to the phone: logged as file.offered, served live by id, 404 when gone or unknown, 401 without auth, resolved after a restart", async () => {
+  const s = await buildStack();
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  const pdf = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(64, 7)]);
+  const path = join(s.home, "work", "report.pdf");
+  await writeFile(path, pdf);
+
+  const sse = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => events(f).some((e) => e.kind === "file.offered"));
+  const offered = await s.offers.offer(THREAD as ThreadId, path, "the report you asked for", { via: "key", label: "model" });
+  assert.equal(offered.name, "report.pdf");
+  assert.equal(offered.mime, "application/pdf", "sniffed from the magic bytes");
+  assert.equal(offered.bytes, pdf.length);
+  assert.equal(offered.note, "the report you asked for");
+  const ev = events(await sse).find((e) => e.kind === "file.offered");
+  assert.ok(ev && ev.kind === "file.offered");
+  assert.deepEqual(ev.file, offered);
+  assert.equal(ev.origin.label, "model");
+
+  const got = await s.api("GET", `/api/threads/${THREAD}/files/${offered.fileId}`);
+  assert.equal(got.status, 200);
+  assert.equal(got.headers.get("content-type"), "application/pdf");
+  assert.equal(got.headers.get("content-length"), String(pdf.length));
+  assert.equal(got.headers.get("content-disposition"), 'inline; filename="report.pdf"');
+  assert.equal(got.headers.get("cache-control"), "private, no-store", "the bytes under an id can change, unlike an upload");
+  assert.deepEqual(Buffer.from(await got.arrayBuffer()), pdf);
+
+  assert.equal((await s.api("GET", `/api/threads/${THREAD}/files/${uuid(7)}`)).status, 404);
+  assert.equal((await s.fetch(new Request(`https://mac.test.ts.net/api/threads/${THREAD}/files/${offered.fileId}`))).status, 401);
+
+  const r2 = await s.restart();
+  const afterRestart = await r2.api("GET", `/api/threads/${THREAD}/files/${offered.fileId}`);
+  assert.equal(afterRestart.status, 200, "resolved from the log, not from memory");
+  assert.deepEqual(Buffer.from(await afterRestart.arrayBuffer()), pdf);
+
+  await rm(path);
+  assert.equal((await r2.api("GET", `/api/threads/${THREAD}/files/${offered.fileId}`)).status, 404, "served from the live path, so a deleted file is gone");
+  await r2.cleanup();
+});
+
+test("offering a file refuses a relative path, a directory, a missing file, and one over the cap, each with a reason the model can relay", async () => {
+  const s = await buildStack();
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  const origin = { via: "key", label: "model" } as const;
+  const t = THREAD as ThreadId;
+  await assert.rejects(s.offers.offer(t, "work/report.pdf", null, origin), /absolute/);
+  await assert.rejects(s.offers.offer(t, join(s.home, "work"), null, origin), /directory/);
+  await assert.rejects(s.offers.offer(t, join(s.home, "work", "nope.txt"), null, origin), /no such file/);
+  const big = join(s.home, "work", "big.bin");
+  await truncate(big, LIMITS.OFFER_BYTES + 1).catch(async () => {
+    await writeFile(big, "");
+    await truncate(big, LIMITS.OFFER_BYTES + 1);
+  });
+  await assert.rejects(s.offers.offer(t, big, null, origin), /larger than/);
+  const evs = events(await readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => f.some((x) => x.kind === "sync")));
+  assert.ok(!evs.some((e) => e.kind === "file.offered"), "a refused offer leaves no event");
+
+  const txt = join(s.home, "work", "notes.txt");
+  await writeFile(txt, "hello");
+  const offered = await s.offers.offer(t, txt, null, origin);
+  assert.equal(offered.mime, "text/plain", "no magic bytes, so the extension decides");
+  assert.equal(offered.note, null);
+  await s.cleanup();
 });
