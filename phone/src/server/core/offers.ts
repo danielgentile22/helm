@@ -56,7 +56,7 @@ export class Offers {
 
   /** The offered record for an id, rebuilt from the log after a restart. Null when never offered in this thread. */
   resolve(threadId: ThreadId, fileId: string): Promise<OfferedFile | null> {
-    return this.index.lookup(threadId, fileId);
+    return this.index.lookup(threadId, fileId as FileId);
   }
 
   /** Forget a thread's offers on archive. The files are the user's own and stay where they are. */

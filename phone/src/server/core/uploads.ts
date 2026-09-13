@@ -65,13 +65,11 @@ export class Uploads {
 
   /** Resolve ids the client sent to staged records; unknown ids are an error at the boundary, not silently skipped. */
   async resolve(threadId: ThreadId, ids: readonly string[]): Promise<readonly StagedUpload[]> {
-    const out: StagedUpload[] = [];
-    for (const id of ids) {
-      const u = await this.index.lookup(threadId, id);
-      if (!u) throw new Error(`unknown upload id: ${id}`);
-      out.push(u);
-    }
-    return out;
+    const found = await this.index.lookupAll(threadId, ids as readonly UploadId[]);
+    return found.map((u, i) => {
+      if (!u) throw new Error(`unknown upload id: ${ids[i]}`);
+      return u;
+    });
   }
 
   /** Delete the staging directory with the thread on archive. */

@@ -22,16 +22,21 @@ export class LogIndex<K extends string, V> {
   }
 
   /** The value for a key, rescanning the log on a miss. Null when the log never saw it. */
-  async lookup(threadId: ThreadId, key: string): Promise<V | null> {
+  async lookup(threadId: ThreadId, key: K): Promise<V | null> {
+    return (await this.lookupAll(threadId, [key]))[0] ?? null;
+  }
+
+  /** One value per key in order, null where the log never saw it. Any miss costs one rescan, however many keys miss. */
+  async lookupAll(threadId: ThreadId, keys: readonly K[]): Promise<readonly (V | null)[]> {
     const known = this.byThread(threadId);
-    if (!known.has(key as K)) {
+    if (keys.some((k) => !known.has(k))) {
       const log = await this.logs.get(threadId);
       for await (const ev of log.read(0)) {
         const entry = this.pick(ev);
         if (entry) known.set(entry[0], entry[1]);
       }
     }
-    return known.get(key as K) ?? null;
+    return keys.map((k) => known.get(k) ?? null);
   }
 
   /** Drop a thread's map. The log keeps its events; only the cache goes. */
