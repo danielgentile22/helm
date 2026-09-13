@@ -9,7 +9,7 @@
   // The log is the only record of what this thread has run on: every model change
   // left a note behind, and the config carries whatever it is running on now.
   const history = $derived([
-    ...view.lines.flatMap((l) => (l.kind === "note" ? [l.text.match(/^(\[[^\]]*\]).*?\b(model set to \S+)/)] : [])).flatMap((m) => (m ? [`${m[1]} ${m[2]}`] : [])),
+    ...view.turns.flatMap((t) => t.items).flatMap((l) => (l.kind === "note" ? [l.text.match(/^(\[[^\]]*\]).*?\b(model set to \S+)/)] : [])).flatMap((m) => (m ? [`${m[1]} ${m[2]}`] : [])),
     `now ${shortModel(summary.config.model)} · ${summary.config.effort}`,
   ]);
 

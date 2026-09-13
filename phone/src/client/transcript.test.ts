@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Seq, ThreadEvent, ThreadId, TurnId } from "../shared/protocol";
 import { applySync, emptyView, foldAll, type ThreadView } from "./fold";
-import { diffLines, jumpCount, summarize, toBlocks, toolDiff, type Block } from "./transcript";
+import { diffLines, jumpCount, summarize, toBlocks as toSections, toolDiff, type Block, type Section } from "./transcript";
 
 const threadId = "t-1" as ThreadId;
 const origin = { via: "pwa", label: "iphone" } as const;
@@ -43,6 +43,7 @@ function build(events: ThreadEvent[], openTurn: TurnId | null): ThreadView {
   return applySync(view, { headSeq: view.headSeq, session: openTurn ? "running" : "idle", openTurn, queuedCount: 0 });
 }
 
+const toBlocks = (view: ThreadView): readonly Block[] => toSections(view).flatMap((s) => s.blocks);
 const kinds = (blocks: readonly Block[]): string[] => blocks.map((b) => b.kind);
 const activity = (blocks: readonly Block[]): Extract<Block, { kind: "activity" }>[] => blocks.filter((b): b is Extract<Block, { kind: "activity" }> => b.kind === "activity");
 
@@ -108,6 +109,17 @@ test("thinking collapses once the turn speaks or ends, and streams only as the l
   assert.deepEqual([closed.collapsed, closed.streaming], [true, false]);
 });
 
+test("a queued prompt or a loose note never streams while no turn is open", () => {
+  seq = 0;
+  clock = 0;
+  const events = [ev({ kind: "input.queued", clientMsgId: "c1" as never, text: "hi", uploads: [], origin }), ev({ kind: "thread.config", patch: { title: "T" }, origin })];
+  const blocks = toBlocks(build(events, null));
+  assert.deepEqual(kinds(blocks), ["prompt", "note"]);
+  const think = [...started(), ev({ kind: "assistant.thinking", turnId: T, delta: "hm" }), ended()];
+  const closed = toBlocks(build(think, null)).find((b) => b.kind === "thinking")!;
+  assert.deepEqual([closed.collapsed, closed.streaming], [true, false]);
+});
+
 test("text streams only as the last line of an open turn", () => {
   const events = [...started(), ev({ kind: "assistant.text", turnId: T, blockIx: 0, delta: "one" }), ev({ kind: "assistant.text", turnId: T, blockIx: 1, delta: "two" })];
   const live = toBlocks(build(events, T)).filter((b) => b.kind === "text");
@@ -138,7 +150,7 @@ test("diffLines keeps common lines and marks removals before the additions that 
 });
 
 test("toolDiff reads an Edit as a diff, a Write as all additions, and anything else as nothing", () => {
-  const line = (name: string, input: unknown): Parameters<typeof toolDiff>[0] => ({ kind: "tool", turnId: T, toolUseId: "x", name, input, output: null, isError: null, startedAt: at(0), endedAt: null });
+  const line = (name: string, input: unknown): Parameters<typeof toolDiff>[0] => ({ kind: "tool", toolUseId: "x" as never, name, input, output: null, isError: null, startedAt: at(0), endedAt: null });
   const edit = toolDiff(line("Edit", { file_path: "/v/a.ts", old_string: "one\ntwo", new_string: "one\nthree" }));
   assert.equal(edit?.file, "/v/a.ts");
   assert.deepEqual(edit?.lines.map((l) => `${l.op}${l.text}`), [" one", "-two", "+three"]);
@@ -151,11 +163,11 @@ test("toolDiff reads an Edit as a diff, a Write as all additions, and anything e
 });
 
 test("jumpCount counts blocks past what the reader has seen and never goes negative", () => {
-  const blocks = toBlocks(build([...started(), ...tool("Read"), ended()], null));
-  assert.equal(blocks.length, 2);
-  assert.equal(jumpCount(blocks, 0), 2);
-  assert.equal(jumpCount(blocks, 1), 1);
-  assert.equal(jumpCount(blocks, 5), 0);
+  const sections: readonly Section[] = toSections(build([...started(), ...tool("Read"), ended()], null));
+  assert.equal(sections.length, 1);
+  assert.equal(jumpCount(sections, 0), 2);
+  assert.equal(jumpCount(sections, 1), 1);
+  assert.equal(jumpCount(sections, 5), 0);
 });
 
 test("config changes and the archive marker survive as note blocks", () => {
@@ -174,5 +186,5 @@ test("a file line is its own block and does not split or join the activity aroun
     ["prompt", "activity", "file", "activity"],
   );
   const f = blocks[2];
-  assert.ok(f?.kind === "file" && f.line.fileId === "f1" && f.line.name === "report.pdf");
+  assert.ok(f?.kind === "file" && f.file.fileId === "f1" && f.file.name === "report.pdf");
 });

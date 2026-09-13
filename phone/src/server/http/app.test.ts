@@ -300,8 +300,12 @@ test("the phone's view: folding the SSE frames a client receives reconstructs th
   await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "List files" });
   const frames = await live;
   const fullView = foldAll(emptyView(THREAD as never), events(frames));
-  const shape = fullView.lines.map((l) => (l.kind === "tool" ? `tool:${l.name}:${l.isError === false ? "ok" : "?"}` : l.kind === "text" ? `text:${l.text}` : l.kind === "end" ? `end:${l.outcome}` : l.kind));
-  assert.deepEqual(shape, ["prompt", "note", "thinking", "text:Sure. ", "tool:Bash:ok", "text:Listed.", "end:ok"]);
+  assert.equal(fullView.turns.length, 1);
+  const turn = fullView.turns[0]!;
+  const shape = turn.items.map((l) => (l.kind === "tool" ? `tool:${l.name}:${l.isError === false ? "ok" : "?"}` : l.kind === "text" ? `text:${l.text}` : l.kind));
+  assert.equal(turn.prompt?.state, "started");
+  assert.deepEqual(shape, ["note", "thinking", "text:Sure. ", "tool:Bash:ok", "text:Listed."]);
+  assert.equal(turn.end?.outcome, "ok");
   assert.equal(fullView.openTurn, null);
   assert.equal(fullView.contextTokens, 110);
 
@@ -312,7 +316,7 @@ test("the phone's view: folding the SSE frames a client receives reconstructs th
     const tail = await readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${c}`), (fr) => fr.some((x) => x.kind === "sync"));
     const sync = tail.find((x): x is Extract<Frame, { kind: "sync" }> => x.kind === "sync")!;
     const after = applySync(foldAll(before, events(tail)), sync.frame);
-    assert.deepEqual(after.lines, fullView.lines, `cursor ${c}`);
+    assert.deepEqual(after.turns, fullView.turns, `cursor ${c}`);
     assert.equal(after.replaying, false);
     assert.equal(after.session, "idle");
   }

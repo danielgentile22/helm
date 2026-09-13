@@ -35,17 +35,21 @@ test("fold builds prompt, thinking, text blocks, merged tool rows, and the turn 
   assert.equal(view.headSeq, 12);
   assert.equal(view.openTurn, null);
   assert.equal(view.contextTokens, 4);
+  assert.equal(view.turns.length, 1);
+  const t = view.turns[0]!;
+  assert.equal(t.prompt && `prompt:${t.prompt.state}:${t.prompt.label}:${t.prompt.text}`, "prompt:started:iphone:hi");
   assert.deepEqual(
-    view.lines.map((l) => (l.kind === "prompt" ? `prompt:${l.state}:${l.label}:${l.text}` : l.kind === "text" ? `text${l.blockIx}:${l.text}` : l.kind === "thinking" ? `think:${l.text}` : l.kind === "tool" ? `tool:${l.name}:${l.output}:${l.isError}` : l.kind === "end" ? `end:${l.outcome}` : l.kind === "file" ? `file:${l.name}` : `note:${l.text}`)),
-    ["prompt:started:iphone:hi", "think:hmm", "text0:Hello", "tool:Read:data:false", "text1:Done", "end:ok"],
+    t.items.map((l) => (l.kind === "text" ? `text${l.blockIx}:${l.text}` : l.kind === "thinking" ? `think:${l.text}` : l.kind === "tool" ? `tool:${l.name}:${l.output}:${l.isError}` : l.kind === "file" ? `file:${l.name}` : `note:${l.text}`)),
+    ["think:hmm", "text0:Hello", "tool:Read:data:false", "text1:Done"],
   );
+  assert.equal(t.end?.outcome, "ok");
 });
 
 test("a queued prompt keeps every upload's id, name and mime so images can be fetched back", () => {
   const view = foldAll(emptyView(threadId), turn().slice(0, 2));
-  const line = view.lines[0];
-  assert.equal(line?.kind, "prompt");
-  assert.deepEqual(line?.kind === "prompt" && line.uploads, [
+  const prompt = view.turns[0]?.prompt;
+  assert.ok(prompt);
+  assert.deepEqual(prompt.uploads, [
     { uploadId: "u1", name: "shot.png", mime: "image/png" },
     { uploadId: "u2", name: "notes.txt", mime: "text/plain" },
   ]);
@@ -63,14 +67,14 @@ test("a pending prompt is replaced by its input.queued and dropped inputs are ma
   const events = turn();
   let view = fold(emptyView(threadId), events[0]!);
   view = addPendingPrompt(view, "c1", "hi", "iphone", [{ uploadId: shot.uploadId as never, name: shot.name, mime: shot.mime }]);
-  assert.equal(view.lines.length, 1);
-  assert.equal(view.lines[0]?.kind === "prompt" && view.lines[0].state, "pending");
-  assert.deepEqual(view.lines[0]?.kind === "prompt" && view.lines[0].uploads.map((u) => u.name), ["shot.png"], "the pending line already carries what was staged");
+  assert.equal(view.turns.length, 1);
+  assert.equal(view.turns[0]?.prompt?.state, "pending");
+  assert.deepEqual(view.turns[0]?.prompt?.uploads.map((u) => u.name), ["shot.png"], "the pending prompt already carries what was staged");
   view = fold(view, events[1]!);
-  assert.equal(view.lines.length, 1, "pending line replaced, not duplicated");
-  assert.equal(view.lines[0]?.kind === "prompt" && view.lines[0].state, "queued");
+  assert.equal(view.turns.length, 1, "pending prompt replaced, not duplicated");
+  assert.equal(view.turns[0]?.prompt?.state, "queued");
   view = fold(view, { seq: 3 as Seq, ts: "", kind: "input.dropped", clientMsgId: "c1" as never, reason: "restart" });
-  assert.equal(view.lines[0]?.kind === "prompt" && view.lines[0].state, "dropped");
+  assert.equal(view.turns[0]?.prompt?.state, "dropped");
 });
 
 test("config changes, archive, and orphaned ends render as notes and ends", () => {
@@ -80,8 +84,14 @@ test("config changes, archive, and orphaned ends render as notes and ends", () =
   view = fold(view, ev({ kind: "turn.started", turnId: "t:2" as TurnId, clientMsgId: "c9" as never, model: "m" as never, effort: "low", spawned: false }));
   view = fold(view, ev({ kind: "turn.ended", turnId: "t:2" as TurnId, outcome: "orphaned", sessionId: null, usage: null, error: null }));
   view = fold(view, ev({ kind: "thread.archived" }));
-  assert.deepEqual(view.lines.map((l) => l.kind), ["note", "end", "note"]);
-  assert.equal(view.lines[1]?.kind === "end" && view.lines[1].outcome, "orphaned");
+  assert.deepEqual(
+    view.turns.map((t) => [t.turnId, t.items.map((i) => i.kind), t.end?.outcome ?? null]),
+    [
+      [null, ["note"], null],
+      ["t:2", [], "orphaned"],
+      [null, ["note"], null],
+    ],
+  );
   assert.equal(view.openTurn, null);
 });
 
@@ -92,7 +102,7 @@ test("applySync marks live and copies session state; a stale head resets to empt
   assert.equal(live.session, "idle");
   const reset = applySync(view, { headSeq: 5 as Seq, session: "cold", openTurn: null, queuedCount: 0 });
   assert.equal(reset.headSeq, 0);
-  assert.equal(reset.lines.length, 0);
+  assert.equal(reset.turns.length, 0);
 });
 
 test("a file offered to the phone becomes a file line carrying what the card needs, mid-turn or after it", () => {
@@ -109,12 +119,12 @@ test("a file offered to the phone becomes a file line carrying what the card nee
   ];
   const view = foldAll(emptyView(threadId), evs);
   assert.deepEqual(
-    view.lines.map((l) => l.kind),
-    ["prompt", "file", "text", "end", "file"],
+    view.turns.map((t) => t.items.map((i) => i.kind)),
+    [["file", "text"], ["file"]],
+    "the first file lands in the turn it was offered during, the second stands on its own",
   );
-  const first = view.lines[1];
-  assert.ok(first?.kind === "file");
+  const first = view.turns[0]?.items[0];
   assert.deepEqual(first, { kind: "file", fileId: "f1", name: "report.pdf", mime: "application/pdf", bytes: 4096, note: "the report", ts: "2026-09-11T10:00:00.000Z" });
-  const second = view.lines[4];
+  const second = view.turns[1]?.items[0];
   assert.ok(second?.kind === "file" && second.note === null);
 });

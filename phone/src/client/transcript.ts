@@ -1,20 +1,19 @@
 /**
- * The transcript's second fold: ThreadView lines to renderable blocks.
+ * The transcript's second fold: turns to renderable blocks.
  *
- * fold.ts answers "what happened". This answers "what does the log look
+ * turns.ts answers "what happened". This answers "what does the log look
  * like": consecutive tool calls of one turn become a single activity block,
  * thinking collapses once the model starts speaking, an ok turn leaves no
- * trace. Pure, so every rule here is pinned by a test over a real event
- * sequence rather than by looking at the screen.
+ * trace. One section per turn, because the travelling rail light belongs to
+ * the stretch of log the running turn owns. Pure, so every rule here is
+ * pinned by a test over a real event sequence rather than by looking at the
+ * screen.
  */
 
 import { toolSummary } from "../shared/protocol";
 import type { TurnId, Usage } from "../shared/protocol";
-import type { Line, ThreadView } from "./fold";
-
-export type PromptLine = Extract<Line, { kind: "prompt" }>;
-export type ToolLine = Extract<Line, { kind: "tool" }>;
-export type FileLine = Extract<Line, { kind: "file" }>;
+import type { FileItem, Prompt, ToolItem, Turn } from "../shared/turns";
+import type { ThreadView } from "./fold";
 
 export interface ActivityCounts {
   read: number;
@@ -24,28 +23,31 @@ export interface ActivityCounts {
 }
 
 export type Block =
-  | { kind: "prompt"; line: PromptLine }
-  | { kind: "thinking"; turnId: TurnId; text: string; collapsed: boolean; streaming: boolean }
-  | { kind: "text"; turnId: TurnId; blockIx: number; text: string; streaming: boolean }
+  | { kind: "prompt"; key: string; prompt: Prompt }
+  | { kind: "thinking"; key: string; text: string; collapsed: boolean; streaming: boolean }
+  | { kind: "text"; key: string; text: string; streaming: boolean }
   | {
       kind: "activity";
-      turnId: TurnId;
       key: string;
-      tools: readonly ToolLine[];
+      tools: readonly ToolItem[];
       counts: ActivityCounts;
-      current: ToolLine | null;
+      current: ToolItem | null;
       running: boolean;
       durationMs: number | null;
       startedAt: string;
     }
-  | { kind: "end"; turnId: TurnId; outcome: "interrupted" | "error" | "orphaned"; error: string | null }
-  | { kind: "file"; line: FileLine }
-  | { kind: "note"; text: string };
+  | { kind: "end"; key: string; outcome: "interrupted" | "error" | "orphaned"; error: string | null }
+  | { kind: "file"; key: string; file: FileItem }
+  | { kind: "note"; key: string; text: string };
 
-interface Draft {
-  block: Block;
-  /** The activity block's own array, still open for appends. Shared by reference with block.tools. */
-  tools: ToolLine[] | null;
+export interface Section {
+  readonly key: string;
+  readonly turnId: TurnId | null;
+  readonly blocks: readonly Block[];
+}
+
+export function toBlocks(view: ThreadView): readonly Section[] {
+  return view.turns.map((turn) => ({ key: turn.key, turnId: turn.turnId, blocks: turnBlocks(turn, turn.turnId !== null && turn.turnId === view.openTurn) }));
 }
 
 /**
@@ -53,92 +55,57 @@ interface Draft {
  * been closed off by text, so it stops its clock rather than counting until
  * the turn ends.
  */
-export function toBlocks(view: ThreadView): readonly Block[] {
-  const lines = view.lines;
-  const lastTextIx = new Map<TurnId, number>();
-  const endUsage = new Map<TurnId, Usage | null>();
-  for (let i = 0; i < lines.length; i++) {
-    const l = lines[i]!;
-    if (l.kind === "text") lastTextIx.set(l.turnId, i);
-    if (l.kind === "end") endUsage.set(l.turnId, l.usage);
-  }
-
-  const drafts: Draft[] = [];
-  const activityCount = new Map<TurnId, number>();
-  const isLastLine = (i: number): boolean => i === lines.length - 1;
-
-  for (let i = 0; i < lines.length; i++) {
-    const l = lines[i]!;
-    const open = l.kind !== "prompt" && l.kind !== "note" && l.kind !== "file" && view.openTurn === l.turnId;
-    switch (l.kind) {
-      case "prompt":
-        drafts.push({ block: { kind: "prompt", line: l }, tools: null });
-        break;
+function turnBlocks(turn: Turn, open: boolean): Block[] {
+  const items = turn.items;
+  const lastTextIx = items.findLastIndex((i) => i.kind === "text");
+  const isLast = (ix: number): boolean => ix === items.length - 1;
+  const blocks: Block[] = [];
+  let tools: ToolItem[] | null = null;
+  if (turn.prompt) blocks.push({ kind: "prompt", key: turn.key, prompt: turn.prompt });
+  items.forEach((item, ix) => {
+    if (item.kind !== "tool") tools = null;
+    switch (item.kind) {
       case "thinking":
-        drafts.push({
-          block: {
-            kind: "thinking",
-            turnId: l.turnId,
-            text: l.text,
-            collapsed: !open || (lastTextIx.get(l.turnId) ?? -1) > i,
-            streaming: open && isLastLine(i),
-          },
-          tools: null,
-        });
+        blocks.push({ kind: "thinking", key: `${turn.key}:think:${ix}`, text: item.text, collapsed: !open || lastTextIx > ix, streaming: open && isLast(ix) });
         break;
       case "text":
-        drafts.push({ block: { kind: "text", turnId: l.turnId, blockIx: l.blockIx, text: l.text, streaming: open && isLastLine(i) }, tools: null });
+        blocks.push({ kind: "text", key: `${turn.key}:text:${ix}`, text: item.text, streaming: open && isLast(ix) });
         break;
-      case "tool": {
-        const tail = drafts[drafts.length - 1];
-        if (tail?.tools && tail.block.kind === "activity" && tail.block.turnId === l.turnId) {
-          tail.tools.push(l);
+      case "tool":
+        if (tools) {
+          tools.push(item);
           break;
         }
-        activityCount.set(l.turnId, (activityCount.get(l.turnId) ?? 0) + 1);
-        const tools = [l];
-        drafts.push({
-          block: { kind: "activity", turnId: l.turnId, key: `${l.turnId}:act:${i}`, tools, counts: emptyCounts(), current: null, running: false, durationMs: null, startedAt: l.startedAt },
-          tools,
-        });
-        break;
-      }
-      case "end":
-        if (l.outcome !== "ok") drafts.push({ block: { kind: "end", turnId: l.turnId, outcome: l.outcome, error: l.error }, tools: null });
+        tools = [item];
+        blocks.push({ kind: "activity", key: `${turn.key}:act:${ix}`, tools, counts: emptyCounts(), current: null, running: false, durationMs: null, startedAt: item.startedAt });
         break;
       case "file":
-        drafts.push({ block: { kind: "file", line: l }, tools: null });
+        blocks.push({ kind: "file", key: `file:${item.fileId}`, file: item });
         break;
       case "note":
-        drafts.push({ block: { kind: "note", text: l.text }, tools: null });
+        blocks.push({ kind: "note", key: `${turn.key}:note:${ix}`, text: item.text });
         break;
     }
-  }
+  });
+  if (turn.end && turn.end.outcome !== "ok") blocks.push({ kind: "end", key: `${turn.key}:end`, outcome: turn.end.outcome, error: turn.end.error });
 
-  const tailActivity = findLast(drafts, (d) => d.block.kind === "activity")?.block;
-  for (const d of drafts) {
-    if (d.block.kind !== "activity") continue;
-    const b = d.block;
+  const activities = blocks.filter((b): b is Extract<Block, { kind: "activity" }> => b.kind === "activity");
+  const tail = activities[activities.length - 1];
+  for (const b of activities) {
     b.counts = count(b.tools);
-    b.running = view.openTurn === b.turnId && b === tailActivity;
-    b.current = b.running ? (findLast(b.tools, (t) => t.endedAt === null) ?? null) : null;
-    b.durationMs = b.running ? null : finishedDuration(b, endUsage.get(b.turnId) ?? null, activityCount.get(b.turnId) === 1);
+    b.running = open && b === tail;
+    b.current = b.running ? (b.tools.findLast((t) => t.endedAt === null) ?? null) : null;
+    b.durationMs = b.running ? null : finishedDuration(b, turn.end?.usage ?? null, activities.length === 1);
   }
-
-  return drafts.map((d) => d.block);
+  return blocks;
 }
 
 const emptyCounts = (): ActivityCounts => ({ read: 0, run: 0, edit: 0, other: 0 });
 
-function count(tools: readonly ToolLine[]): ActivityCounts {
+function count(tools: readonly ToolItem[]): ActivityCounts {
   const c = emptyCounts();
   for (const t of tools) c[toolSummary(t.name, t.input).category] += 1;
   return c;
-}
-
-function findLast<T>(items: readonly T[], pred: (item: T) => boolean): T | undefined {
-  for (let i = items.length - 1; i >= 0; i--) if (pred(items[i]!)) return items[i];
-  return undefined;
 }
 
 /**
@@ -148,7 +115,7 @@ function findLast<T>(items: readonly T[], pred: (item: T) => boolean): T | undef
  */
 function finishedDuration(block: Extract<Block, { kind: "activity" }>, usage: Usage | null, soleBlock: boolean): number | null {
   if (soleBlock && usage) return usage.durationMs;
-  const end = findLast(block.tools, (t) => t.endedAt !== null)?.endedAt;
+  const end = block.tools.findLast((t) => t.endedAt !== null)?.endedAt;
   if (!end) return null;
   return new Date(end).getTime() - new Date(block.startedAt).getTime();
 }
@@ -203,7 +170,7 @@ export function diffLines(oldText: string, newText: string): readonly DiffLine[]
 const str = (o: Record<string, unknown>, key: string): string | null => (typeof o[key] === "string" ? (o[key] as string) : null);
 
 /** The diff a tool call implies, or null when the tool does not describe one edit of one file. */
-export function toolDiff(tool: ToolLine): { file: string; lines: readonly DiffLine[] } | null {
+export function toolDiff(tool: ToolItem): { file: string; lines: readonly DiffLine[] } | null {
   if (!tool.input || typeof tool.input !== "object") return null;
   const o = tool.input as Record<string, unknown>;
   const file = str(o, "file_path") ?? str(o, "path");
@@ -222,4 +189,6 @@ export function toolDiff(tool: ToolLine): { file: string; lines: readonly DiffLi
   return null;
 }
 
-export const jumpCount = (blocks: readonly Block[], seenCount: number): number => Math.max(0, blocks.length - seenCount);
+export const blockCount = (sections: readonly Section[]): number => sections.reduce((n, s) => n + s.blocks.length, 0);
+
+export const jumpCount = (sections: readonly Section[], seenCount: number): number => Math.max(0, blockCount(sections) - seenCount);
