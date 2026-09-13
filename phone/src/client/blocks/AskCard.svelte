@@ -37,7 +37,10 @@
     try {
       await onAnswer(answer);
     } catch (err) {
+      // A 409 is settled: someone else answered, and the event is on its way.
+      // Anything else appended nothing, so the buttons come back for a retry.
       if (err instanceof HttpError && err.status === 409) elsewhere = true;
+      else sent = false;
     }
   }
 

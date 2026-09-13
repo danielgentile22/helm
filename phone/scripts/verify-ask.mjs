@@ -11,7 +11,7 @@ import sveltePlugin from "esbuild-svelte";
 const SP = mkdtempSync(join(tmpdir(), "helm2-ask-")) + "/";
 await build({ bundle: true, format: "esm", target: ["es2022"], entryPoints: ["scripts/ask-card-fixture.ts"], outfile: `${SP}app.js`, plugins: [sveltePlugin({ compilerOptions: { css: "external" } })], logLevel: "error" });
 await build({ bundle: true, entryPoints: ["src/client/app.css"], outfile: `${SP}app.css`, logLevel: "error" });
-writeFileSync(`${SP}index.html`, `<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="app.css"><body style="margin:0;max-width:400px"><div id="tool"></div><div id="q"></div><div id="done"></div><script type="module" src="app.js"></script></body>`);
+writeFileSync(`${SP}index.html`, `<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="app.css"><body style="margin:0;max-width:400px"><div id="tool"></div><div id="q"></div><div id="retry"></div><div id="done"></div><script type="module" src="app.js"></script></body>`);
 const types = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html" };
 const srv = createServer((req, res) => {
   const p = req.url === "/" ? "index.html" : req.url.slice(1);
@@ -62,6 +62,10 @@ await evaluate(`[...document.querySelectorAll('#q .aopt')][0].click()`);
 await sleep(300);
 check("a single-select question answers on tap", (await evaluate(`JSON.stringify(sent[1])`)) === JSON.stringify({ kind: "answers", answers: [{ kind: "options", labels: ["Rebase"] }] }), await evaluate(`JSON.stringify(sent[1])`));
 check("a 409 shows answered elsewhere", (await evaluate(`document.querySelector('#q').innerText`)).includes("Answered elsewhere"));
+
+await evaluate(`[...document.querySelectorAll('#retry .btn')].find((b)=>b.textContent.trim()==='Allow').click()`);
+await sleep(300);
+check("a failed answer offers the buttons again", await evaluate(`[...document.querySelectorAll('#retry .arow .btn')].every((b)=>!b.disabled)`));
 
 const doneText = await evaluate(`document.querySelector('#done').innerText`);
 check("an answered card reads as a record", doneText.includes("Denied by laptop: wrong branch"), JSON.stringify(doneText.split("\n").at(-1)));

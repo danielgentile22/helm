@@ -22,6 +22,15 @@ mount(AskCard, {
   target: document.querySelector("#q")!,
   props: { ask: { kind: "ask", askId: "a2" as never, ask: { kind: "question", questions: [{ question: "Rebase or merge?", header: "strategy", options: [{ label: "Rebase", description: "linear history" }, { label: "Merge", description: "keeps both" }], multiSelect: false }] }, openedAt: new Date().toISOString(), answer: null }, live: true, onAnswer },
 });
+const onAnswerFailing = async (answer: AskAnswer): Promise<void> => {
+  sent.push(answer);
+  throw new HttpError(503, "the Mac is unreachable");
+};
+
+mount(AskCard, {
+  target: document.querySelector("#retry")!,
+  props: { ask: { kind: "ask", askId: "a4" as never, ask: { kind: "tool", toolName: "Bash", input: { command: "npm test" }, toolUseId: "tu4" as never, title: null, description: null }, openedAt: new Date().toISOString(), answer: null }, live: true, onAnswer: onAnswerFailing },
+});
 mount(AskCard, {
   target: document.querySelector("#done")!,
   props: { ask: { kind: "ask", askId: "a3" as never, ask: { kind: "tool", toolName: "Bash", input: { command: "git push" }, toolUseId: "tu3" as never, title: null, description: null }, openedAt: new Date().toISOString(), answer: { answer: { kind: "deny", reason: "wrong branch" }, by: { by: "user", origin: { via: "pwa", label: "laptop" } }, ts: new Date().toISOString() } }, live: false, onAnswer },
