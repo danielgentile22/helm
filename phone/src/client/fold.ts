@@ -8,11 +8,18 @@
  * received a duplicate, self-heals without any special-case code.
  */
 
-import type { ClaudeSessionId, Cursor, SyncFrame, ThreadEvent, ThreadId, TurnId, TurnOutcome, Usage } from "../shared/protocol";
+import type { ClaudeSessionId, Cursor, SyncFrame, ThreadEvent, ThreadId, TurnId, TurnOutcome, UploadId, Usage } from "../shared/protocol";
+
+/** What a prompt line remembers about a file sent with it: enough to name it or fetch its bytes. */
+export interface PromptUpload {
+  readonly uploadId: UploadId;
+  readonly name: string;
+  readonly mime: string;
+}
 
 export type Line =
   /** `[iphone] > text` prompt line; `pending` until the server acks, `queued` until its turn starts, `dropped` if the server restarted. */
-  | { kind: "prompt"; clientMsgId: string; text: string; uploads: readonly string[]; state: "pending" | "queued" | "started" | "dropped"; label: string }
+  | { kind: "prompt"; clientMsgId: string; text: string; uploads: readonly PromptUpload[]; state: "pending" | "queued" | "started" | "dropped"; label: string }
   | { kind: "text"; turnId: TurnId; blockIx: number; text: string }
   | { kind: "thinking"; turnId: TurnId; text: string }
   /** One tool call. `endedAt` is null while it is still running; both stamps come from the event `ts`. */
@@ -59,7 +66,7 @@ export function fold(view: ThreadView, ev: ThreadEvent): ThreadView {
       return { ...base, sessionId: ev.sessionId };
     case "input.queued": {
       const ix = findLastIndex(lines, (l) => l.kind === "prompt" && l.clientMsgId === ev.clientMsgId && l.state === "pending");
-      const line: Line = { kind: "prompt", clientMsgId: ev.clientMsgId, text: ev.text, uploads: ev.uploads.map((u) => u.name), state: "queued", label: ev.origin.label };
+      const line: Line = { kind: "prompt", clientMsgId: ev.clientMsgId, text: ev.text, uploads: ev.uploads.map((u) => ({ uploadId: u.uploadId, name: u.name, mime: u.mime })), state: "queued", label: ev.origin.label };
       return { ...base, lines: ix >= 0 ? replaceLast(lines, ix, line) : [...lines, line] };
     }
     case "input.dropped": {
@@ -127,6 +134,6 @@ export function applySync(view: ThreadView, frame: SyncFrame): ThreadView {
 }
 
 /** Optimistic prompt line before the server has acked; replaced when input.queued arrives with the same clientMsgId. */
-export function addPendingPrompt(view: ThreadView, clientMsgId: string, text: string, label: string): ThreadView {
-  return { ...view, lines: [...view.lines, { kind: "prompt", clientMsgId, text, uploads: [], state: "pending", label }] };
+export function addPendingPrompt(view: ThreadView, clientMsgId: string, text: string, label: string, uploads: readonly PromptUpload[]): ThreadView {
+  return { ...view, lines: [...view.lines, { kind: "prompt", clientMsgId, text, uploads, state: "pending", label }] };
 }

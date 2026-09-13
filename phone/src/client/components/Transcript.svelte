@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { TurnId } from "../../shared/protocol";
+  import type { TurnId, UploadId } from "../../shared/protocol";
   import ActivityBlock from "../blocks/ActivityBlock.svelte";
   import EndLine from "../blocks/EndLine.svelte";
   import PromptBlock from "../blocks/PromptBlock.svelte";
@@ -7,7 +7,7 @@
   import ThinkingBlock from "../blocks/ThinkingBlock.svelte";
   import type { Block } from "../transcript";
 
-  let { blocks, openTurn, replaying, onResend, onQuote }: { blocks: readonly Block[]; openTurn: TurnId | null; replaying: boolean; onResend: (text: string) => void; onQuote: (quoted: string) => void } = $props();
+  let { blocks, openTurn, replaying, onResend, onQuote, uploadUrl }: { blocks: readonly Block[]; openTurn: TurnId | null; replaying: boolean; onResend: (text: string) => void; onQuote: (quoted: string) => void; uploadUrl: (uploadId: UploadId) => string } = $props();
 
   interface Turn {
     key: string;
@@ -111,7 +111,7 @@
       {#each turn.blocks as { block, key, glyph } (key)}
         <div class="blk blk-{block.kind}" data-glyph={glyph} use:enters>
           {#if block.kind === "prompt"}
-            <PromptBlock line={block.line} {onResend} />
+            <PromptBlock line={block.line} {onResend} {uploadUrl} />
           {:else if block.kind === "thinking"}
             <ThinkingBlock text={block.text} collapsed={block.collapsed} streaming={block.streaming} />
           {:else if block.kind === "text"}

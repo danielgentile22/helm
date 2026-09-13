@@ -96,11 +96,11 @@
     if (!session || !inputEl) return;
     const text = inputEl.value.trim();
     if (!text && !session.attachments.length) return;
-    const ids = session.attachments.map((a) => a.uploadId);
+    const uploads = session.attachments;
     inputEl.value = "";
     inputEl.style.height = "";
     session.attachments = [];
-    await session.submit(text, ids);
+    await session.submit(text, uploads);
   }
 
   /** Insert a quoted block at the caret and hand the composer back to the reader. */
@@ -151,7 +151,7 @@
     </header>
     <StatusBar conn={s.conn} seen={s.view.headSeq} head={s.summary.headSeq} />
     </div>
-    <Transcript {blocks} openTurn={s.view.openTurn} replaying={s.view.replaying} onResend={(text) => void s.submit(text, [])} onQuote={quote} />
+    <Transcript {blocks} openTurn={s.view.openTurn} replaying={s.view.replaying} onResend={(text) => void s.submit(text, [])} onQuote={quote} uploadUrl={(uploadId) => api.uploadUrl(threadId, uploadId)} />
     {#if s.error}
       <div class="inline-error">
         <span class="glyph">▲</span>

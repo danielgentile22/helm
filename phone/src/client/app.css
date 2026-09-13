@@ -122,6 +122,8 @@ a { color: var(--accent); }
 .origin i { font-style: normal; color: var(--ink-3); }
 /* white-space: pre-wrap, so the prompt keeps the line breaks the user typed. */
 .prompt-text { margin: 0; padding: var(--s-4) var(--s-5); font-family: var(--mono); font-size: var(--t-sm); line-height: 1.5; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--sunken); border-left: 2px solid var(--accent-solid); border-radius: 0 var(--r-md) var(--r-md) 0; }
+.shots { display: flex; flex-wrap: wrap; gap: var(--s-3); margin-top: var(--s-3); }
+.shots img { max-width: min(100%, 260px); max-height: 320px; border: 1px solid var(--hair); border-radius: var(--r-md); }
 .attached { margin-top: var(--s-3); font-size: var(--t-xs); color: var(--ink-3); }
 .resend { margin-top: var(--s-3); }
 
