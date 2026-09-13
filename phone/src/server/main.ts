@@ -7,6 +7,7 @@
 
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import { serve } from "@hono/node-server";
 import { SdkAgentFactory } from "./core/agent";
 import { acquireInstanceLock } from "./core/instanceLock";
@@ -17,7 +18,7 @@ export async function main(): Promise<void> {
   const env = loadEnv({ ...loadDotenv(resolve(process.env.HELM_ENV ?? ".env")), ...process.env });
   const lock = await acquireInstanceLock(env.HELM_HOME);
   const version = (JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as { version: string }).version;
-  const helm = await buildServer(configFromEnv(env, version), { agents: new SdkAgentFactory({ env: process.env }) });
+  const helm = await buildServer(configFromEnv(env, version), { agents: new SdkAgentFactory({ query, env: process.env }) });
 
   const server = serve({ fetch: helm.fetch, hostname: env.HELM_BIND_ADDR, port: env.HELM_PORT }, (info) => {
     console.log(`[helm] listening on http://${info.address}:${info.port} (${helm.recovered.length} threads recovered)`);
