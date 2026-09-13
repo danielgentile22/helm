@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ClaudeSessionId, ClientMsgId, ModelId, ThreadId, TurnId, Usage } from "../shared/protocol";
+import type { ClaudeSessionId, ClientMsgId, ModelId, PushPayload, ThreadId, TurnId, Usage } from "../shared/protocol";
 import { FakeAgentFactory, defaultUsage } from "./core/agent.fake";
 import { ThreadLog } from "./core/log";
 import { mirrorPath } from "./core/mirror";
@@ -32,6 +32,7 @@ test("boot attaches watchers before recovery and resumes the mirror after repair
   const note = mirrorPath(vault, threadId);
   await assert.rejects(readFile(note), { code: "ENOENT" }, "no mirror note exists before boot");
 
+  const pushed: PushPayload[] = [];
   const server = await buildServer(
     {
       home,
@@ -45,7 +46,7 @@ test("boot attaches watchers before recovery and resumes the mirror after repair
       staticDir: join(home, "static"),
       version: "0.0.0-test",
     },
-    { agents: new FakeAgentFactory(), pushSend: async () => undefined },
+    { agents: new FakeAgentFactory(), pushSend: async (_sub, payload) => void pushed.push(payload) },
   );
 
   assert.deepEqual(server.recovered, [threadId]);
@@ -53,9 +54,12 @@ test("boot attaches watchers before recovery and resumes the mirror after repair
   assert.equal(afterBoot.match(/^## /gm)?.length, 1, "resume wrote the turn recovery found");
 
   const log = await server.logs.get(threadId);
+  await server.push.subscribe({ endpoint: "https://push.example/phone", keys: { p256dh: "p", auth: "a" }, label: "iphone", createdAt: "2026-09-13T00:00:00.000Z" });
   await appendTurn(log, "m2", "second prompt", "second reply");
   await server.mirror.idle();
   assert.equal((await readFile(note, "utf8")).match(/^## /gm)?.length, 2, "the recovered log's watcher mirrors a new turn");
+  for (let i = 0; i < 200 && pushed.length === 0; i++) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(pushed.length, 1, "the recovered log's push watcher fires with only the mirror alongside it");
 
   await server.shutdown();
   await rm(home, { recursive: true, force: true });

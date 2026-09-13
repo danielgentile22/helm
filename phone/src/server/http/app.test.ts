@@ -563,6 +563,7 @@ test("push fires on a finished turn only when no SSE viewer is attached", async 
   assert.equal(s.pushed[0]!.threadId, THREAD);
 
   const live = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${log.getHead().lastSeq}`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  await until(async () => log.viewerCount(), (n) => n === 1);
   await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(2), text: "second" });
   await live;
   await new Promise((r) => setTimeout(r, 100));

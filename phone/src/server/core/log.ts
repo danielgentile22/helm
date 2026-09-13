@@ -152,7 +152,7 @@ function deltaKey(b: DeltaBody): string {
 
 export class ThreadLog {
   private queue: Promise<unknown> = Promise.resolve();
-  private readonly listeners = new Map<(ev: ThreadEvent) => void, SubscriberKind>();
+  private readonly listeners = new Set<{ readonly kind: SubscriberKind; readonly listener: (ev: ThreadEvent) => void }>();
   private pendingDelta: { key: string; body: DeltaBody; timer: NodeJS.Timeout } | null = null;
 
   private constructor(
@@ -231,9 +231,9 @@ export class ThreadLog {
       }
       this.bytes += line.length;
       this.head = advance(this.head, ev);
-      for (const l of this.listeners.keys()) {
+      for (const { listener } of this.listeners) {
         try {
-          l(ev);
+          listener(ev);
         } catch (err) {
           console.error(`[log] ${this.threadId}: subscriber threw`, err);
         }
@@ -303,16 +303,17 @@ export class ThreadLog {
    * handoff; dedupe on seq to get a duplicate-free one (see http/sse.ts).
    */
   subscribe(kind: SubscriberKind, listener: (ev: ThreadEvent) => void): Unsubscribe {
-    this.listeners.set(listener, kind);
+    const entry = { kind, listener };
+    this.listeners.add(entry);
     return () => {
-      this.listeners.delete(listener);
+      this.listeners.delete(entry);
     };
   }
 
   /** Live viewer subscribers. Zero means nobody has this thread open. */
   viewerCount(): number {
     let n = 0;
-    for (const kind of this.listeners.values()) if (kind === "viewer") n++;
+    for (const { kind } of this.listeners) if (kind === "viewer") n++;
     return n;
   }
 }
