@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { ThreadLog } from "./log";
 import { Mirror, lastMirroredSeq, mirrorPath, renderTurn } from "./mirror";
 import { ThreadStore } from "./thread-store";
-import { groupTurns } from "../../shared/turns";
+import { groupTurns, isCompleted } from "../../shared/turns";
 import type {
   ClaudeSessionId,
   ClientMsgId,
@@ -49,7 +49,7 @@ const usage: Usage = {
   durationMs: 1200,
 };
 
-const turnOf = (events: ThreadEvent[]) => groupTurns(events)[0]!;
+const turnOf = (events: ThreadEvent[]) => groupTurns(events).filter(isCompleted)[0]!;
 
 /** A fixture turn: two text blocks, a thinking delta, one failed tool call, an error outcome. */
 function fixtureTurn(): ThreadEvent[] {
@@ -67,7 +67,7 @@ function fixtureTurn(): ThreadEvent[] {
 }
 
 test("renderTurn renders the prompt, text blocks, tool lines, footer, and marker", () => {
-  const md = renderTurn(groupTurns(fixtureTurn())[0]!);
+  const md = renderTurn(turnOf(fixtureTurn()));
 
   assert.match(md, /^## 2026-09-11T00:00:02\.000Z .*iphone/m, "heading carries the timestamp and the origin label");
   assert.match(md, /^> hello$/m, "prompt is a blockquote, line by line");
@@ -99,10 +99,6 @@ test("renderTurn on a clean ok turn with no usage omits the usage half of the fo
   assert.match(md, /^yes$/m);
   assert.ok(!md.includes("tokens"), "no usage line when the turn carried none");
   assert.match(md, /<!-- helm:seq=4 -->\s*$/);
-});
-
-test("renderTurn throws when the turn has no turn.ended", () => {
-  assert.throws(() => renderTurn(turnOf([ev(2, { kind: "turn.started", turnId: "t:2" as TurnId, clientMsgId: "m1" as ClientMsgId, model, effort: "high", spawned: true })])));
 });
 
 test("lastMirroredSeq reads the highest marker, 0 when there is none", () => {

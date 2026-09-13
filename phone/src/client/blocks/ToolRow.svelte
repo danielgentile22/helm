@@ -1,6 +1,7 @@
 <script lang="ts">
   import { toolSummary } from "../../shared/protocol";
-  import { toolDiff, type ToolItem } from "../transcript";
+  import type { ToolItem } from "../../shared/turns";
+  import { toolDiff } from "../transcript";
   import Diff from "./Diff.svelte";
 
   let { tool }: { tool: ToolItem } = $props();

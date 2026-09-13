@@ -28,7 +28,7 @@ import { mkdir, readdir, readFile, stat, unlink, appendFile } from "node:fs/prom
 import { dirname, join } from "node:path";
 import { fmtBytes, toolSummary } from "../../shared/protocol";
 import type { Cursor, Seq, ThreadConfig, ThreadEvent, ThreadId } from "../../shared/protocol";
-import { groupTurns, type Turn, type TurnEnd } from "../../shared/turns";
+import { groupTurns, isCompleted, type CompletedTurn, type TurnEnd } from "../../shared/turns";
 import type { ThreadLog, Unsubscribe } from "./log";
 import type { ThreadStore } from "./thread-store";
 
@@ -136,8 +136,8 @@ async function collect(events: AsyncIterable<ThreadEvent>): Promise<ThreadEvent[
 }
 
 /** The turns that ended past `after`. A turn still running has no end and is left for the next catch-up. */
-function completedAfter(events: readonly ThreadEvent[], after: Cursor): readonly Turn[] {
-  return groupTurns(events).filter((t) => t.end !== null && t.end.seq > after);
+function completedAfter(events: readonly ThreadEvent[], after: Cursor): readonly CompletedTurn[] {
+  return groupTurns(events).filter(isCompleted).filter((t) => t.end.seq > after);
 }
 
 function configFromLog(events: readonly ThreadEvent[]): ThreadConfig | null {
@@ -193,9 +193,8 @@ function footer(ended: TurnEnd): string {
  * omitted for the same reason. A failed tool is marked with the word
  * "failed", never with color alone.
  */
-export function renderTurn(turn: Turn): string {
+export function renderTurn(turn: CompletedTurn): string {
   const ended = turn.end;
-  if (!ended) throw new Error("renderTurn: the turn has no turn.ended");
   const prompt = turn.prompt;
 
   const texts: string[] = [];

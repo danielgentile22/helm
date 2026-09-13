@@ -7,9 +7,9 @@
    * Without a share sheet (laptop browsers) the tap opens the file in a tab.
    */
   import { fmtBytes } from "../../shared/protocol";
-  import type { FileItem } from "../transcript";
+  import type { FileItem } from "../../shared/turns";
 
-  let { line, url, fetch: fetchFile }: { line: FileItem; url: string; fetch: (onProgress: (bytes: number) => void) => Promise<Blob> } = $props();
+  let { file, url, fetch: fetchFile }: { file: FileItem; url: string; fetch: (onProgress: (bytes: number) => void) => Promise<Blob> } = $props();
 
   type State = { tag: "idle" } | { tag: "fetching"; bytes: number } | { tag: "ready"; file: File } | { tag: "gone" } | { tag: "failed"; reason: string };
   let state = $state<State>({ tag: "idle" });
@@ -21,26 +21,26 @@
     [/^audio\//, "AUD", "audio"],
     [/^text\/|json$/, "TXT", "text"],
   ];
-  const kind = $derived(KIND.find(([re]) => re.test(line.mime)) ?? [/./, "FILE", "file"]);
-  const isPdf = $derived(line.mime === "application/pdf");
+  const kind = $derived(KIND.find(([re]) => re.test(file.mime)) ?? [/./, "FILE", "file"]);
+  const isPdf = $derived(file.mime === "application/pdf");
   const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function" && typeof navigator.canShare === "function";
 
   function toFile(blob: Blob): File {
-    return new File([blob], line.name, { type: line.mime });
+    return new File([blob], file.name, { type: file.mime });
   }
 
-  async function share(file: File): Promise<void> {
-    if (!canShare || !navigator.canShare({ files: [file] })) {
+  async function share(blob: File): Promise<void> {
+    if (!canShare || !navigator.canShare({ files: [blob] })) {
       window.open(url, "_blank", "noopener");
       state = { tag: "idle" };
       return;
     }
     try {
-      await navigator.share({ files: [file] });
+      await navigator.share({ files: [blob] });
       state = { tag: "idle" };
     } catch (err) {
       // AbortError is the user closing the sheet; anything else (usually a lost gesture) asks for one more tap.
-      state = err instanceof Error && err.name === "AbortError" ? { tag: "idle" } : { tag: "ready", file };
+      state = err instanceof Error && err.name === "AbortError" ? { tag: "idle" } : { tag: "ready", file: blob };
     }
   }
 
@@ -61,14 +61,14 @@
     }
   }
 
-  const progress = $derived(state.tag === "fetching" && line.bytes > 0 ? Math.min(100, Math.round((state.bytes / line.bytes) * 100)) : null);
+  const progress = $derived(state.tag === "fetching" && file.bytes > 0 ? Math.min(100, Math.round((state.bytes / file.bytes) * 100)) : null);
 </script>
 
 <div class="file-card" class:gone={state.tag === "gone"}>
-  <button class="file-main" onclick={tap} disabled={state.tag === "fetching" || state.tag === "gone"} aria-label={`${kind[2]} ${line.name}, ${fmtBytes(line.bytes)}. ${state.tag === "ready" ? "Tap to share" : "Tap to save or share"}`}>
+  <button class="file-main" onclick={tap} disabled={state.tag === "fetching" || state.tag === "gone"} aria-label={`${kind[2]} ${file.name}, ${fmtBytes(file.bytes)}. ${state.tag === "ready" ? "Tap to share" : "Tap to save or share"}`}>
     <span class="badge" aria-hidden="true">{kind[1]}</span>
     <span class="meta">
-      <span class="name">{line.name}</span>
+      <span class="name">{file.name}</span>
       <span class="sub">
         {#if state.tag === "fetching"}
           fetching{progress !== null ? ` · ${progress}%` : ""}
@@ -79,10 +79,10 @@
         {:else if state.tag === "failed"}
           {state.reason} · tap to retry
         {:else}
-          {fmtBytes(line.bytes)} · tap to save or share
+          {fmtBytes(file.bytes)} · tap to save or share
         {/if}
       </span>
-      {#if line.note}<span class="note-line">{line.note}</span>{/if}
+      {#if file.note}<span class="note-line">{file.note}</span>{/if}
     </span>
   </button>
   {#if isPdf && state.tag !== "gone"}

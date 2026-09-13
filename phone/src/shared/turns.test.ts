@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Seq, ThreadEvent, TurnId } from "./protocol";
-import { foldTurn, groupTurns, pendingPrompt, type Turn } from "./turns";
+import { foldTurn, groupTurns, isCompleted, pendingPrompt, type Turn } from "./turns";
 import { applySync, emptyView, foldAll } from "../client/fold";
 import { toBlocks } from "../client/transcript";
 import { renderTurn } from "../server/core/mirror";
@@ -144,7 +144,7 @@ test("the mirror and the phone agree on turn count, prompts, tool joins and text
   ];
   const view = foldAll(emptyView("x" as never), events);
   const sections = toBlocks(applySync(view, { headSeq: view.headSeq, session: "idle", openTurn: null, queuedCount: 0 }));
-  const notes = groupTurns(events).map(renderTurn);
+  const notes = groupTurns(events).filter(isCompleted).map(renderTurn);
 
   assert.equal(sections.length, 2);
   assert.equal(notes.length, 2);

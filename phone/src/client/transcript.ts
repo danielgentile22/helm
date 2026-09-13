@@ -15,8 +15,6 @@ import type { TurnId, Usage } from "../shared/protocol";
 import type { FileItem, Prompt, ToolItem, Turn } from "../shared/turns";
 import type { ThreadView } from "./fold";
 
-export type { FileItem, Prompt, ToolItem };
-
 export interface ActivityCounts {
   read: number;
   run: number;
@@ -49,7 +47,7 @@ export interface Section {
 }
 
 export function toBlocks(view: ThreadView): readonly Section[] {
-  return view.turns.map((turn) => ({ key: turn.key, turnId: turn.turnId, blocks: turnBlocks(turn, view.openTurn === turn.turnId) }));
+  return view.turns.map((turn) => ({ key: turn.key, turnId: turn.turnId, blocks: turnBlocks(turn, turn.turnId !== null && turn.turnId === view.openTurn) }));
 }
 
 /**
@@ -59,7 +57,7 @@ export function toBlocks(view: ThreadView): readonly Section[] {
  */
 function turnBlocks(turn: Turn, open: boolean): Block[] {
   const items = turn.items;
-  const lastTextIx = findLastIndex(items, (i) => i.kind === "text");
+  const lastTextIx = items.findLastIndex((i) => i.kind === "text");
   const isLast = (ix: number): boolean => ix === items.length - 1;
   const blocks: Block[] = [];
   let tools: ToolItem[] | null = null;
@@ -96,7 +94,7 @@ function turnBlocks(turn: Turn, open: boolean): Block[] {
   for (const b of activities) {
     b.counts = count(b.tools);
     b.running = open && b === tail;
-    b.current = b.running ? (findLast(b.tools, (t) => t.endedAt === null) ?? null) : null;
+    b.current = b.running ? (b.tools.findLast((t) => t.endedAt === null) ?? null) : null;
     b.durationMs = b.running ? null : finishedDuration(b, turn.end?.usage ?? null, activities.length === 1);
   }
   return blocks;
@@ -110,16 +108,6 @@ function count(tools: readonly ToolItem[]): ActivityCounts {
   return c;
 }
 
-function findLastIndex<T>(items: readonly T[], pred: (item: T) => boolean): number {
-  for (let i = items.length - 1; i >= 0; i--) if (pred(items[i]!)) return i;
-  return -1;
-}
-
-function findLast<T>(items: readonly T[], pred: (item: T) => boolean): T | undefined {
-  const ix = findLastIndex(items, pred);
-  return ix >= 0 ? items[ix] : undefined;
-}
-
 /**
  * The turn's own reported duration is the honest number when the turn is one
  * stretch of tool calls; once a turn has several activity blocks it would
@@ -127,7 +115,7 @@ function findLast<T>(items: readonly T[], pred: (item: T) => boolean): T | undef
  */
 function finishedDuration(block: Extract<Block, { kind: "activity" }>, usage: Usage | null, soleBlock: boolean): number | null {
   if (soleBlock && usage) return usage.durationMs;
-  const end = findLast(block.tools, (t) => t.endedAt !== null)?.endedAt;
+  const end = block.tools.findLast((t) => t.endedAt !== null)?.endedAt;
   if (!end) return null;
   return new Date(end).getTime() - new Date(block.startedAt).getTime();
 }

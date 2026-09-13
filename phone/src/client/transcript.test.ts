@@ -109,6 +109,17 @@ test("thinking collapses once the turn speaks or ends, and streams only as the l
   assert.deepEqual([closed.collapsed, closed.streaming], [true, false]);
 });
 
+test("a queued prompt or a loose note never streams while no turn is open", () => {
+  seq = 0;
+  clock = 0;
+  const events = [ev({ kind: "input.queued", clientMsgId: "c1" as never, text: "hi", uploads: [], origin }), ev({ kind: "thread.config", patch: { title: "T" }, origin })];
+  const blocks = toBlocks(build(events, null));
+  assert.deepEqual(kinds(blocks), ["prompt", "note"]);
+  const think = [...started(), ev({ kind: "assistant.thinking", turnId: T, delta: "hm" }), ended()];
+  const closed = toBlocks(build(think, null)).find((b) => b.kind === "thinking")!;
+  assert.deepEqual([closed.collapsed, closed.streaming], [true, false]);
+});
+
 test("text streams only as the last line of an open turn", () => {
   const events = [...started(), ev({ kind: "assistant.text", turnId: T, blockIx: 0, delta: "one" }), ev({ kind: "assistant.text", turnId: T, blockIx: 1, delta: "two" })];
   const live = toBlocks(build(events, T)).filter((b) => b.kind === "text");

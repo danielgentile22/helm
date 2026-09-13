@@ -69,14 +69,14 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="transcript" onclick={onCopy}>
-  {#each sections as turn (turn.key)}
-    {@const live = turn.turnId !== null && turn.turnId === openTurn}
+  {#each sections as section (section.key)}
+    {@const live = section.turnId !== null && section.turnId === openTurn}
     <section class="turn" class:is-live={live}>
       {#if live}<span class="rail" aria-hidden="true"><i></i></span>{/if}
-      {#each turn.blocks as block (block.key)}
+      {#each section.blocks as block (block.key)}
         <div class="blk blk-{block.kind}" data-glyph={GLYPH[block.kind]} use:enters>
           {#if block.kind === "prompt"}
-            <PromptBlock line={block.prompt} {onResend} {uploadUrl} />
+            <PromptBlock prompt={block.prompt} {onResend} {uploadUrl} />
           {:else if block.kind === "thinking"}
             <ThinkingBlock text={block.text} collapsed={block.collapsed} streaming={block.streaming} />
           {:else if block.kind === "text"}
@@ -86,7 +86,7 @@
           {:else if block.kind === "end"}
             <EndLine outcome={block.outcome} error={block.error} />
           {:else if block.kind === "file"}
-            <FileCard line={block.file} url={fileUrl(block.file.fileId)} fetch={(onProgress) => fetchFile(block.file.fileId, onProgress)} />
+            <FileCard file={block.file} url={fileUrl(block.file.fileId)} fetch={(onProgress) => fetchFile(block.file.fileId, onProgress)} />
           {:else}
             <div class="note">{block.text}</div>
           {/if}

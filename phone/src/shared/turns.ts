@@ -67,6 +67,10 @@ export interface Turn {
   readonly end: TurnEnd | null;
 }
 
+export type CompletedTurn = Turn & { readonly end: TurnEnd };
+
+export const isCompleted = (turn: Turn): turn is CompletedTurn => turn.end !== null;
+
 export function groupTurns(events: Iterable<ThreadEvent>): readonly Turn[] {
   let turns: readonly Turn[] = [];
   for (const ev of events) turns = foldTurn(turns, ev);
@@ -88,14 +92,14 @@ export function foldTurn(turns: readonly Turn[], ev: ThreadEvent): readonly Turn
       return turns;
     case "input.queued": {
       const prompt: Prompt = { clientMsgId: ev.clientMsgId, text: ev.text, uploads: ev.uploads.map((u) => ({ uploadId: u.uploadId, name: u.name, mime: u.mime })), label: ev.origin.label, state: "queued", ts: ev.ts };
-      const ix = findLastIndex(turns, (t) => t.prompt?.clientMsgId === ev.clientMsgId && t.prompt.state === "pending");
+      const ix = turns.findLastIndex((t) => t.prompt?.clientMsgId === ev.clientMsgId && t.prompt.state === "pending");
       if (ix >= 0) return replace(turns, ix, { ...turns[ix]!, prompt });
       return [...turns, { key: `p:${ev.clientMsgId}`, turnId: null, prompt, startedAt: null, items: [], end: null }];
     }
     case "input.dropped":
       return withPrompt(turns, ev.clientMsgId, (t) => ({ ...t, prompt: { ...t.prompt!, state: "dropped" } }));
     case "turn.started": {
-      const ix = findLastIndex(turns, (t) => t.prompt?.clientMsgId === ev.clientMsgId);
+      const ix = turns.findLastIndex((t) => t.prompt?.clientMsgId === ev.clientMsgId);
       if (ix < 0) return [...turns, { key: `t:${ev.turnId}`, turnId: ev.turnId, prompt: null, startedAt: ev.ts, items: [], end: null }];
       const t = turns[ix]!;
       return replace(turns, ix, { ...t, turnId: ev.turnId, startedAt: ev.ts, prompt: { ...t.prompt!, state: "started" } });
@@ -116,7 +120,7 @@ export function foldTurn(turns: readonly Turn[], ev: ThreadEvent): readonly Turn
       return withTurn(turns, ev.turnId, (t) => ({ ...t, items: [...t.items, { kind: "tool", toolUseId: ev.toolUseId, name: ev.name, input: ev.input, output: null, isError: null, startedAt: ev.ts, endedAt: null }] }));
     case "tool.finished":
       return withTurn(turns, ev.turnId, (t) => {
-        const ix = findLastIndex(t.items, (i) => i.kind === "tool" && i.toolUseId === ev.toolUseId);
+        const ix = t.items.findLastIndex((i) => i.kind === "tool" && i.toolUseId === ev.toolUseId);
         if (ix < 0) return { ...t, items: [...t.items, { kind: "tool", toolUseId: ev.toolUseId, name: "?", input: null, output: ev.output, isError: ev.isError, startedAt: ev.ts, endedAt: ev.ts }] };
         return { ...t, items: replace(t.items, ix, { ...(t.items[ix] as ToolItem), output: ev.output, isError: ev.isError, endedAt: ev.ts }) };
       });
@@ -138,18 +142,18 @@ export function foldTurn(turns: readonly Turn[], ev: ThreadEvent): readonly Turn
 
 /** Route to the turn with this id, opening one when content arrives before its turn.started. */
 function withTurn(turns: readonly Turn[], turnId: TurnId, f: (t: Turn) => Turn): readonly Turn[] {
-  const ix = findLastIndex(turns, (t) => t.turnId === turnId);
+  const ix = turns.findLastIndex((t) => t.turnId === turnId);
   if (ix >= 0) return replace(turns, ix, f(turns[ix]!));
   return [...turns, f({ key: `t:${turnId}`, turnId, prompt: null, startedAt: null, items: [], end: null })];
 }
 
 function withPrompt(turns: readonly Turn[], clientMsgId: ClientMsgId, f: (t: Turn) => Turn): readonly Turn[] {
-  const ix = findLastIndex(turns, (t) => t.prompt?.clientMsgId === clientMsgId);
+  const ix = turns.findLastIndex((t) => t.prompt?.clientMsgId === clientMsgId);
   return ix >= 0 ? replace(turns, ix, f(turns[ix]!)) : turns;
 }
 
 function loose(turns: readonly Turn[], seq: Seq, item: Item): readonly Turn[] {
-  const running = findLastIndex(turns, (t) => t.turnId !== null && t.end === null);
+  const running = turns.findLastIndex((t) => t.turnId !== null && t.end === null);
   const last = turns.length - 1;
   const ix = running >= 0 ? running : turns[last]?.end === null ? last : -1;
   if (ix >= 0) return replace(turns, ix, { ...turns[ix]!, items: [...turns[ix]!.items, item] });
@@ -160,9 +164,4 @@ function replace<T>(list: readonly T[], index: number, value: T): T[] {
   const next = list.slice();
   next[index] = value;
   return next;
-}
-
-function findLastIndex<T>(list: readonly T[], pred: (item: T) => boolean): number {
-  for (let i = list.length - 1; i >= 0; i--) if (pred(list[i]!)) return i;
-  return -1;
 }
