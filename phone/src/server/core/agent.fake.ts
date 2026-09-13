@@ -1,7 +1,8 @@
 /**
- * The one fake in the test suite: a scripted AgentSession. Everything above
- * the adapter (supervisor, log, SSE, HTTP, auth, mirror, push) runs real
- * against it. A script receives the turn and a control handle and emits
+ * The fake above the adapter seam: a scripted AgentSession. Everything above
+ * it (supervisor, log, SSE, HTTP, auth, mirror, push) runs real against it.
+ * The adapter itself is tested below the seam, against a recorded SDK query
+ * in agent.test.ts. A script receives the turn and a control handle and emits
  * whatever sequence of events the test needs, with whatever timing.
  */
 

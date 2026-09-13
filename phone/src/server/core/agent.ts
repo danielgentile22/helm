@@ -47,7 +47,6 @@ import type {
   TurnId,
   Usage,
 } from "../../shared/protocol";
-import { killTree } from "../util/killTree";
 import { Pushable } from "../util/pushable";
 import { isImageMime } from "./uploads";
 
@@ -236,7 +235,7 @@ export function toSlashCommands(raw: unknown, hide: ReadonlySet<string>): readon
 }
 
 /** Strip absolute home paths and stack frames from an error string before it reaches the phone. */
-export function scrubError(text: string): string {
+function scrubError(text: string): string {
   return text
     .split("\n")
     .filter((l) => !/^\s+at\s/.test(l))
@@ -387,16 +386,15 @@ export type SdkQuery = AsyncIterable<SDKMessage> & Pick<Query, "interrupt" | "se
 export type QueryFn = (args: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => SdkQuery;
 
 /**
- * Everything the adapter touches outside its own process: the SDK entry
- * point, the child spawner, and the process-group killer. Production passes
- * the real ones; tests pass a recorded query and no-op process handling.
+ * What the adapter reaches outside its own process: the SDK entry point and
+ * the process-group killer. Production passes the real ones (main.ts); tests
+ * pass a recorded query and a killTree that only records the call.
  */
 export interface SdkDeps {
   readonly query: QueryFn;
+  readonly killTree: (pid: number) => Promise<void>;
   readonly env: NodeJS.ProcessEnv;
   readonly claudeBin?: string;
-  readonly spawn?: typeof spawn;
-  readonly killTree?: (pid: number) => Promise<void>;
 }
 
 type ImageMime = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
@@ -424,7 +422,6 @@ class SdkSession implements AgentSession {
   private readonly out = new Pushable<AgentEvent>();
   private readonly q: SdkQuery;
   private readonly abort = new AbortController();
-  private readonly killTree: (pid: number) => Promise<void>;
   private turn: { turnId: TurnId; interrupted: boolean; settle: () => void } | null = null;
   /** Command names the CLI tags as terminal-only; the phone menu hides them. */
   private terminalCommands: ReadonlySet<string> = new Set();
@@ -436,9 +433,10 @@ class SdkSession implements AgentSession {
     return !this.dead;
   }
 
-  constructor(opts: SpawnOptions, deps: SdkDeps) {
-    this.killTree = deps.killTree ?? ((pid) => killTree(pid, "group"));
-    const spawnChild = deps.spawn ?? spawn;
+  constructor(
+    opts: SpawnOptions,
+    private readonly deps: SdkDeps,
+  ) {
     const options: Options = {
       cwd: opts.cwd,
       model: opts.model,
@@ -455,7 +453,7 @@ class SdkSession implements AgentSession {
       env: Object.fromEntries(Object.entries(deps.env).filter((e): e is [string, string] => typeof e[1] === "string")),
       pathToClaudeCodeExecutable: deps.claudeBin,
       spawnClaudeCodeProcess: (o) => {
-        const child = spawnChild(o.command, o.args, { cwd: o.cwd, env: o.env, stdio: ["pipe", "pipe", "pipe"], detached: true, signal: o.signal });
+        const child = spawn(o.command, o.args, { cwd: o.cwd, env: o.env, stdio: ["pipe", "pipe", "pipe"], detached: true, signal: o.signal });
         this.pid = child.pid ?? null;
         child.stderr?.on("data", (d: Buffer) => process.stderr.write(`[claude ${this.pid}] ${d}`));
         return child as unknown as SpawnedProcess;
@@ -551,7 +549,7 @@ class SdkSession implements AgentSession {
       this.killing = (async () => {
         this.input.end();
         this.abort.abort();
-        if (this.pid !== null) await this.killTree(this.pid);
+        if (this.pid !== null) await this.deps.killTree(this.pid);
         this.q.close();
       })();
     }
