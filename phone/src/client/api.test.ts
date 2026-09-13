@@ -13,7 +13,7 @@ function client() {
   const states: string[] = [];
   const syncs: SyncFrame[] = [];
   const resets: number[] = [];
-  const stop = c.attach("t1" as ThreadId, 3 as Seq, { onEvent: (ev: ThreadEvent) => seen.push(ev.seq), onSync: (f) => syncs.push(f), onReset: () => resets.push(seen.length), onState: (s) => states.push(s) });
+  const stop = c.attach("t1" as ThreadId, 3 as Seq, { onEvent: (ev: ThreadEvent) => seen.push(ev.seq), onSync: (f) => syncs.push(f), onReset: (f) => resets.push(f.headSeq), onState: (s) => states.push(s) });
   return { seen, states, syncs, resets, stop };
 }
 
@@ -68,7 +68,7 @@ test("a sync frame with a head behind the cursor tells the handlers to reset and
   const es = FakeES.instances[0]!;
   es.open();
   es.sync({ headSeq: 1 as Seq });
-  assert.deepEqual([syncs.length, resets], [0, [0]], "a reset, not a sync: the frame belongs to a log the phone is about to throw away");
+  assert.deepEqual([syncs.length, resets], [0, [1]], "a reset, not a sync: the frame belongs to a log the phone is about to throw away");
   await tick();
   assert.equal(FakeES.instances[1]!.url, "http://x/api/threads/t1/events?after=0");
   stop();

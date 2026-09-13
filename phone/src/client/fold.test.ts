@@ -56,9 +56,12 @@ test("a queued prompt keeps every upload's id, name and mime so images can be fe
   ]);
 });
 
-test("fold marks the turn open while running", () => {
-  const mid = foldAll(emptyView(config), turn().slice(0, 7));
+test("fold marks the turn open while running and refuses any seq but head plus one", () => {
+  const events = turn();
+  const mid = foldAll(emptyView(config), events.slice(0, 7));
   assert.equal(mid.openTurn, "t:3");
+  assert.throws(() => fold(mid, events[9]!), /seq/);
+  assert.throws(() => fold(mid, events[6]!), /seq/);
 });
 
 test("title, model, context window and usage totals are folded from the log, the same way the server's head derives them", () => {

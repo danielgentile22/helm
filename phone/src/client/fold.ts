@@ -5,10 +5,11 @@
  *
  * The turns come from the shared grouper; this adds the thread's config and
  * session state around them, the same derivation the server's ThreadHead
- * makes from the same log. Invariant: fold(view, ev) is only ever called with
- * ev.seq === view.headSeq + 1. The attach loop in api.ts owns that: it drops
- * the connection on a gap or a duplicate and re-attaches from what it has,
- * and it resets the view when the server's log turns out to be shorter.
+ * makes from the same log. Invariant: fold(view, ev) requires
+ * ev.seq === view.headSeq + 1. The attach loop in api.ts keeps it: it drops
+ * the connection on a gap or a duplicate before the event reaches the fold,
+ * and it resets the view and its own cursor together when the server's log
+ * turns out to be shorter. The throw below is for any other caller.
  */
 
 import type { ClaudeSessionId, Cursor, SyncFrame, ThreadConfig, ThreadEvent, TurnId, UsageTotal } from "../shared/protocol";
@@ -38,6 +39,7 @@ export function emptyView(config: ThreadConfig, logHead: Cursor = 0): ThreadView
 
 /** Pure. Folds the event into the turns and the config and session state around them. */
 export function fold(view: ThreadView, ev: ThreadEvent): ThreadView {
+  if (ev.seq !== view.headSeq + 1) throw new Error(`seq gap: expected ${view.headSeq + 1}, got ${ev.seq}`);
   const base = { ...view, headSeq: ev.seq, turns: foldTurn(view.turns, ev) };
   switch (ev.kind) {
     case "thread.created":

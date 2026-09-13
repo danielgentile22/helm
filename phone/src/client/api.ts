@@ -39,7 +39,7 @@ export interface AttachHandlers {
   onEvent(ev: ThreadEvent): void;
   onSync(frame: SyncFrame): void;
   /** The server's log is shorter than what was folded: discard it all, a replay from zero follows. */
-  onReset(): void;
+  onReset(frame: SyncFrame): void;
   onState(state: ConnState): void;
 }
 
@@ -238,7 +238,7 @@ export class HelmClient {
         const frame = JSON.parse(m.data) as SyncFrame;
         if (frame.headSeq < lastSeen) {
           lastSeen = 0;
-          handlers.onReset();
+          handlers.onReset(frame);
           reconnect(0);
           return;
         }

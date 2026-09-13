@@ -96,7 +96,7 @@
     <div class="head">
     <header class="topbar">
       <button class="icon-btn" aria-label="Back" onclick={() => router.navigate("/")}>‹</button>
-      <h1>{s.view.config.title ?? "Untitled"}</h1>
+      <h1>{s.config.title ?? "Untitled"}</h1>
       <Gauge tokens={s.view.contextTokens} limit={s.view.contextWindow} />
       <div class="anchor">
         <button class="icon-btn" aria-label="Thread menu" onclick={() => (menuOpen = true)}>⋯</button>
@@ -128,9 +128,9 @@
       <Composer session={s} {api} onModel={() => (openSheet = "model")} bind:insert />
     </div>
     {#if openSheet === "rename"}
-      <Rename {api} config={s.view.config} onClose={() => (openSheet = null)} />
+      <Rename {api} config={s.config} onClose={() => (openSheet = null)} />
     {:else if openSheet === "model"}
-      <ModelEffort {api} config={s.view.config} onClose={() => (openSheet = null)} />
+      <ModelEffort {api} config={s.config} onClose={() => (openSheet = null)} />
     {:else if openSheet === "info"}
       <ThreadInfo view={s.view} onClose={() => (openSheet = null)} />
     {:else if openSheet === "archive"}

@@ -34,7 +34,7 @@
   {#if session.commandsError}
     <p class="error"><span class="glyph">▲</span> {session.commandsError}</p>
   {/if}
-  <div class="scope">{session.view.config.cwd}</div>
+  <div class="scope">{session.config.cwd}</div>
   <div class="list">
     {#each shown as c (c.name)}
       <button class="cmd-row" type="button" onclick={() => onPick(c)}>

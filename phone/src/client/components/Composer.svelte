@@ -28,7 +28,7 @@
   let sourcesOpen = $state(false);
   let skillsOpen = $state(false);
 
-  const config = $derived(session.view.config);
+  const config = $derived(session.config);
   const choice = $derived(catalog.find((c) => c.id === config.model));
   const modelLabel = $derived(choice?.label ?? config.model);
   const hasContent = $derived(draft.text.trim() !== "" || draft.command !== null || session.attachments.length > 0);

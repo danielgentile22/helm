@@ -64,7 +64,7 @@ test("a shorter server log resets the view and the stream together: the phone re
   for (const e of log) first.send(e);
   assert.equal(session.view.turns.length, 1);
   first.sync({ headSeq: 3 as Seq, session: "cold" });
-  assert.deepEqual([session.view.headSeq, session.view.turns.length, session.view.config.title], [0, 0, "Greeting"], "the fold is empty but the config it had is kept for the screen");
+  assert.deepEqual([session.view.headSeq, session.view.logHead, session.view.session, session.view.turns.length, session.config.title], [0, 3, "cold", 0, "Greeting"], "head and session come from the frame; the config it had stays until seq 1 replays it, so the screen never lacks one");
   await tick();
   const second = es();
   assert.notEqual(second, first);
@@ -84,7 +84,7 @@ test("a gap in the stream reconnects from the last seen seq without touching the
   first.open();
   for (const e of log.slice(0, 3)) first.send(e);
   first.send(log[4]!);
-  assert.equal(session.view.headSeq, 3, "the out-of-order event was not folded");
+  assert.equal(session.view.headSeq, 3, "the out-of-order event never reached the fold");
   await tick();
   assert.equal(es().url, "http://x/api/threads/t-1/events?after=3");
   assert.equal(session.conn, "replaying");

@@ -10,18 +10,16 @@
  * their identity, which a deep proxy would not preserve.
  */
 
-import type { SlashCommand, ThreadId, ThreadSummary } from "../shared/protocol";
+import type { SlashCommand, ThreadConfig, ThreadId, ThreadSummary } from "../shared/protocol";
 import type { ConnState, HelmClient } from "./api";
 import { addPendingPrompt, applySync, emptyView, fold, type PromptUpload, type ThreadView } from "./fold";
 import { uuid } from "./format";
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
-export type Conn = ConnState;
-
 export interface ThreadState {
   readonly view: ThreadView;
-  readonly conn: Conn;
+  readonly conn: ConnState;
   readonly attachments: readonly PromptUpload[];
   /** Fetched once when the thread opens; empty while the agent is unreachable. */
   readonly commands: readonly SlashCommand[];
@@ -58,7 +56,7 @@ export class ThreadSession {
     this.#detach = api.attach(threadId, 0, {
       onEvent: (ev) => this.#patch({ view: fold(this.view, ev) }),
       onSync: (frame) => this.#patch({ view: applySync(this.view, frame) }),
-      onReset: () => this.#patch({ view: emptyView(this.view.config) }),
+      onReset: (frame) => this.#patch({ view: { ...emptyView(this.view.config, frame.headSeq), session: frame.session } }),
       onState: (conn) => this.#patch({ conn }),
     });
     void this.loadCommands();
@@ -70,7 +68,10 @@ export class ThreadSession {
   get view(): ThreadView {
     return this.state.view;
   }
-  get conn(): Conn {
+  get config(): ThreadConfig {
+    return this.state.view.config;
+  }
+  get conn(): ConnState {
     return this.state.conn;
   }
   get attachments(): readonly PromptUpload[] {

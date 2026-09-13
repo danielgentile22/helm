@@ -1,8 +1,8 @@
 <script lang="ts">
   import type { Cursor } from "../../shared/protocol";
-  import type { Conn } from "../thread";
+  import type { ConnState } from "../api";
 
-  let { conn, seen, head }: { conn: Conn; seen: Cursor; head: Cursor } = $props();
+  let { conn, seen, head }: { conn: ConnState; seen: Cursor; head: Cursor } = $props();
 
   const pct = $derived(head > 0 ? Math.min(100, Math.round((seen / head) * 100)) : 0);
 </script>

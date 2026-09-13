@@ -1,4 +1,4 @@
-/** The reactive cell for a ThreadSession: one `$state.raw` the screen reads through the session's getters. */
+/** The only file that may hold the session's `$state.raw`: it hands ThreadSession a reactive cell and nothing else. */
 
 import type { ThreadSummary } from "../shared/protocol";
 import type { HelmClient } from "./api";
