@@ -25,7 +25,7 @@
 
 import { mkdir, readdir, readFile, stat, unlink, appendFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { fmtBytes } from "../../shared/protocol";
+import { fmtBytes, toolSummary } from "../../shared/protocol";
 import type { ClientMsgId, ThreadConfig, ThreadEvent, ThreadId } from "../../shared/protocol";
 import type { ThreadLog, Unsubscribe } from "./log";
 import type { ThreadStore } from "./thread-store";
@@ -188,19 +188,6 @@ function blockquote(text: string): string {
     .join("\n");
 }
 
-/** The one salient argument of a tool call, so the line reads as an action. */
-function toolArg(input: unknown): string {
-  if (typeof input === "string") return input;
-  if (input === null || typeof input !== "object") return "";
-  const rec = input as Record<string, unknown>;
-  for (const key of ["file_path", "path", "command", "pattern", "url", "notebook_path", "prompt", "description"]) {
-    const value = rec[key];
-    if (typeof value === "string" && value.length > 0) return value;
-  }
-  const json = JSON.stringify(input) ?? "";
-  return json.length > 160 ? json.slice(0, 160) + "..." : json;
-}
-
 function footer(ended: Extract<ThreadEvent, { kind: "turn.ended" }>): string {
   const parts = [`_${ended.outcome}_`];
   const u = ended.usage;
@@ -242,9 +229,9 @@ export function renderTurn(events: readonly ThreadEvent[]): string {
   }
   for (const ev of events) {
     if (ev.kind !== "tool.started") continue;
-    const arg = toolArg(ev.input);
+    const { label, arg } = toolSummary(ev.name, ev.input);
     const mark = failed.has(ev.toolUseId) ? " (failed)" : "";
-    tools.push(`${ev.name}${arg ? ` ${arg}` : ""}${mark}`);
+    tools.push(`${label}${arg ? ` ${arg}` : ""}${mark}`);
   }
 
   const sent: string[] = [];

@@ -8,34 +8,13 @@
  * sequence rather than by looking at the screen.
  */
 
+import { toolSummary } from "../shared/protocol";
 import type { TurnId, Usage } from "../shared/protocol";
 import type { Line, ThreadView } from "./fold";
 
 export type PromptLine = Extract<Line, { kind: "prompt" }>;
 export type ToolLine = Extract<Line, { kind: "tool" }>;
 export type FileLine = Extract<Line, { kind: "file" }>;
-
-export type ToolCategory = "read" | "run" | "edit" | "other";
-
-/**
- * A table rather than a chain of conditions, so adding a tool is one row.
- * Anything absent is "other", which is also what every `mcp__*` name gets.
- */
-export const TOOL_CATEGORY: Readonly<Record<string, ToolCategory>> = {
-  Read: "read",
-  Grep: "read",
-  Glob: "read",
-  ToolSearch: "read",
-  LS: "read",
-  WebFetch: "read",
-  WebSearch: "read",
-  Bash: "run",
-  Edit: "edit",
-  Write: "edit",
-  NotebookEdit: "edit",
-};
-
-export const categoryOf = (name: string): ToolCategory => TOOL_CATEGORY[name] ?? "other";
 
 export interface ActivityCounts {
   read: number;
@@ -153,7 +132,7 @@ const emptyCounts = (): ActivityCounts => ({ read: 0, run: 0, edit: 0, other: 0 
 
 function count(tools: readonly ToolLine[]): ActivityCounts {
   const c = emptyCounts();
-  for (const t of tools) c[categoryOf(t.name)] += 1;
+  for (const t of tools) c[toolSummary(t.name, t.input).category] += 1;
   return c;
 }
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { toolArg } from "../format";
+  import { toolSummary } from "../../shared/protocol";
   import { toolDiff, type ToolLine } from "../transcript";
   import Diff from "./Diff.svelte";
 
@@ -11,6 +11,7 @@
   let showAll = $state(false);
 
   const mark = $derived(tool.isError === null ? { cls: "running", glyph: "◆", word: "running" } : tool.isError ? { cls: "error", glyph: "▲", word: "failed" } : { cls: "done", glyph: "✓", word: "done" });
+  const summary = $derived(toolSummary(tool.name, tool.input));
   const diff = $derived(toolDiff(tool));
   const input = $derived(typeof tool.input === "string" ? tool.input : JSON.stringify(tool.input, null, 1));
   const outputLines = $derived(tool.output === null ? [] : tool.output.split("\n"));
@@ -21,8 +22,8 @@
 <div class="trow" class:is-open={open}>
   <button class="trhead" type="button" aria-expanded={open} onclick={() => (open = !open)}>
     <span class="state {mark.cls}"><span class="glyph">{mark.glyph}</span>{mark.word}</span>
-    <span class="name">{tool.name}</span>
-    <span class="arg">{toolArg(tool.input)}</span>
+    <span class="name">{summary.label}</span>
+    <span class="arg">{summary.arg}</span>
   </button>
   {#if open}
     {#if diff}
