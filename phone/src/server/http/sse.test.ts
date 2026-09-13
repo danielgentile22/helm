@@ -132,7 +132,7 @@ test("globalStream forwards only thread and turn boundary events, tagged by thre
   await lateLog.append({ kind: "thread.archived" });
   r.disconnect();
   await r.done;
-  const got = r.frames.filter(ev).map((f) => `${(f.ev as unknown as { threadId: string }).threadId.slice(-2)}:${f.ev.kind}`);
+  const got = r.frames.filter(ev).map((f) => `${f.ev.threadId?.slice(-2)}:${f.ev.kind}`);
   assert.deepEqual(got, ["ee:input.queued", "ff:thread.config", "ee:turn.ended", "11:thread.archived"]);
   assert.equal(r.frames.filter(ev).every((f) => f.id === -1), true, "global events carry no id: there is no cursor to resume from");
   assert.equal(h.log.viewerCount(), 0);

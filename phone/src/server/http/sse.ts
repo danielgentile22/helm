@@ -38,7 +38,8 @@ export interface StreamOptions {
 
 /** Wire chunks for one thread's event stream. Never throws; a failed replay logs and ends the stream. */
 export function threadStream(log: ThreadLog, supervisor: Supervisor, after: Cursor, opts: StreamOptions = {}): AsyncIterable<string> {
-  const out = wire(opts);
+  let unsub = (): void => {};
+  const out = wire(opts, () => unsub());
   let lastSent: Cursor = after;
   let live = false;
   const buffer: ThreadEvent[] = [];
@@ -47,7 +48,7 @@ export function threadStream(log: ThreadLog, supervisor: Supervisor, after: Curs
     lastSent = ev.seq;
     out.push(formatEvent(ev));
   };
-  const unsub = log.subscribe("viewer", (ev) => (live ? forward(ev) : buffer.push(ev)));
+  unsub = log.subscribe("viewer", (ev) => (live ? forward(ev) : buffer.push(ev)));
   void (async () => {
     try {
       for await (const ev of log.read(after)) forward(ev);
@@ -61,7 +62,7 @@ export function threadStream(log: ThreadLog, supervisor: Supervisor, after: Curs
       out.end();
     }
   })();
-  return out.drain(unsub);
+  return out.chunks;
 }
 
 const GLOBAL_KINDS = new Set<ThreadEvent["kind"]>(["thread.created", "thread.config", "thread.archived", "turn.started", "turn.ended", "input.queued"]);
@@ -73,14 +74,20 @@ const GLOBAL_KINDS = new Set<ThreadEvent["kind"]>(["thread.created", "thread.con
  * on reconnect instead of replaying; this stream has no cursor.
  */
 export function globalStream(logs: LogRegistry, opts: StreamOptions = {}): AsyncIterable<string> {
-  const out = wire(opts);
   const unsubs: (() => void)[] = [];
+  const out = wire(opts, () => unsubs.forEach((u) => u()));
   const attach = (log: ThreadLog): void => {
     unsubs.push(log.subscribe("projection", (ev) => GLOBAL_KINDS.has(ev.kind) && out.push(formatGlobalEvent(log.threadId, ev))));
   };
   unsubs.push(logs.onOpen(attach));
-  void logs.openLogs().then((open) => open.forEach(attach));
-  return out.drain(() => unsubs.forEach((u) => u()));
+  logs.openLogs().then(
+    (open) => open.forEach(attach),
+    (err: unknown) => {
+      console.error("[sse global] stream failed", err);
+      out.end();
+    },
+  );
+  return out.chunks;
 }
 
 /** Attach a thread's stream to the response. Ends when the client disconnects. */
@@ -106,14 +113,14 @@ function respond(c: Context, open: (signal: AbortSignal) => AsyncIterable<string
   });
 }
 
-/** A chunk queue that opens with the retry line, heartbeats while idle, and ends on abort. */
-function wire(opts: StreamOptions): Pushable<string> & { drain(cleanup: () => void): AsyncIterable<string> } {
+/** A chunk queue that opens with the retry line, heartbeats while idle, and ends on abort or when the consumer stops. */
+function wire(opts: StreamOptions, cleanup: () => void): { push(chunk: string): void; end(): void; chunks: AsyncIterable<string> } {
   const out = new Pushable<string>();
   out.push("retry: 1000\n\n");
-  const heartbeat = setInterval(() => out.push(formatComment("hb")), opts.heartbeatMs ?? LIMITS.SSE_HEARTBEAT_MS);
   const end = (): void => out.end();
-  opts.signal?.addEventListener("abort", end, { once: true });
-  async function* drain(cleanup: () => void): AsyncIterable<string> {
+  async function* chunks(): AsyncIterable<string> {
+    const heartbeat = setInterval(() => out.push(formatComment("hb")), opts.heartbeatMs ?? LIMITS.SSE_HEARTBEAT_MS);
+    opts.signal?.addEventListener("abort", end, { once: true });
     try {
       for await (const chunk of out) yield chunk;
     } finally {
@@ -123,7 +130,7 @@ function wire(opts: StreamOptions): Pushable<string> & { drain(cleanup: () => vo
       out.end();
     }
   }
-  return Object.assign(out, { drain });
+  return { push: (chunk) => out.push(chunk), end, chunks: chunks() };
 }
 
 function formatEvent(ev: ThreadEvent): string {
