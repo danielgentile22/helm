@@ -74,7 +74,7 @@ import type {
 } from "../../shared/protocol";
 import type { AgentFactory } from "../core/agent";
 import { modelCatalog, parseModelId } from "../core/agent";
-import { parseQuery, searchCorpus, ThreadSearch } from "../core/search";
+import { parseQuery, ThreadSearch } from "../core/search";
 import { threadSummary } from "../core/summary";
 import type { LogRegistry, ThreadLog } from "../core/log";
 import type { PushSubscriptionRecord } from "../core/push";
@@ -250,7 +250,7 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
   app.get("/api/threads", async (c) => {
     const configs = await deps.threads.list({ includeArchived: c.req.query("archived") === "1" });
     const out = await Promise.all(configs.map(async (cfg) => summary(await deps.logs.get(cfg.threadId), cfg)));
-    out.sort((a, b) => activity(b).localeCompare(activity(a)));
+    out.sort((a, b) => (b.lastTurnEndedAt ?? b.config.createdAt).localeCompare(a.lastTurnEndedAt ?? a.config.createdAt));
     return c.json(out);
   });
 
@@ -262,17 +262,9 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     if (!/^-?\d+$/.test(raw)) return fail(c, 400, "limit must be an integer");
     const limit = Math.min(100, Math.max(1, Number(raw)));
     const configs = await deps.threads.list({ includeArchived: c.req.query("archived") === "1" });
-    const found = await Promise.all(
-      configs.map(async (cfg) => {
-        const match = searchCorpus(cfg.title, await search.corpus(cfg.threadId), terms);
-        if (!match) return null;
-        const hit: SearchHit = { summary: summary(await deps.logs.get(cfg.threadId), cfg), seq: match.seq, snippet: match.snippet, ranges: match.ranges };
-        return { hit, turnsMatched: match.turnsMatched };
-      }),
-    );
-    const rows = found.filter((r): r is { hit: SearchHit; turnsMatched: number } => r !== null);
-    rows.sort((a, b) => activity(b.hit.summary).localeCompare(activity(a.hit.summary)) || b.turnsMatched - a.turnsMatched);
-    return c.json(rows.slice(0, limit).map((r) => r.hit));
+    const found = await search.find(configs, terms, limit);
+    const rows: SearchHit[] = found.map(({ config, log, match }) => ({ summary: summary(log, config), seq: match.seq, snippet: match.snippet, ranges: match.ranges }));
+    return c.json(rows);
   });
 
   app.post("/api/threads", async (c) => {
@@ -652,10 +644,6 @@ async function json(c: Context): Promise<Record<string, unknown> | null> {
   }
 }
 
-/** Last activity: when the thread last finished a turn, else when it was made. */
-function activity(s: ThreadSummary): string {
-  return s.lastTurnEndedAt ?? s.config.createdAt;
-}
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

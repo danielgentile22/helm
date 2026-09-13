@@ -1,35 +1,18 @@
-/** Search snippet highlighting. Pure, no DOM. */
+/** Search snippet highlighting. Pure, no DOM. The server sends valid, in-bounds offsets; only overlap is resolved here. */
 
-type Span = readonly [number, number];
+import { mergeRanges, type MatchRange } from "../shared/protocol";
 
 export interface Segment {
   readonly text: string;
   readonly hit: boolean;
 }
 
-/** Clamped, sorted, non-empty, non-overlapping. Adjacent spans stay separate: touching is not overlapping. */
-function normalize(text: string, ranges: readonly Span[]): Span[] {
-  const clamped: Span[] = [];
-  for (const [start, end] of ranges) {
-    const s = Math.min(Math.max(start, 0), text.length);
-    const e = Math.min(Math.max(end, 0), text.length);
-    if (s < e) clamped.push([s, e]);
-  }
-  clamped.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-
-  const merged: Span[] = [];
-  for (const span of clamped) {
-    const last = merged[merged.length - 1];
-    if (last && span[0] < last[1]) merged[merged.length - 1] = [last[0], Math.max(last[1], span[1])];
-    else merged.push(span);
-  }
-  return merged;
-}
-
-export function segments(text: string, ranges: readonly Span[]): readonly Segment[] {
+export function segments(text: string, ranges: readonly MatchRange[]): readonly Segment[] {
   const out: Segment[] = [];
   let at = 0;
-  for (const [start, end] of normalize(text, ranges)) {
+  for (const [start, stop] of mergeRanges(ranges)) {
+    const end = Math.min(stop, text.length);
+    if (start >= end) continue;
     if (start > at) out.push({ text: text.slice(at, start), hit: false });
     out.push({ text: text.slice(start, end), hit: true });
     at = end;

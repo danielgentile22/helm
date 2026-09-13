@@ -41,7 +41,7 @@
   let suppressClick = false;
   let savedScroll = 0;
   let wasSearching = false;
-  let issued = 0;
+  let latestRequest = 0;
   let screen: HTMLElement | null = null;
 
   // On the two-pane layout the list scrolls inside .pane-list, not the window.
@@ -117,22 +117,22 @@
 
     searchError = "";
     if (!sent) {
-      issued++;
+      latestRequest++;
       results = null;
       searching = false;
       return;
     }
     searching = true;
-    const mine = ++issued;
+    const thisRequest = ++latestRequest;
     const timer = setTimeout(() => {
       void api.searchThreads(sent, true, 50).then(
         (hits) => {
-          if (mine !== issued) return;
+          if (thisRequest !== latestRequest) return;
           results = { query: sent, hits };
           searching = false;
         },
         (err: unknown) => {
-          if (mine !== issued) return;
+          if (thisRequest !== latestRequest) return;
           searchError = `Could not search: ${err instanceof Error ? err.message : String(err)}`;
           searching = false;
         },

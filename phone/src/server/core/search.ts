@@ -26,7 +26,8 @@
  *       in-flight promise, so an event is never folded twice.
  */
 
-import type { ClientMsgId, Cursor, MatchRange, Seq, ThreadId, TurnId } from "../../shared/protocol";
+import { mergeRanges, seqOfTurnId } from "../../shared/protocol";
+import type { ClientMsgId, Cursor, MatchRange, Seq, ThreadConfig, ThreadId, TurnId } from "../../shared/protocol";
 import { foldTurn, type Turn } from "../../shared/turns";
 import type { LogRegistry, ThreadLog } from "./log";
 
@@ -51,6 +52,13 @@ export interface CorpusMatch {
   readonly snippet: string;
   readonly ranges: readonly MatchRange[];
   readonly turnsMatched: number;
+}
+
+/** One ranked search result: the thread, its open log, and where the query hit. */
+export interface Found {
+  readonly config: ThreadConfig;
+  readonly log: ThreadLog;
+  readonly match: CorpusMatch;
 }
 
 const SNIPPET_CHARS = 160;
@@ -109,9 +117,9 @@ export function searchCorpus(title: string | null, corpus: Corpus, terms: readon
   if (covered.size < terms.length) return null;
   if (!best) return { seq: null, snippet: "", ranges: [], turnsMatched: 0 };
 
-  const first = matchAll(best.turn.text, best.terms[0]!)[0]!;
+  const first = mergeRanges(best.terms.flatMap((term) => matchAll(best!.turn.text, term)))[0]!;
   const snippet = snippetAround(best.turn.text, first);
-  const ranges = merge(terms.flatMap((term) => matchAll(snippet, term)));
+  const ranges = mergeRanges(terms.flatMap((term) => matchAll(snippet, term)));
   return { seq: best.turn.seq, snippet, ranges, turnsMatched };
 }
 
@@ -131,17 +139,6 @@ function snippetAround(text: string, hit: MatchRange): string {
   return line.slice(Math.max(0, end - SNIPPET_CHARS), end).trim();
 }
 
-function merge(ranges: readonly MatchRange[]): MatchRange[] {
-  const sorted = [...ranges].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  const out: MatchRange[] = [];
-  for (const [start, end] of sorted) {
-    const last = out[out.length - 1];
-    if (last && start < last[1]) out[out.length - 1] = [last[0], Math.max(last[1], end)];
-    else out.push([start, end]);
-  }
-  return out;
-}
-
 /** The prompt and every text block, trimmed and joined. Null when the turn has no boundary to land on. */
 function turnText(turn: Turn, promptSeq: ReadonlyMap<ClientMsgId, Seq>): TurnText | null {
   const seq = turnSeq(turn, promptSeq);
@@ -158,10 +155,7 @@ function turnText(turn: Turn, promptSeq: ReadonlyMap<ClientMsgId, Seq>): TurnTex
 }
 
 function turnSeq(turn: Turn, promptSeq: ReadonlyMap<ClientMsgId, Seq>): Seq | null {
-  if (turn.turnId) {
-    const seq = Number(turn.turnId.slice(2));
-    if (Number.isInteger(seq)) return seq as Seq;
-  }
+  if (turn.turnId) return seqOfTurnId(turn.turnId);
   const clientMsgId = turn.prompt?.clientMsgId;
   return (clientMsgId ? promptSeq.get(clientMsgId) : undefined) ?? null;
 }
@@ -171,6 +165,25 @@ export class ThreadSearch {
   private readonly folding = new Map<ThreadId, Promise<Corpus>>();
 
   constructor(private readonly logs: LogRegistry) {}
+
+  /**
+   * Every thread among `configs` that matches all the terms, ranked by last
+   * activity, then by how many turns matched, cut to `limit`. Scoring
+   * beyond that is out of scope at personal thread counts.
+   */
+  async find(configs: readonly ThreadConfig[], terms: readonly string[], limit: number): Promise<readonly Found[]> {
+    const found = await Promise.all(
+      configs.map(async (config): Promise<Found | null> => {
+        const match = searchCorpus(config.title, await this.corpus(config.threadId), terms);
+        return match ? { config, log: await this.logs.get(config.threadId), match } : null;
+      }),
+    );
+    const activity = (f: Found): string => f.log.getHead().lastTurnEndedAt ?? f.config.createdAt;
+    return found
+      .filter((f): f is Found => f !== null)
+      .sort((a, b) => activity(b).localeCompare(activity(a)) || b.match.turnsMatched - a.match.turnsMatched)
+      .slice(0, limit);
+  }
 
   /** The thread's corpus, folded up to the log's current head (S3). */
   corpus(threadId: ThreadId): Promise<Corpus> {

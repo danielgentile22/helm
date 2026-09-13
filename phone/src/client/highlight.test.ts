@@ -54,16 +54,3 @@ test("a range at the very end leaves no trailing segment", () => {
 test("a range covering the whole string is a single hit", () => {
   assert.deepEqual(segments("worker", [[0, 6]]), [{ text: "worker", hit: true }]);
 });
-
-test("empty, inverted, and out of bounds ranges are dropped or clamped", () => {
-  assert.deepEqual(segments("worker", [[2, 2]]), [{ text: "worker", hit: false }]);
-  assert.deepEqual(segments("worker", [[4, 1]]), [{ text: "worker", hit: false }]);
-  assert.deepEqual(segments("worker", [[-3, 2]]), [
-    { text: "wo", hit: true },
-    { text: "rker", hit: false },
-  ]);
-  assert.deepEqual(segments("worker", [[4, 99]]), [
-    { text: "work", hit: false },
-    { text: "er", hit: true },
-  ]);
-});

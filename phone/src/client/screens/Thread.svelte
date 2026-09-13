@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import { turnIdFor } from "../../shared/protocol";
   import type { ThreadId } from "../../shared/protocol";
   import type { HelmClient } from "../api";
   import Composer from "../components/Composer.svelte";
@@ -95,7 +96,7 @@
     atBottom = false;
     const { seq } = landing;
     void tick().then(() => {
-      const el = document.querySelector(`[data-turn="t:${seq}"]`);
+      const el = document.querySelector(`[data-turn="${turnIdFor(seq)}"]`);
       if (el) el.scrollIntoView({ block: "start" });
       else follow();
     });

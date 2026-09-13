@@ -4,7 +4,8 @@ import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, writeFile, mkdir, rm, truncate } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LogRegistry, ThreadLog, turnIdFor } from "./log";
+import { turnIdFor } from "../../shared/protocol";
+import { LogRegistry, ThreadLog } from "./log";
 import type {
   AskId,
   ClaudeSessionId,
