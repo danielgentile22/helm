@@ -32,9 +32,13 @@ a { color: var(--accent); }
 .rows { display: flex; flex-direction: column; }
 .row { display: block; width: 100%; text-align: left; position: relative; background: transparent; border: 0; border-bottom: 1px solid var(--hair); border-radius: 0; padding: var(--s-5) var(--s-5) var(--s-5) var(--s-6); }
 .row:last-child { border-bottom: 0; }
-.row::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: transparent; }
-.row.is-running::before { background: linear-gradient(180deg, transparent, var(--accent-solid), transparent); background-size: 100% 220%; animation: railrun var(--d-rail) linear infinite; }
-@keyframes railrun { 0% { background-position: 0 -120%; } 100% { background-position: 0 120%; } }
+/* The light rides the compositor: a strip twice the loop's length translating inside a clipped
+   track, where animating background-position would repaint the strip on every frame instead. */
+.rail { position: absolute; width: 3px; overflow: hidden; }
+.rail i { position: absolute; left: 0; right: 0; top: 0; background: linear-gradient(180deg, transparent, var(--accent-solid), transparent); }
+.row .rail { left: 0; top: 0; bottom: 0; }
+.row .rail i { height: 440%; background-size: 100% 50%; animation: railrun var(--d-rail) linear infinite; }
+@keyframes railrun { to { transform: translateY(-50%); } }
 .row.is-archived { opacity: .55; }
 .row .r1 { display: flex; align-items: baseline; gap: var(--s-4); }
 .row .title { flex: 1; font-size: var(--t-base); font-weight: 600; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -55,10 +59,9 @@ a { color: var(--accent); }
   55% { box-shadow: 0 0 0 6px color-mix(in srgb, currentColor 0%, transparent); opacity: .55; }
 }
 /* The duration tokens collapse to 1ms under reduced motion, which would strobe an infinite
-   animation rather than stop it. Both states hold still and stay readable instead. */
+   animation rather than stop it. The pulse holds still and stays readable instead. */
 @media (prefers-reduced-motion: reduce) {
   .dot.pulse { animation: none; opacity: 1; }
-  .row.is-running::before { animation: none; background: var(--accent-solid); }
 }
 .filterbar { position: sticky; bottom: 0; z-index: 1; display: flex; gap: var(--s-3); padding: var(--s-3) var(--s-5) calc(env(safe-area-inset-bottom) + var(--s-5)); background: var(--bg); border-top: 1px solid var(--hair); }
 .chip { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; border: 1px solid var(--hair); background: var(--surface); color: var(--ink-2); border-radius: var(--r-pill); padding: 5px 10px; font-size: var(--t-xs); transition: transform var(--d-swift) var(--e-out); }
@@ -108,8 +111,9 @@ a { color: var(--accent); }
 .transcript { flex: 1; position: relative; padding: var(--s-6) var(--s-5) var(--s-8); overflow-wrap: anywhere; }
 .transcript::before { content: ""; position: absolute; left: calc(var(--s-5) + var(--rail-x)); top: 0; bottom: 0; width: 1px; background: var(--rail); }
 .turn { position: relative; }
-.turn.is-live::before { content: ""; position: absolute; left: calc(var(--rail-x) - 1px); top: 7px; bottom: 0; width: 3px; border-radius: 2px; background: linear-gradient(180deg, transparent, var(--accent-solid), transparent); background-size: 100% 42%; background-repeat: no-repeat; animation: railtravel var(--d-rail) linear infinite; }
-@keyframes railtravel { from { background-position: 0 -42%; } to { background-position: 0 142%; } }
+.turn .rail { left: calc(var(--rail-x) - 1px); top: 7px; bottom: 0; border-radius: 2px; }
+.turn .rail i { height: 42%; animation: railtravel var(--d-rail) linear infinite; }
+@keyframes railtravel { from { transform: translateY(-58%); } to { transform: translateY(196%); } }
 @keyframes slidein { from { transform: translateX(-14px); opacity: 0; } }
 @keyframes soft { 0%, 100% { opacity: 1; } 50% { opacity: .22; } }
 .blk { position: relative; padding-left: var(--gutter); margin-bottom: var(--s-7); }
@@ -279,7 +283,7 @@ a { color: var(--accent); }
 /* Last in the file on purpose: these override the transcript animations declared above,
    which the earlier reduced-motion block cannot, having been written before them. */
 @media (prefers-reduced-motion: reduce) {
-  .turn.is-live::before { animation: none; background: var(--accent-solid); }
+  .row .rail i, .turn .rail i { animation: none; height: 100%; background: var(--accent-solid); }
   .act .now, .statusbar, .menu, .pop { animation: none; }
   .spin { animation: none; }
   .think-body.is-streaming::after, .md.is-streaming > :last-child::after { animation: none; opacity: 1; }

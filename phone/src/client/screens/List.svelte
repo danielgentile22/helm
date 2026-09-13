@@ -149,6 +149,7 @@
                 animate:flip={{ duration: motion.base }}
                 onclick={() => router.navigate(`/t/${r.summary.config.threadId}`)}
               >
+                {#if r.state === "running"}<span class="rail" aria-hidden="true"><i></i></span>{/if}
                 <span class="r1">
                   <span class="title">{r.summary.config.title ?? "Untitled"}</span>
                   <span class="when">{fmtRelative(r.when, new Date())}</span>
