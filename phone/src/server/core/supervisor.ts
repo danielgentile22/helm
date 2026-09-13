@@ -17,15 +17,25 @@
  *       before anything can act on it, and is visible to every viewer.
  *   S3. A turn starts only from the head of the queue, in order. A message
  *       that arrives mid-turn runs as the next turn on the same process.
- *   S4. Config changes (model/effort) take effect at the next turn boundary.
+ *   S4. Config changes (model/effort) take effect at the next turn boundary;
+ *       a permission mode change reaches a live process at once.
  *   S5. interrupt() is idempotent; on a non-running thread it does nothing.
+ *   S6. An ask is settled exactly once in the log, and the log's word is
+ *       what reaches the process: answer() appends first and forwards only
+ *       when the append won; interrupt, archive, and a dead process seal
+ *       every pending ask with a system denial before the turn ends.
  */
 
 import type {
+  AskAnswer,
+  AskId,
+  AskSystemReason,
   ClientMsgId,
   Effort,
   ModelId,
   Origin,
+  PendingAsk,
+  PermissionMode,
   SendResponse,
   StagedUpload,
   SyncFrame,
@@ -48,8 +58,16 @@ interface Live {
   readonly agent: AgentSession;
   readonly iter: AsyncIterator<AgentEvent>;
   /** What the process was spawned with, so a config change during warming can be applied after. */
-  readonly spawnedWith: { model: ModelId; effort: Effort };
+  readonly spawnedWith: { model: ModelId; effort: Effort; permissionMode: PermissionMode };
 }
+
+/**
+ * Why an answer was not appended. `conflict` is an ask this log has seen and
+ * already settled; `unknown` one it never opened; `mismatch` an answer shape
+ * the ask cannot take (a tool ask takes allow, allowTurn or deny; a question
+ * takes answers or deny).
+ */
+export type AnswerResult = "ok" | "conflict" | "unknown" | "mismatch";
 
 export type SessionState =
   | { tag: "cold" }
@@ -104,11 +122,40 @@ export class Supervisor {
     return { accepted: true, state: behind ? "queued" : "running", seq: ev.seq };
   }
 
-  /** S5. The agent's own turn.ended {interrupted} flows through the normal event path. */
+  /** S5, S6. Pending asks are sealed first so the SDK callback returns before the interrupt lands; the agent's own turn.ended {interrupted} then flows through the normal event path. */
   async interrupt(threadId: ThreadId): Promise<void> {
     const s = this.state(threadId);
     if (s.tag !== "running") return;
+    await this.seal(threadId, await this.logs.get(threadId), "interrupted");
     await s.live.agent.interrupt();
+  }
+
+  /**
+   * Settle a pending ask on the user's behalf (S6). The appendIf predicate
+   * runs inside the log's serial queue, so two devices answering one ask
+   * cannot both win, and a seal racing an answer cannot double-settle.
+   */
+  async answer(threadId: ThreadId, askId: AskId, answer: AskAnswer, origin: Origin): Promise<AnswerResult> {
+    const log = await this.logs.get(threadId);
+    const settled = (): AnswerResult => (log.getHead().recentAskIds.has(askId) ? "conflict" : "unknown");
+    const pending = log.getHead().pendingAsks.find((a) => a.askId === askId);
+    if (!pending) return settled();
+    if (!fits(pending, answer)) return "mismatch";
+    const ev = await log.appendIf((h) => h.pendingAsks.some((a) => a.askId === askId), { kind: "ask.answered", turnId: pending.turnId, askId, answer, by: { by: "user", origin } });
+    if (!ev) return settled();
+    const s = this.state(threadId);
+    if (s.tag === "running") s.live.agent.answer(askId, answer);
+    return "ok";
+  }
+
+  /** Deny every pending ask in the log with a system reason, then let the process know. */
+  private async seal(threadId: ThreadId, log: ThreadLog, reason: AskSystemReason): Promise<void> {
+    for (const a of log.getHead().pendingAsks) {
+      const answer: AskAnswer = { kind: "deny", reason: null };
+      const ev = await log.appendIf((h) => h.pendingAsks.some((p) => p.askId === a.askId), { kind: "ask.answered", turnId: a.turnId, askId: a.askId, answer, by: { by: "system", reason } });
+      const s = this.state(threadId);
+      if (ev && s.tag === "running") s.live.agent.answer(a.askId, answer);
+    }
   }
 
   /**
@@ -123,14 +170,17 @@ export class Supervisor {
     if (s.tag !== "idle" && s.tag !== "running") return;
     if (patch.model !== undefined) await s.live.agent.setModel(patch.model);
     if (patch.effort !== undefined) await s.live.agent.setEffort(patch.effort);
+    if (patch.permissionMode !== undefined) await s.live.agent.setPermissionMode(patch.permissionMode);
   }
 
   /** Kill the process if any, keep the session id, drop queued inputs, append `thread.archived`. */
   async archive(threadId: ThreadId): Promise<void> {
     const log = await this.logs.get(threadId);
     await this.threads.archive(threadId);
-    const s = this.state(threadId);
-    if (s.tag === "running") await s.live.agent.interrupt();
+    if (this.state(threadId).tag === "running") {
+      await this.seal(threadId, log, "archived");
+      await this.interrupt(threadId);
+    }
     await this.draining.get(threadId);
     await this.killLive(threadId);
     for (const q of log.getHead().queued) {
@@ -261,6 +311,7 @@ export class Supervisor {
     const fresh = (await this.threads.get(threadId)) ?? config;
     if (spawned && fresh.model !== live.spawnedWith.model) await live.agent.setModel(fresh.model);
     if (spawned && fresh.effort !== live.spawnedWith.effort) await live.agent.setEffort(fresh.effort);
+    if (spawned && fresh.permissionMode !== live.spawnedWith.permissionMode) await live.agent.setPermissionMode(fresh.permissionMode);
     config = fresh;
 
     // The turn id is the seq of its own turn.started, minted inside the log's serial queue.
@@ -287,6 +338,8 @@ export class Supervisor {
     await sent;
     if (ended) this.settleIdle(threadId);
     if (!ended) {
+      // The process is gone, so its asks can never be answered; `restart` is the reason that names a vanished process, and the phone reads it as expiry.
+      await this.seal(threadId, log, "restart");
       await log.append({ kind: "turn.ended", turnId, outcome: "error", sessionId: live.agent.sessionId ?? log.getHead().sessionId, usage: null, error: "Claude Code session exited" });
       await live.agent.kill();
       this.states.set(threadId, COLD);
@@ -308,6 +361,7 @@ export class Supervisor {
         cwd: config.cwd,
         model: config.model,
         effort: config.effort,
+        permissionMode: config.permissionMode,
         resume: log.getHead().sessionId,
         additionalDirectories: this.opts.additionalDirectories,
         appendSystemPrompt: PHONE_APPENDIX,
@@ -317,7 +371,7 @@ export class Supervisor {
         await agent.kill();
         throw new Error("shutting down");
       }
-      return { live: { agent, iter: agent.events()[Symbol.asyncIterator](), spawnedWith: { model: config.model, effort: config.effort } }, spawned: true };
+      return { live: { agent, iter: agent.events()[Symbol.asyncIterator](), spawnedWith: { model: config.model, effort: config.effort, permissionMode: config.permissionMode } }, spawned: true };
     } catch (err) {
       this.states.set(threadId, COLD);
       throw err;
@@ -330,6 +384,11 @@ export class Supervisor {
     this.states.set(threadId, { tag: "parked" });
     await s.live.agent.kill();
   }
+}
+
+/** Whether an answer has the shape the ask can take. */
+function fits(ask: PendingAsk, answer: AskAnswer): boolean {
+  return ask.ask.kind === "question" ? answer.kind === "answers" || answer.kind === "deny" : answer.kind !== "answers";
 }
 
 /** Derive a title from the first user text: first line, <= 60 chars, no trailing punctuation. Pure. */

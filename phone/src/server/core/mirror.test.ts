@@ -132,7 +132,7 @@ async function harness(): Promise<Harness> {
   await mkdir(vault, { recursive: true });
   await mkdir(cwd, { recursive: true });
   const store = new ThreadStore(threadsRoot);
-  await store.create({ threadId, cwd, model, effort: "high", title: "Vault triage" });
+  await store.create({ threadId, cwd, model, effort: "high", permissionMode: "bypass", title: "Vault triage" });
   const log = await ThreadLog.open(threadId, join(threadsRoot, threadId));
   return { vault, threadsRoot, store, log, note: mirrorPath(vault, threadId) };
 }

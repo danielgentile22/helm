@@ -112,7 +112,7 @@ async function rig(opts: { title?: string | null; fail?: (endpoint: string) => u
   const threadsRoot = join(home, "threads");
   const file = join(home, "push", "subscriptions.json");
   const threads = new ThreadStore(threadsRoot);
-  await threads.create({ threadId, cwd: home, model: "claude-opus-5" as ModelId, effort: "high", title: opts.title ?? "Vault cleanup" });
+  await threads.create({ threadId, cwd: home, model: "claude-opus-5" as ModelId, effort: "high", permissionMode: "bypass", title: opts.title ?? "Vault cleanup" });
   const log = await ThreadLog.open(threadId, join(threadsRoot, threadId));
   const sent: { endpoint: string; payload: PushPayload }[] = [];
   const push = new PushService(file, vapid, threads, {

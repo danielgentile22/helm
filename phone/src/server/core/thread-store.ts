@@ -11,7 +11,8 @@
 
 import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve, sep } from "node:path";
-import type { CreateThreadRequest, DirEntry, ThreadConfig, ThreadConfigPatch, ThreadId } from "../../shared/protocol";
+import { PERMISSION_MODES } from "../../shared/protocol";
+import type { CreateThreadRequest, DirEntry, PermissionMode, ThreadConfig, ThreadConfigPatch, ThreadId } from "../../shared/protocol";
 import { atomicWrite } from "../util/atomicWrite";
 
 const UPLOADS_DIRNAME = ".helm2-uploads";
@@ -34,8 +35,8 @@ export class ThreadStore {
     return join(this.threadsRoot, threadId, "thread.json");
   }
 
-  /** Idempotent on threadId: creating an existing thread returns it unchanged (client-minted ids may be retried). */
-  async create(req: CreateThreadRequest & { threadId: ThreadId }): Promise<ThreadConfig> {
+  /** Idempotent on threadId: creating an existing thread returns it unchanged (client-minted ids may be retried). The caller resolves the permission mode; the store records it. */
+  async create(req: CreateThreadRequest & { threadId: ThreadId; permissionMode: PermissionMode }): Promise<ThreadConfig> {
     const existing = await this.get(req.threadId);
     if (existing) return existing;
     if (!isAbsolute(req.cwd) || !(await isDir(req.cwd))) throw new Error(`cwd is not an existing absolute directory: ${req.cwd}`);
@@ -44,6 +45,7 @@ export class ThreadStore {
       cwd: resolve(req.cwd),
       model: req.model,
       effort: req.effort,
+      permissionMode: req.permissionMode,
       title: req.title ?? null,
       createdAt: new Date().toISOString(),
       archivedAt: null,
@@ -53,9 +55,11 @@ export class ThreadStore {
     return config;
   }
 
+  /** A thread.json written before permission modes existed ran everything; it keeps doing so. */
   async get(threadId: ThreadId): Promise<ThreadConfig | null> {
     try {
-      return JSON.parse(await readFile(this.file(threadId), "utf8")) as ThreadConfig;
+      const raw = JSON.parse(await readFile(this.file(threadId), "utf8")) as ThreadConfig;
+      return PERMISSION_MODES.includes(raw.permissionMode) ? raw : { ...raw, permissionMode: "bypass" };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw err;

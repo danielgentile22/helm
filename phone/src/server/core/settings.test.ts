@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { HelmSettings, ModelId } from "../../shared/protocol";
 import { SettingsStore, settingsFrom } from "./settings";
 
-const defaults: HelmSettings = { theme: "system", defaultModel: null, defaultEffort: "medium", defaultCwd: "/home/work" };
+const defaults: HelmSettings = { theme: "system", defaultModel: null, defaultEffort: "medium", defaultCwd: "/home/work", defaultPermissionMode: "ask" };
 
 test("settingsFrom keeps what it recognises and falls back on everything else", () => {
   assert.deepEqual(settingsFrom({ theme: "dark", defaultEffort: "high" }, defaults), { ...defaults, theme: "dark", defaultEffort: "high" });
@@ -14,7 +14,8 @@ test("settingsFrom keeps what it recognises and falls back on everything else", 
   assert.deepEqual(settingsFrom(null, defaults), defaults);
   assert.deepEqual(settingsFrom("not an object", defaults), defaults);
 
-  assert.deepEqual(settingsFrom({ theme: "neon", defaultEffort: "ultra", defaultCwd: "relative" }, defaults), defaults, "ill-typed values fall back rather than poison the record");
+  assert.deepEqual(settingsFrom({ theme: "neon", defaultEffort: "ultra", defaultCwd: "relative", defaultPermissionMode: "yolo" }, defaults), defaults, "ill-typed values fall back rather than poison the record");
+  assert.equal(settingsFrom({ defaultPermissionMode: "bypass" }, defaults).defaultPermissionMode, "bypass");
   assert.equal(settingsFrom({ defaultModel: "claude-opus-5" }, defaults).defaultModel, "claude-opus-5" as ModelId);
   assert.equal(settingsFrom({ defaultModel: null }, { ...defaults, defaultModel: "x" as ModelId }).defaultModel, null, "an explicit null clears it");
 });
@@ -40,7 +41,7 @@ test("concurrent patches all land: the store serializes read-modify-write", asyn
   try {
     const store = new SettingsStore(join(home, "settings.json"), { defaultCwd: "/home/work" });
     await Promise.all([store.patch({ theme: "dark" }), store.patch({ defaultEffort: "low" }), store.patch({ defaultCwd: "/elsewhere" })]);
-    assert.deepEqual(await store.get(), { theme: "dark", defaultModel: null, defaultEffort: "low", defaultCwd: "/elsewhere" });
+    assert.deepEqual(await store.get(), { theme: "dark", defaultModel: null, defaultEffort: "low", defaultCwd: "/elsewhere", defaultPermissionMode: "ask" });
   } finally {
     await rm(home, { recursive: true, force: true });
   }

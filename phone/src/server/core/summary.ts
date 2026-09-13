@@ -5,7 +5,7 @@
  */
 
 import { tidy, toolSummary } from "../../shared/protocol";
-import type { DoingNow, SyncFrame, ThreadConfig, ThreadSummary } from "../../shared/protocol";
+import type { DoingNow, PendingAsk, SyncFrame, ThreadConfig, ThreadSummary } from "../../shared/protocol";
 import type { ThreadHead } from "./log";
 
 /** How much text a row can fit: the preview takes the first slice, the doing line the last. */
@@ -23,7 +23,14 @@ export function threadSummary(head: ThreadHead, config: ThreadConfig, session: S
     doing: doingNow(head, session),
     usageTotal: head.usageTotal,
     contextWindow: head.contextWindow,
+    waiting: session === "running" && head.pendingAsks.length > 0,
   };
+}
+
+function askDoing(ask: PendingAsk): DoingNow {
+  if (ask.ask.kind === "question") return { kind: "tool", name: "Question", arg: tidy(ask.ask.questions[0]?.question ?? "").slice(0, ROW_CHARS) };
+  const { label, arg } = toolSummary(ask.ask.toolName, ask.ask.input);
+  return { kind: "tool", name: label, arg };
 }
 
 function preview(head: ThreadHead): string | null {
@@ -35,9 +42,12 @@ function preview(head: ThreadHead): string | null {
  * A tool counts only while the session is running: in any other state the
  * process is gone and a spinner would be a lie. Text has no such constraint,
  * so a cold thread still shows the last thing it said. A tool in flight wins
- * over text because the tool is what the thread is blocked on.
+ * over text because the tool is what the thread is blocked on, and a pending
+ * ask wins over the tool because the person is what it is blocked on.
  */
 function doingNow(head: ThreadHead, session: SyncFrame["session"]): DoingNow | null {
+  const ask = head.pendingAsks[0];
+  if (session === "running" && ask) return askDoing(ask);
   if (session === "running" && head.activeTool) {
     const { label, arg } = toolSummary(head.activeTool.name, head.activeTool.input);
     return { kind: "tool", name: label, arg };
