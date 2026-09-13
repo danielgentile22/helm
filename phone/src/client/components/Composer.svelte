@@ -3,6 +3,7 @@
   import type { HelmClient } from "../api";
   import { commandLabel, emptyDraft, filterCommands, sentText, slashToken, type Draft } from "../commands";
   import { models } from "../models";
+  import Skills from "../sheets/Skills.svelte";
   import type { ThreadSession } from "../thread.svelte";
 
   let {
@@ -22,6 +23,7 @@
   let catalog = $state<readonly ModelChoice[]>([]);
   let uploading = $state(false);
   let fileEl: HTMLInputElement | null = $state(null);
+  let skillsOpen = $state(false);
 
   const config = $derived(session.summary.config);
   const choice = $derived(catalog.find((c) => c.id === config.model));
@@ -148,6 +150,7 @@
     {#if choice?.supportsEffort}
       <button class="chip" type="button" onclick={onModel}><b>{config.effort}</b><span class="chev">▾</span></button>
     {/if}
+    <button class="chip" type="button" onclick={() => (skillsOpen = true)}><span class="glyph">⌕</span>Skills</button>
   </div>
   {#if session.attachments.length}
     <div class="stage">
@@ -198,3 +201,6 @@
   </div>
   <input type="file" multiple hidden bind:this={fileEl} onchange={pickFiles} />
 </div>
+{#if skillsOpen}
+  <Skills {session} onPick={(c) => ((skillsOpen = false), pick(c))} onClose={() => (skillsOpen = false)} />
+{/if}

@@ -238,6 +238,12 @@ a { color: var(--accent); }
 .sheet .panel { animation: sheetup var(--d-enter) var(--e-out) both; background: var(--surface); width: 100%; max-height: 90dvh; overflow: auto; border-radius: var(--r-lg) var(--r-lg) 0 0; padding: var(--s-6) var(--s-6) calc(env(safe-area-inset-bottom) + var(--s-6)); display: flex; flex-direction: column; gap: var(--s-5); }
 @keyframes sheetup { from { transform: translateY(100%); } }
 .sheet h2 { margin: 0; font-size: var(--t-md); }
+.sheet .shead { display: flex; align-items: center; gap: var(--s-4); }
+.sheet .shead h2 { flex: 1; }
+.search { padding: 8px var(--s-5); font-size: var(--t-sm); background: var(--sunken); border: 1px solid var(--hair); border-radius: var(--r-md); }
+.scope { font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet .list { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; border: 1px solid var(--hair); border-radius: var(--r-md); }
+.sheet .list .cmd-row:last-child { border-bottom: 0; }
 .field { display: flex; flex-direction: column; gap: var(--s-2); }
 .field label { font-size: var(--t-xs); color: var(--ink-3); }
 .field select, .field input { padding: var(--s-4) var(--s-4); border-radius: var(--r-md); border: 1px solid var(--hair); background: var(--bg); }
