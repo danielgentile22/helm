@@ -16,8 +16,22 @@ sed -e "s|__NODE__|$NODE|g" -e "s|__REPO__|$REPO|g" -e "s|__HOME__|$HOME|g" -e "
 cp "$REPO/ops/com.helm2.caffeinate.plist" "$AGENTS/com.helm2.caffeinate.plist"
 
 UID_NUM="$(id -u)"
+
+# bootout returns before the old process has exited and launchd has dropped
+# the label; a bootstrap in that window fails with "Input/output error".
+# Poll until the label is gone (up to 15 s) rather than guess at a sleep.
+wait_gone() {
+  local i
+  for i in {1..150}; do
+    launchctl print "gui/$UID_NUM/$1" >/dev/null 2>&1 || return 0
+    sleep 0.1
+  done
+  echo "$1 did not unload within 15 s"; return 1
+}
+
 for job in com.helm2.server com.helm2.caffeinate; do
   launchctl bootout "gui/$UID_NUM/$job" 2>/dev/null || true
+  wait_gone "$job"
   launchctl bootstrap "gui/$UID_NUM" "$AGENTS/$job.plist"
   launchctl kickstart -k "gui/$UID_NUM/$job"
 done
