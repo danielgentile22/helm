@@ -456,8 +456,8 @@ export function parseSend(body: unknown): Parsed<SendRequest & { clientMsgId: Cl
 
 /**
  * The client may mint the thread id so create + first send are safely
- * retriable. A malformed id is replaced by the route, not rejected; the
- * message id is the idempotency key and is rejected instead (see parseSend).
+ * retriable. A malformed id parses to undefined and the route mints a fresh
+ * one; the message id is the idempotency key, so parseSend rejects it instead.
  */
 export function parseCreateThread(body: unknown, catalog: readonly ModelChoice[], defaultCwd: string): Parsed<CreateThreadRequest & { threadId: ThreadId | undefined }> {
   if (!isRecord(body)) return { ok: false, status: 400, error: "body must be a JSON object" };

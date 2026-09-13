@@ -105,7 +105,7 @@ export function cursorFrom(url: URL, lastEventId: string | null): { ok: true; af
   if (raw === null || raw === "") return { ok: true, after: 0 };
   if (!/^\d+$/.test(raw)) return { ok: false };
   const n = Number(raw);
-  return Number.isSafeInteger(n) ? { ok: true, after: n as Cursor } : { ok: false };
+  return Number.isSafeInteger(n) && n >= 0 ? { ok: true, after: n as Cursor } : { ok: false };
 }
 
 function respond(c: Context, open: (signal: AbortSignal) => AsyncIterable<string>): Response {
