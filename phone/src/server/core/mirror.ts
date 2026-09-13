@@ -25,6 +25,7 @@
 
 import { mkdir, readdir, readFile, stat, unlink, appendFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { fmtBytes } from "../../shared/protocol";
 import type { ClientMsgId, ThreadConfig, ThreadEvent, ThreadId } from "../../shared/protocol";
 import type { ThreadLog, Unsubscribe } from "./log";
 import type { ThreadStore } from "./thread-store";
@@ -246,6 +247,12 @@ export function renderTurn(events: readonly ThreadEvent[]): string {
     tools.push(`${ev.name}${arg ? ` ${arg}` : ""}${mark}`);
   }
 
+  const sent: string[] = [];
+  for (const ev of events) {
+    if (ev.kind !== "file.offered") continue;
+    sent.push(`sent to phone: ${ev.file.name} (${fmtBytes(ev.file.bytes)})${ev.file.note ? `: ${ev.file.note}` : ""}`);
+  }
+
   const label = prompt?.kind === "input.queued" ? ` [${prompt.origin.label}]` : "";
   const ts = prompt?.ts ?? started?.ts ?? ended.ts;
   const out: string[] = [`## ${ts}${label}`];
@@ -261,6 +268,7 @@ export function renderTurn(events: readonly ThreadEvent[]): string {
     if (text.length > 0) out.push(text);
   }
   if (tools.length > 0) out.push(tools.map((t) => `> ${t}`).join("\n"));
+  if (sent.length > 0) out.push(sent.map((t) => `> ${t}`).join("\n"));
 
   out.push(footer(ended));
   out.push(`<!-- helm:seq=${ended.seq} -->`);

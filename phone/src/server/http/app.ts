@@ -28,6 +28,7 @@
  *   POST   /api/threads/:id/commands/reload                      -> { commands: SlashCommand[] } (rediscovers skills)
  *   POST   /api/threads/:id/uploads   (raw body, one file, Content-Length capped) -> StagedUpload[]
  *   GET    /api/threads/:id/uploads/:uploadId                    -> the staged bytes, inline
+ *   GET    /api/threads/:id/files/:fileId                        -> bytes of a file the model offered, inline
  *   GET    /api/threads/:id/events?after=N   (SSE, cookie or key) -> ThreadEvent stream
  *   GET    /api/events                        (SSE)              -> global fan-in
  *   GET    /api/dirs?path=...                                    -> DirEntry[] (within browseRoots)
@@ -71,6 +72,7 @@ import type { PushSubscriptionRecord } from "../core/push";
 import type { Supervisor } from "../core/supervisor";
 import type { ThreadStore } from "../core/thread-store";
 import type { SettingsStore } from "../core/settings";
+import type { Offers } from "../core/offers";
 import type { Uploads } from "../core/uploads";
 import type { AuthDeps, EnrollTokens, WebAuthnCeremonies } from "./auth";
 import { API_KEY_HEADER, authenticate, bodyTooLarge, checkApiKey, sessionCookie } from "./auth";
@@ -91,6 +93,7 @@ export interface AppDeps {
   readonly supervisor: Supervisor;
   readonly agents: AgentFactory;
   readonly uploads: Uploads;
+  readonly offers: Offers;
   readonly settings: SettingsStore;
   readonly about: { readonly version: string; readonly host: string };
   readonly push: PushDeps;
@@ -298,6 +301,7 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     if (t instanceof Response) return t;
     await deps.supervisor.archive(t.threadId);
     await deps.uploads.purge(t.threadId);
+    deps.offers.purge(t.threadId);
     return c.body(null, 204);
   });
 
@@ -365,6 +369,21 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     // The id is a uuid and the bytes never change under it, so a phone may hold on to them.
     c.header("Cache-Control", "private, max-age=3600");
     return c.body(Readable.toWeb(createReadStream(upload.path)) as ReadableStream);
+  });
+
+  app.get("/api/threads/:id/files/:fileId", async (c) => {
+    const t = await thread(c);
+    if (t instanceof Response) return t;
+    const file = await deps.offers.resolve(t.threadId, c.req.param("fileId"));
+    if (!file) return fail(c, 404, "no such file was offered");
+    const size = await stat(file.path).then((s) => (s.isFile() ? s.size : null), () => null);
+    if (size === null) return fail(c, 404, "the file is no longer there");
+    c.header("Content-Type", file.mime);
+    c.header("Content-Length", String(size));
+    c.header("Content-Disposition", `inline; filename="${file.name}"`);
+    // A live path, not a copy: the bytes under this id can change, so nothing may hold on to them.
+    c.header("Cache-Control", "private, no-store");
+    return c.body(Readable.toWeb(createReadStream(file.path)) as ReadableStream);
   });
 
   app.get("/api/threads/:id/events", async (c) => {

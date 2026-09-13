@@ -1,3 +1,4 @@
+import { Offers } from "./offers";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -18,7 +19,7 @@ async function harness(script: FakeScript = echoScript, idleParkMs = 60_000) {
   const logs = new LogRegistry(threadsRoot);
   const threads = new ThreadStore(threadsRoot);
   const agents = new FakeAgentFactory(script);
-  const sup = new Supervisor(logs, threads, agents, { additionalDirectories: [], idleParkMs });
+  const sup = new Supervisor(logs, threads, agents, { additionalDirectories: [], idleParkMs, offers: new Offers(threads, logs) });
   const threadId = "0f0f0f0f-0000-4000-8000-00000000abcd" as ThreadId;
   await threads.create({ threadId, cwd: home, model, effort: "high" });
   const log = await logs.get(threadId);
@@ -275,7 +276,7 @@ test("hardening: a throw inside a turn seals it and leaves the thread cold, not 
   h.agents.script = () => {
     throw new Error("script exploded synchronously");
   };
-  h.agents.spawn = async () => ({ ...(await new FakeAgentFactory().spawn({ cwd: h.home, model, effort: "high", resume: null, additionalDirectories: [], appendSystemPrompt: "" })), send: () => { throw new Error("send exploded"); } }) as never;
+  h.agents.spawn = async () => ({ ...(await new FakeAgentFactory().spawn({ cwd: h.home, model, effort: "high", resume: null, additionalDirectories: [], appendSystemPrompt: "", sendToPhone: () => Promise.reject(new Error("no")) })), send: () => { throw new Error("send exploded"); } }) as never;
   const ended = h.nextTurnEnd();
   await h.sup.send(h.threadId, msg("m1"));
   const end = await ended;

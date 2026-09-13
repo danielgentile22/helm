@@ -28,6 +28,8 @@ export type ClientMsgId = Brand<string, "ClientMsgId">;
 /** Claude Code session id, as reported by the SDK's `system.init` message. */
 export type ClaudeSessionId = Brand<string, "ClaudeSessionId">;
 export type UploadId = Brand<string, "UploadId">;
+/** UUID minted when the model offers a file to the phone. */
+export type FileId = Brand<string, "FileId">;
 export type ToolUseId = Brand<string, "ToolUseId">;
 
 // ---------------------------------------------------------------------------
@@ -133,6 +135,21 @@ export interface StagedUpload {
   readonly bytes: number;
 }
 
+/**
+ * A file on the Mac the model offered to the phone via the `send_to_phone`
+ * tool. The path is live, not a copy: the download route stats it on every
+ * request, so a moved file is an honest 404 rather than a stale snapshot.
+ */
+export interface OfferedFile {
+  readonly fileId: FileId;
+  readonly path: string;
+  readonly name: string;
+  readonly mime: string;
+  readonly bytes: number;
+  /** The model's one-line reason, or null. */
+  readonly note: string | null;
+}
+
 export type TurnOutcome =
   | "ok"
   | "interrupted"
@@ -227,7 +244,9 @@ export type ThreadEventBody =
       /** Human-readable, already scrubbed of paths and stack traces. */
       error: string | null;
     }
-  | { kind: "upload.staged"; upload: StagedUpload; origin: Origin };
+  | { kind: "upload.staged"; upload: StagedUpload; origin: Origin }
+  /** Appended by the tool handler, not the agent stream, so it is not tied to a turn. */
+  | { kind: "file.offered"; file: OfferedFile; origin: Origin };
 
 export type EventKind = ThreadEventBody["kind"];
 
@@ -320,9 +339,21 @@ export const LIMITS = {
   MESSAGE_CHARS: 32_000,
   SEND_BODY_BYTES: 128 * 1024,
   UPLOAD_BYTES: 50 * 1024 * 1024,
+  /** Largest file the model may offer to the phone. */
+  OFFER_BYTES: 50 * 1024 * 1024,
   TOOL_INPUT_MAX: 4 * 1024,
   TOOL_OUTPUT_MAX: 16 * 1024,
   DELTA_COALESCE_MS: 40,
   SSE_HEARTBEAT_MS: 15_000,
   IDLE_PARK_MS: 30 * 60_000,
 } as const;
+
+/** "2.4 MB", "512 KB", "17 B". Decimal units, as the Files app on iOS shows them. Shared so the card and the vault note agree. */
+export function fmtBytes(n: number): string {
+  if (n < 1000) return `${n} B`;
+  const kb = n / 1000;
+  if (kb < 1000) return `${Math.round(kb)} KB`;
+  const mb = kb / 1000;
+  if (mb < 1000) return `${mb.toFixed(1)} MB`;
+  return `${(mb / 1000).toFixed(1)} GB`;
+}

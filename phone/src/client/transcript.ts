@@ -13,6 +13,7 @@ import type { Line, ThreadView } from "./fold";
 
 export type PromptLine = Extract<Line, { kind: "prompt" }>;
 export type ToolLine = Extract<Line, { kind: "tool" }>;
+export type FileLine = Extract<Line, { kind: "file" }>;
 
 export type ToolCategory = "read" | "run" | "edit" | "other";
 
@@ -59,6 +60,7 @@ export type Block =
       startedAt: string;
     }
   | { kind: "end"; turnId: TurnId; outcome: "interrupted" | "error" | "orphaned"; error: string | null }
+  | { kind: "file"; line: FileLine }
   | { kind: "note"; text: string };
 
 interface Draft {
@@ -88,7 +90,7 @@ export function toBlocks(view: ThreadView): readonly Block[] {
 
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]!;
-    const open = l.kind !== "prompt" && l.kind !== "note" && view.openTurn === l.turnId;
+    const open = l.kind !== "prompt" && l.kind !== "note" && l.kind !== "file" && view.openTurn === l.turnId;
     switch (l.kind) {
       case "prompt":
         drafts.push({ block: { kind: "prompt", line: l }, tools: null });
@@ -124,6 +126,9 @@ export function toBlocks(view: ThreadView): readonly Block[] {
       }
       case "end":
         if (l.outcome !== "ok") drafts.push({ block: { kind: "end", turnId: l.turnId, outcome: l.outcome, error: l.error }, tools: null });
+        break;
+      case "file":
+        drafts.push({ block: { kind: "file", line: l }, tools: null });
         break;
       case "note":
         drafts.push({ block: { kind: "note", text: l.text }, tools: null });

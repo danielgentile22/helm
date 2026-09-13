@@ -308,3 +308,15 @@ a { color: var(--accent); }
   .spin { animation: none; }
   .think-body.is-streaming::after, .md.is-streaming > :last-child::after { animation: none; opacity: 1; }
 }
+
+/* File sent to the phone (FileCard) */
+.file-card { display: flex; align-items: stretch; gap: var(--s-3); }
+.file-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--s-4); text-align: left; border: 1px solid var(--hair); background: var(--surface); border-radius: var(--r-md); padding: var(--s-4) var(--s-5); }
+.file-main:disabled { opacity: .6; cursor: default; }
+.file-card.gone .file-main { border-style: dashed; }
+.file-main .badge { flex: none; font-family: var(--mono); font-size: var(--t-mono-xs); font-weight: 600; letter-spacing: .04em; color: var(--accent); background: var(--accent-soft); border-radius: var(--r-sm); padding: var(--s-1) var(--s-2); }
+.file-main .meta { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.file-main .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-main .sub { font-family: var(--mono); font-size: var(--t-xs); color: var(--ink-3); }
+.file-main .note-line { font-size: var(--t-sm); color: var(--ink-2); }
+.file-open { display: inline-flex; align-items: center; flex: none; }

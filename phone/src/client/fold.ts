@@ -25,6 +25,8 @@ export type Line =
   /** One tool call. `endedAt` is null while it is still running; both stamps come from the event `ts`. */
   | { kind: "tool"; turnId: TurnId; toolUseId: string; name: string; input: unknown; output: string | null; isError: boolean | null; startedAt: string; endedAt: string | null }
   | { kind: "end"; turnId: TurnId; outcome: TurnOutcome; usage: Usage | null; error: string | null }
+  /** A file the model offered to the phone; the card fetches it by id. `ts` is the event stamp. */
+  | { kind: "file"; fileId: string; name: string; mime: string; bytes: number; note: string | null; ts: string }
   | { kind: "note"; text: string }; // config changes, archived
 
 export interface ThreadView {
@@ -64,6 +66,8 @@ export function fold(view: ThreadView, ev: ThreadEvent): ThreadView {
       return base;
     case "session.bound":
       return { ...base, sessionId: ev.sessionId };
+    case "file.offered":
+      return { ...base, lines: [...lines, { kind: "file", fileId: ev.file.fileId, name: ev.file.name, mime: ev.file.mime, bytes: ev.file.bytes, note: ev.file.note, ts: ev.ts }] };
     case "input.queued": {
       const ix = findLastIndex(lines, (l) => l.kind === "prompt" && l.clientMsgId === ev.clientMsgId && l.state === "pending");
       const line: Line = { kind: "prompt", clientMsgId: ev.clientMsgId, text: ev.text, uploads: ev.uploads.map((u) => ({ uploadId: u.uploadId, name: u.name, mime: u.mime })), state: "queued", label: ev.origin.label };

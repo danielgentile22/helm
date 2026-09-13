@@ -251,3 +251,16 @@ test("prune is a no-op when the vault has no chats directory, and creates nothin
   assert.deepEqual(await readdir(h.vault), [], "nothing else is ever written into the vault");
   await rm(h.vault, { recursive: true });
 });
+
+test("renderTurn lists a file sent to the phone with its size and note, never its path", () => {
+  const md = renderTurn([
+    ev(1, { kind: "input.queued", clientMsgId: "m9" as ClientMsgId, text: "send me the report", uploads: [], origin }),
+    ev(2, { kind: "turn.started", turnId: "t:2" as TurnId, clientMsgId: "m9" as ClientMsgId, model, effort: "low", spawned: false }),
+    ev(3, { kind: "file.offered", file: { fileId: "f1" as never, path: "/Users/d/Desktop/report.pdf", name: "report.pdf", mime: "application/pdf", bytes: 2_400_000, note: "the Q3 one" }, origin: { via: "key", label: "model" } }),
+    ev(4, { kind: "assistant.text", turnId: "t:2" as TurnId, blockIx: 0, delta: "Sent." }),
+    ev(5, { kind: "turn.ended", turnId: "t:2" as TurnId, outcome: "ok", sessionId, usage: null, error: null }),
+  ]);
+  assert.match(md, /^> sent to phone: report\.pdf \(2\.4 MB\): the Q3 one$/m);
+  assert.ok(!md.includes("/Users/d"), "the path stays out of the vault note");
+  assert.match(md, /^Sent\.$/m);
+});

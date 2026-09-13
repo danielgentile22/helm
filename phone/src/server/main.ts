@@ -25,6 +25,7 @@ import { PushService } from "./core/push";
 import { SettingsStore } from "./core/settings";
 import { Supervisor } from "./core/supervisor";
 import { ThreadStore } from "./core/thread-store";
+import { Offers } from "./core/offers";
 import { Uploads } from "./core/uploads";
 import { loadDotenv, loadEnv } from "./env";
 import { buildApp } from "./http/app";
@@ -38,7 +39,8 @@ export async function main(): Promise<void> {
   const logs = new LogRegistry(threadsRoot);
   const threads = new ThreadStore(threadsRoot);
   const agents = new SdkAgentFactory({ env: process.env });
-  const supervisor = new Supervisor(logs, threads, agents, { additionalDirectories: env.HELM_ADD_DIRS, idleParkMs: LIMITS.IDLE_PARK_MS });
+  const offers = new Offers(threads, logs);
+  const supervisor = new Supervisor(logs, threads, agents, { additionalDirectories: env.HELM_ADD_DIRS, idleParkMs: LIMITS.IDLE_PARK_MS, offers });
   const uploads = new Uploads(threads, logs);
   const settings = new SettingsStore(join(env.HELM_HOME, "settings.json"), { defaultCwd: env.HELM_VAULT_ROOT });
   const sessions = new FileSessionStore(join(env.HELM_HOME, "auth", "sessions.json"));
@@ -67,6 +69,7 @@ export async function main(): Promise<void> {
     supervisor,
     agents,
     uploads,
+    offers,
     settings,
     about: { version, host: env.HELM_HOSTNAME },
     push,
