@@ -1,6 +1,7 @@
 /**
- * Adapter over @anthropic-ai/claude-agent-sdk. The rest of the server never
- * imports the SDK; it talks to AgentSession and consumes ThreadEventBody.
+ * Adapter over @anthropic-ai/claude-agent-sdk. The rest of the server talks
+ * to AgentSession and consumes ThreadEventBody; only main.ts touches the SDK,
+ * to hand query() in as a dependency.
  *
  * One AgentSession = one long-lived Claude Code process in streaming-input
  * mode (query() with an AsyncIterable prompt), so successive turns reuse the
@@ -29,9 +30,9 @@
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import type { ModelInfo, Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { ModelInfo, Options, Query, SDKMessage, SDKUserMessage, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { EFFORTS, LIMITS, MODEL_POLICY_DENY } from "../../shared/protocol";
 import type {
   ClaudeSessionId,
@@ -46,7 +47,6 @@ import type {
   TurnId,
   Usage,
 } from "../../shared/protocol";
-import { killTree } from "../util/killTree";
 import { Pushable } from "../util/pushable";
 import { isImageMime } from "./uploads";
 
@@ -141,7 +141,7 @@ export interface AgentFactory {
 // Pure mapping from SDK messages to log vocabulary
 // ---------------------------------------------------------------------------
 
-export interface MapContext {
+interface MapContext {
   /** Set when interrupt() was called during this turn, so the result maps to `interrupted`. */
   readonly interrupted: boolean;
   /** Cumulative cost reported by the previous result; the SDK reports cost cumulatively per process. */
@@ -149,14 +149,14 @@ export interface MapContext {
 }
 
 /** Truncate a JSON-able value to at most `max` bytes of its JSON text. */
-export function truncateJson(value: unknown, max: number): unknown {
+function truncateJson(value: unknown, max: number): unknown {
   const text = JSON.stringify(value) ?? "null";
   if (Buffer.byteLength(text) <= max) return value;
   return { truncated: true, bytes: Buffer.byteLength(text), head: text.slice(0, max) };
 }
 
 /** Truncate text to `max` bytes, appending a byte-count note the client renders. */
-export function truncateText(text: string, max: number): string {
+function truncateText(text: string, max: number): string {
   const bytes = Buffer.byteLength(text);
   if (bytes <= max) return text;
   return `${Buffer.from(text).subarray(0, max).toString("utf8")}\n... [truncated, ${bytes} bytes]`;
@@ -180,7 +180,7 @@ function toolResultText(content: unknown): string {
  * say), so the busiest entry by prompt tokens is the one whose window the
  * meter should be read against.
  */
-export function contextWindowFrom(modelUsage: unknown): number | null {
+function contextWindowFrom(modelUsage: unknown): number | null {
   if (!isRecord(modelUsage)) return null;
   let best: { prompt: number; window: number } | null = null;
   for (const entry of Object.values(modelUsage)) {
@@ -235,7 +235,7 @@ export function toSlashCommands(raw: unknown, hide: ReadonlySet<string>): readon
 }
 
 /** Strip absolute home paths and stack frames from an error string before it reaches the phone. */
-export function scrubError(text: string): string {
+function scrubError(text: string): string {
   return text
     .split("\n")
     .filter((l) => !/^\s+at\s/.test(l))
@@ -248,7 +248,7 @@ export function scrubError(text: string): string {
 /**
  * Pure mapper from an SDK message to zero or more AgentEvents. This is the
  * boundary where the SDK's shape is parsed and trusted types begin. Kept pure
- * so it is unit-testable against recorded SDK fixtures with no API spend.
+ * so the session tests can replay recorded SDK frames with no API spend.
  *
  * Mapping
  *   system.init                                  -> session.bound
@@ -259,7 +259,7 @@ export function scrubError(text: string): string {
  *   result                                       -> turn.ended (outcome from subtype; usage mapped)
  *   everything else, and anything from a subagent (parent_tool_use_id set) -> []
  */
-export function agentMessageToEvents(turnId: TurnId, sdkMessage: unknown, ctx: MapContext = { interrupted: false, prevCostUsd: 0 }): readonly AgentEvent[] {
+function agentMessageToEvents(turnId: TurnId, sdkMessage: unknown, ctx: MapContext): readonly AgentEvent[] {
   if (!isRecord(sdkMessage)) return [];
   const m = sdkMessage;
   if (typeof m.parent_tool_use_id === "string") return [];
@@ -380,6 +380,23 @@ export function helmToolServer(sendToPhone: SpawnOptions["sendToPhone"]) {
 // Real SDK session
 // ---------------------------------------------------------------------------
 
+/** The slice of the SDK's Query the session drives. A recorded adapter implements this in tests. */
+export type SdkQuery = AsyncIterable<SDKMessage> & Pick<Query, "interrupt" | "setModel" | "applyFlagSettings" | "supportedCommands" | "supportedModels" | "reloadSkills" | "close">;
+
+export type QueryFn = (args: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => SdkQuery;
+
+/**
+ * What the adapter reaches outside its own process: the SDK entry point and
+ * the process-group killer. Production passes the real ones (main.ts); tests
+ * pass a recorded query and a killTree that only records the call.
+ */
+export interface SdkDeps {
+  readonly query: QueryFn;
+  readonly killTree: (pid: number) => Promise<void>;
+  readonly env: NodeJS.ProcessEnv;
+  readonly claudeBin?: string;
+}
+
 type ImageMime = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 type ContentBlock = { type: "text"; text: string } | { type: "image"; source: { type: "base64"; media_type: ImageMime; data: string } };
 
@@ -403,7 +420,7 @@ class SdkSession implements AgentSession {
   sessionId: ClaudeSessionId | null = null;
   private readonly input = new Pushable<SDKUserMessage>();
   private readonly out = new Pushable<AgentEvent>();
-  private readonly q: Query;
+  private readonly q: SdkQuery;
   private readonly abort = new AbortController();
   private turn: { turnId: TurnId; interrupted: boolean; settle: () => void } | null = null;
   /** Command names the CLI tags as terminal-only; the phone menu hides them. */
@@ -416,7 +433,10 @@ class SdkSession implements AgentSession {
     return !this.dead;
   }
 
-  constructor(opts: SpawnOptions, deps: { claudeBin?: string; env: NodeJS.ProcessEnv }) {
+  constructor(
+    opts: SpawnOptions,
+    private readonly deps: SdkDeps,
+  ) {
     const options: Options = {
       cwd: opts.cwd,
       model: opts.model,
@@ -436,16 +456,16 @@ class SdkSession implements AgentSession {
         const child = spawn(o.command, o.args, { cwd: o.cwd, env: o.env, stdio: ["pipe", "pipe", "pipe"], detached: true, signal: o.signal });
         this.pid = child.pid ?? null;
         child.stderr?.on("data", (d: Buffer) => process.stderr.write(`[claude ${this.pid}] ${d}`));
-        return child as unknown as ReturnType<NonNullable<Options["spawnClaudeCodeProcess"]>>;
+        return child as unknown as SpawnedProcess;
       },
     };
-    this.q = query({ prompt: this.input, options });
+    this.q = deps.query({ prompt: this.input, options });
     void this.pump();
   }
 
   private async pump(): Promise<void> {
     try {
-      for await (const msg of this.q as AsyncIterable<SDKMessage>) this.handle(msg);
+      for await (const msg of this.q) this.handle(msg);
     } catch (err) {
       if (!this.killing) console.error(`[agent ${this.pid}] stream ended with error`, err);
     } finally {
@@ -529,7 +549,7 @@ class SdkSession implements AgentSession {
       this.killing = (async () => {
         this.input.end();
         this.abort.abort();
-        if (this.pid !== null) await killTree(this.pid, "group");
+        if (this.pid !== null) await this.deps.killTree(this.pid);
         this.q.close();
       })();
     }
@@ -540,16 +560,16 @@ class SdkSession implements AgentSession {
 export class SdkAgentFactory implements AgentFactory {
   private catalog: Promise<readonly RawModel[]> | null = null;
 
-  constructor(private readonly deps: { claudeBin?: string; env: NodeJS.ProcessEnv }) {}
+  constructor(private readonly deps: SdkDeps) {}
 
   async spawn(opts: SpawnOptions): Promise<AgentSession> {
     return new SdkSession(opts, this.deps);
   }
 
   /** Spawn a throwaway process in `cwd`, ask it one question, close it. */
-  private async probe<T>(cwd: string, ask: (q: Query) => Promise<T>): Promise<T> {
+  private async probe<T>(cwd: string, ask: (q: SdkQuery) => Promise<T>): Promise<T> {
     const input = new Pushable<SDKUserMessage>();
-    const q = query({ prompt: input, options: { cwd, settingSources: ["user", "project", "local"], pathToClaudeCodeExecutable: this.deps.claudeBin, env: this.deps.env as Record<string, string> } });
+    const q = this.deps.query({ prompt: input, options: { cwd, settingSources: ["user", "project", "local"], pathToClaudeCodeExecutable: this.deps.claudeBin, env: this.deps.env as Record<string, string> } });
     try {
       return await ask(q);
     } finally {
