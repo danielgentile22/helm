@@ -31,7 +31,7 @@ export const motion: Motion = {
 /** In only: two screens stacked during an outro would push the layout and jump the scroll. */
 export const screenIn: FlyParams = { y: 8, opacity: 0, duration: motion.enter, easing: cubicOut };
 
-const slideUp = (duration: number) => (): TransitionConfig => ({
+const slideUp = (duration: number) => (_node: Element): TransitionConfig => ({
   duration,
   easing: cubicOut,
   css: (t) => `transform: translateY(${(1 - t) * 100}%)`,

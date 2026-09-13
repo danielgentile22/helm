@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ThreadConfig } from "../../shared/protocol";
   import type { HelmClient } from "../api";
+  import Sheet from "../components/Sheet.svelte";
 
   let { api, config, onClose }: { api: HelmClient; config: ThreadConfig; onClose: () => void } = $props();
 
@@ -19,20 +20,18 @@
   }
 </script>
 
-<div class="sheet" onclick={(e) => e.target === e.currentTarget && onClose()} role="presentation">
-  <div class="panel">
-    <div class="grab"></div>
-    <h2>Rename thread</h2>
-    <div class="field">
-      <label for="rename-title">Title</label>
-      <!-- svelte-ignore a11y_autofocus -->
-      <input id="rename-title" autofocus bind:value={title} onkeydown={(e) => e.key === "Enter" && void save()} />
-    </div>
-    {#if err}<p class="error">{err}</p>{/if}
-    <div class="actions">
-      <button class="btn" onclick={onClose}>Cancel</button>
-      <span class="grow"></span>
-      <button class="btn primary" disabled={!title.trim()} onclick={save}>Save</button>
-    </div>
+<Sheet {onClose}>
+  <div class="grab"></div>
+  <h2>Rename thread</h2>
+  <div class="field">
+    <label for="rename-title">Title</label>
+    <!-- svelte-ignore a11y_autofocus -->
+    <input id="rename-title" autofocus bind:value={title} onkeydown={(e) => e.key === "Enter" && void save()} />
   </div>
-</div>
+  {#if err}<p class="error">{err}</p>{/if}
+  <div class="actions">
+    <button class="btn" onclick={onClose}>Cancel</button>
+    <span class="grow"></span>
+    <button class="btn primary" disabled={!title.trim()} onclick={save}>Save</button>
+  </div>
+</Sheet>
