@@ -59,6 +59,15 @@ check("Cmd+Enter sends from the composer", after > before, `${before} prompts be
 
 check("no horizontal overflow at 1200px", await evaluate(`document.documentElement.scrollWidth <= window.innerWidth`), await evaluate(`document.documentElement.scrollWidth + ' vs ' + window.innerWidth`));
 
+await send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 800, deviceScaleFactor: 1, mobile: false });
+await sleep(300);
+const measure = await evaluate(`(()=>{const t=document.querySelector('.pane-main .transcript').getBoundingClientRect();const c=document.querySelector('.pane-main .composer').getBoundingClientRect();const m=document.querySelector('.pane-main').getBoundingClientRect();return {t:Math.round(t.width),c:Math.round(c.width),tl:Math.round(t.left-m.left),tr:Math.round(m.right-t.right)}})()`);
+check("the thread column is capped at 1600px", measure.t <= 820 && measure.c <= 820, JSON.stringify(measure));
+check("the capped column is centred in the pane", Math.abs(measure.tl - measure.tr) <= 1, `left ${measure.tl}, right ${measure.tr}`);
+await shot("07-split-1600");
+await wide();
+await sleep(300);
+
 await evaluate(`[...document.querySelectorAll('.pane-list .row .title')].find((t)=>t.textContent.trim()==='stream please').closest('.row').click()`);
 await sleep(1200);
 await evaluate(`window.scrollTo(0, 400)`);
