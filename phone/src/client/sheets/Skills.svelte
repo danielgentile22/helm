@@ -2,7 +2,7 @@
   import type { SlashCommand } from "../../shared/protocol";
   import { commandLabel, filterCommands } from "../commands";
   import Sheet from "../components/Sheet.svelte";
-  import type { ThreadSession } from "../thread.svelte";
+  import type { ThreadSession } from "../thread";
 
   let { session, onPick, onClose }: { session: ThreadSession; onPick: (command: SlashCommand) => void; onClose: () => void } = $props();
 
@@ -34,7 +34,7 @@
   {#if session.commandsError}
     <p class="error"><span class="glyph">▲</span> {session.commandsError}</p>
   {/if}
-  <div class="scope">{session.summary.config.cwd}</div>
+  <div class="scope">{session.view.config.cwd}</div>
   <div class="list">
     {#each shown as c (c.name)}
       <button class="cmd-row" type="button" onclick={() => onPick(c)}>

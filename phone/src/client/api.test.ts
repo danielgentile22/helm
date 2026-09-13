@@ -1,38 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Seq, SyncFrame, ThreadEvent, ThreadId, UploadId } from "../shared/protocol";
-import { HelmClient, type EventSourceLike } from "./api";
-
-/** A scripted EventSource: the test drives it by calling emit / sync / fail. */
-class FakeES implements EventSourceLike {
-  static instances: FakeES[] = [];
-  onopen: ((ev: unknown) => void) | null = null;
-  onerror: ((ev: unknown) => void) | null = null;
-  onmessage: ((ev: { data: string; lastEventId: string }) => void) | null = null;
-  private listeners = new Map<string, ((ev: { data: string }) => void)[]>();
-  closed = false;
-  constructor(readonly url: string) {
-    FakeES.instances.push(this);
-  }
-  addEventListener(type: string, l: (ev: { data: string }) => void): void {
-    this.listeners.set(type, [...(this.listeners.get(type) ?? []), l]);
-  }
-  close(): void {
-    this.closed = true;
-  }
-  open(): void {
-    this.onopen?.({});
-  }
-  emit(seq: number): void {
-    this.onmessage?.({ data: JSON.stringify({ seq, ts: "", kind: "thread.archived" }), lastEventId: String(seq) });
-  }
-  sync(frame: Partial<SyncFrame>): void {
-    for (const l of this.listeners.get("sync") ?? []) l({ data: JSON.stringify({ headSeq: 0, session: "idle", openTurn: null, queuedCount: 0, ...frame }) });
-  }
-  fail(): void {
-    this.onerror?.({});
-  }
-}
+import { HelmClient } from "./api";
+import { FakeES } from "./testkit";
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 5));
 
@@ -42,8 +12,9 @@ function client() {
   const seen: number[] = [];
   const states: string[] = [];
   const syncs: SyncFrame[] = [];
-  const stop = c.attach("t1" as ThreadId, 3 as Seq, { onEvent: (ev: ThreadEvent) => seen.push(ev.seq), onSync: (f) => syncs.push(f), onState: (s) => states.push(s) });
-  return { seen, states, syncs, stop };
+  const resets: number[] = [];
+  const stop = c.attach("t1" as ThreadId, 3 as Seq, { onEvent: (ev: ThreadEvent) => seen.push(ev.seq), onSync: (f) => syncs.push(f), onReset: () => resets.push(seen.length), onState: (s) => states.push(s) });
+  return { seen, states, syncs, resets, stop };
 }
 
 test("attach opens from the cursor, forwards contiguous events, and reports sync as live", async () => {
@@ -92,12 +63,12 @@ test("errors reconnect with backoff from the cursor; stop ends the loop", async 
   assert.equal(FakeES.instances.length, 2, "no reconnect after stop");
 });
 
-test("a sync frame with a head behind the cursor restarts from zero", async () => {
-  const { syncs, stop } = client();
+test("a sync frame with a head behind the cursor tells the handlers to reset and restarts from zero", async () => {
+  const { syncs, resets, stop } = client();
   const es = FakeES.instances[0]!;
   es.open();
   es.sync({ headSeq: 1 as Seq });
-  assert.equal(syncs.length, 1);
+  assert.deepEqual([syncs.length, resets], [0, [0]], "a reset, not a sync: the frame belongs to a log the phone is about to throw away");
   await tick();
   assert.equal(FakeES.instances[1]!.url, "http://x/api/threads/t1/events?after=0");
   stop();

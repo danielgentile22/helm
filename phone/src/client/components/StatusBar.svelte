@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Cursor } from "../../shared/protocol";
-  import type { Conn } from "../thread.svelte";
+  import type { Conn } from "../thread";
 
   let { conn, seen, head }: { conn: Conn; seen: Cursor; head: Cursor } = $props();
 

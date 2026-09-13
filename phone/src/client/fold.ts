@@ -1,45 +1,58 @@
 /**
- * The only renderer state the client has: a pure fold of ThreadEvents.
- * There is no other client-side truth. Reconnect = fold more events.
+ * The only renderer state the client has: a pure fold of ThreadEvents plus
+ * the last sync frame. There is no other client-side truth. Reconnect = fold
+ * more events.
  *
- * The turns come from the shared grouper; this adds the connection state
- * around them. Invariant: fold(view, ev) requires ev.seq === view.headSeq + 1;
- * the caller (api.ts attach loop) drops the connection and re-attaches from
- * headSeq if it ever sees anything else. This is how a phone that missed
- * events, or received a duplicate, self-heals without any special-case code.
+ * The turns come from the shared grouper; this adds the thread's config and
+ * session state around them, the same derivation the server's ThreadHead
+ * makes from the same log. Invariant: fold(view, ev) is only ever called with
+ * ev.seq === view.headSeq + 1. The attach loop in api.ts owns that: it drops
+ * the connection on a gap or a duplicate and re-attaches from what it has,
+ * and it resets the view when the server's log turns out to be shorter.
  */
 
-import type { ClaudeSessionId, Cursor, SyncFrame, ThreadEvent, ThreadId, TurnId } from "../shared/protocol";
+import type { ClaudeSessionId, Cursor, SyncFrame, ThreadConfig, ThreadEvent, TurnId, UsageTotal } from "../shared/protocol";
+import { addUsage } from "../shared/protocol";
 import { foldTurn, pendingPrompt, type PromptUpload, type Turn } from "../shared/turns";
 
 export type { PromptUpload };
 
 export interface ThreadView {
-  readonly threadId: ThreadId;
+  readonly config: ThreadConfig;
   readonly headSeq: Cursor;
+  /** The server's head as last reported, the denominator while replaying. */
+  readonly logHead: Cursor;
   readonly turns: readonly Turn[];
   readonly openTurn: TurnId | null;
   readonly session: SyncFrame["session"];
   readonly sessionId: ClaudeSessionId | null;
   readonly contextTokens: number | null;
+  readonly contextWindow: number | null;
+  readonly usageTotal: UsageTotal | null;
   readonly replaying: boolean;
 }
 
-export function emptyView(threadId: ThreadId): ThreadView {
-  return { threadId, headSeq: 0, turns: [], openTurn: null, session: "cold", sessionId: null, contextTokens: null, replaying: true };
+export function emptyView(config: ThreadConfig, logHead: Cursor = 0): ThreadView {
+  return { config, headSeq: 0, logHead, turns: [], openTurn: null, session: "cold", sessionId: null, contextTokens: null, contextWindow: null, usageTotal: null, replaying: true };
 }
 
-/** Pure. Folds the event into the turns and the session state around them. */
+/** Pure. Folds the event into the turns and the config and session state around them. */
 export function fold(view: ThreadView, ev: ThreadEvent): ThreadView {
-  if (ev.seq !== view.headSeq + 1) throw new Error(`seq gap: expected ${view.headSeq + 1}, got ${ev.seq}`);
   const base = { ...view, headSeq: ev.seq, turns: foldTurn(view.turns, ev) };
   switch (ev.kind) {
+    case "thread.created":
+      return { ...base, config: ev.config };
+    case "thread.config":
+      return { ...base, config: { ...view.config, ...ev.patch } };
     case "session.bound":
       return { ...base, sessionId: ev.sessionId };
     case "turn.started":
       return { ...base, openTurn: ev.turnId, session: "running" };
-    case "turn.ended":
-      return { ...base, openTurn: null, session: view.session === "running" ? "idle" : view.session, contextTokens: ev.usage?.contextTokens ?? view.contextTokens };
+    case "turn.ended": {
+      const ended = { ...base, openTurn: null, session: view.session === "running" ? "idle" : view.session } as const;
+      if (!ev.usage) return ended;
+      return { ...ended, contextTokens: ev.usage.contextTokens, contextWindow: ev.usage.contextWindow ?? view.contextWindow, usageTotal: addUsage(view.usageTotal, ev.usage) };
+    }
     default:
       return base;
   }
@@ -51,14 +64,9 @@ export function foldAll(view: ThreadView, events: Iterable<ThreadEvent>): Thread
   return v;
 }
 
-/**
- * Apply the `sync` control frame: mark live, copy session state. A head
- * behind ours means the server's log is shorter than what we folded (a
- * restore, or a truncation); reset so the attach loop replays from zero.
- */
+/** Apply the `sync` control frame: mark live, copy the session state and the server's head. */
 export function applySync(view: ThreadView, frame: SyncFrame): ThreadView {
-  if (frame.headSeq < view.headSeq) return { ...emptyView(view.threadId), session: frame.session };
-  return { ...view, replaying: false, session: frame.session, openTurn: frame.openTurn };
+  return { ...view, replaying: false, logHead: frame.headSeq, session: frame.session, openTurn: frame.openTurn };
 }
 
 /** Optimistic prompt before the server has acked; replaced when input.queued arrives with the same clientMsgId. */

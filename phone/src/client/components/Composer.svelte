@@ -5,7 +5,7 @@
   import { commandLabel, emptyDraft, filterCommands, sentText, slashToken, type Draft } from "../commands";
   import { models } from "../models";
   import Skills from "../sheets/Skills.svelte";
-  import type { ThreadSession } from "../thread.svelte";
+  import type { ThreadSession } from "../thread";
 
   let {
     session,
@@ -28,7 +28,7 @@
   let sourcesOpen = $state(false);
   let skillsOpen = $state(false);
 
-  const config = $derived(session.summary.config);
+  const config = $derived(session.view.config);
   const choice = $derived(catalog.find((c) => c.id === config.model));
   const modelLabel = $derived(choice?.label ?? config.model);
   const hasContent = $derived(draft.text.trim() !== "" || draft.command !== null || session.attachments.length > 0);

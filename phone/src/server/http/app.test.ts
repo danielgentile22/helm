@@ -295,6 +295,7 @@ test("parsers: send, create, patch", () => {
 
 test("the phone's view: folding the SSE frames a client receives reconstructs the transcript, from any cursor, across a crash", async () => {
   const { emptyView, foldAll, applySync } = await import("../../client/fold");
+  const seed = { threadId: THREAD as never, cwd: "/v", model: "m" as never, effort: "high" as const, title: null, createdAt: "", archivedAt: null };
   const s = await buildStack(async (t) => {
     t.thinking("plan");
     t.text("Sure. ", 0);
@@ -306,7 +307,7 @@ test("the phone's view: folding the SSE frames a client receives reconstructs th
   const live = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
   await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "List files" });
   const frames = await live;
-  const fullView = foldAll(emptyView(THREAD as never), events(frames));
+  const fullView = foldAll(emptyView(seed), events(frames));
   assert.equal(fullView.turns.length, 1);
   const turn = fullView.turns[0]!;
   const shape = turn.items.map((l) => (l.kind === "tool" ? `tool:${l.name}:${l.isError === false ? "ok" : "?"}` : l.kind === "text" ? `text:${l.text}` : l.kind));
@@ -319,7 +320,7 @@ test("the phone's view: folding the SSE frames a client receives reconstructs th
   // A phone that had seen up to cursor c and reconnects folds the tail onto its own view and lands on the same lines.
   const head = fullView.headSeq;
   for (let c = 1; c <= head; c++) {
-    const before = foldAll(emptyView(THREAD as never), events(frames).slice(0, c));
+    const before = foldAll(emptyView(seed), events(frames).slice(0, c));
     const tail = await readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${c}`), (fr) => fr.some((x) => x.kind === "sync"));
     const sync = tail.find((x): x is Extract<Frame, { kind: "sync" }> => x.kind === "sync")!;
     const after = applySync(foldAll(before, events(tail)), sync.frame);

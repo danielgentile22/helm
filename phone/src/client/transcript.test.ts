@@ -39,7 +39,7 @@ const ended = (outcome = "ok", durationMs = 42_000, error: string | null = null)
 
 /** Fold the events, then mark the stream live with the turn left open or closed. */
 function build(events: ThreadEvent[], openTurn: TurnId | null): ThreadView {
-  const view = foldAll(emptyView(threadId), events);
+  const view = foldAll(emptyView({ threadId: threadId, cwd: "/v", model: "m" as never, effort: "high", title: null, createdAt: "", archivedAt: null }), events);
   return applySync(view, { headSeq: view.headSeq, session: openTurn ? "running" : "idle", openTurn, queuedCount: 0 });
 }
 

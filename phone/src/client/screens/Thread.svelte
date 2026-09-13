@@ -12,7 +12,8 @@
   import ModelEffort from "../sheets/ModelEffort.svelte";
   import Rename from "../sheets/Rename.svelte";
   import ThreadInfo from "../sheets/ThreadInfo.svelte";
-  import { ThreadSession } from "../thread.svelte";
+  import { openThread } from "../thread.svelte";
+  import type { ThreadSession } from "../thread";
   import { blockCount, jumpCount, toBlocks } from "../transcript";
   import ErrorScreen from "./ErrorScreen.svelte";
 
@@ -48,7 +49,7 @@
     void (async () => {
       try {
         const summary = await api.getThread(threadId);
-        live = new ThreadSession(api, threadId, summary);
+        live = openThread(api, summary);
         if (cancelled) live.stop();
         else session = live;
       } catch (err) {
@@ -95,8 +96,8 @@
     <div class="head">
     <header class="topbar">
       <button class="icon-btn" aria-label="Back" onclick={() => router.navigate("/")}>‹</button>
-      <h1>{s.summary.config.title ?? "Untitled"}</h1>
-      <Gauge tokens={s.view.contextTokens} limit={s.summary.contextWindow} />
+      <h1>{s.view.config.title ?? "Untitled"}</h1>
+      <Gauge tokens={s.view.contextTokens} limit={s.view.contextWindow} />
       <div class="anchor">
         <button class="icon-btn" aria-label="Thread menu" onclick={() => (menuOpen = true)}>⋯</button>
         {#if menuOpen}
@@ -110,7 +111,7 @@
         {/if}
       </div>
     </header>
-    <StatusBar conn={s.conn} seen={s.view.headSeq} head={s.summary.headSeq} />
+    <StatusBar conn={s.conn} seen={s.view.headSeq} head={s.view.logHead} />
     </div>
     <Transcript {sections} openTurn={s.view.openTurn} replaying={s.view.replaying} onResend={(text) => void s.submit(text, [])} onQuote={(quoted) => insert(quoted)} uploadUrl={(uploadId) => api.uploadUrl(threadId, uploadId)} fileUrl={(fileId) => api.fileUrl(threadId, fileId)} fetchFile={(fileId, onProgress) => api.fetchFile(threadId, fileId, onProgress)} />
     {#if s.error}
@@ -127,11 +128,11 @@
       <Composer session={s} {api} onModel={() => (openSheet = "model")} bind:insert />
     </div>
     {#if openSheet === "rename"}
-      <Rename {api} config={s.summary.config} onClose={() => (openSheet = null)} />
+      <Rename {api} config={s.view.config} onClose={() => (openSheet = null)} />
     {:else if openSheet === "model"}
-      <ModelEffort {api} config={s.summary.config} onClose={() => (openSheet = null)} />
+      <ModelEffort {api} config={s.view.config} onClose={() => (openSheet = null)} />
     {:else if openSheet === "info"}
-      <ThreadInfo view={s.view} summary={s.summary} onClose={() => (openSheet = null)} />
+      <ThreadInfo view={s.view} onClose={() => (openSheet = null)} />
     {:else if openSheet === "archive"}
       <ArchiveConfirm {api} {threadId} onClose={() => (openSheet = null)} />
     {/if}
