@@ -30,10 +30,21 @@ test("boot attaches watchers before recovery and resumes the mirror after repair
   const seeded = await ThreadLog.open(threadId, join(threadsRoot, threadId));
   await appendTurn(seeded, "m1", "first prompt", "first reply");
   const note = mirrorPath(vault, threadId);
-  await assert.rejects(readFile(note), "no mirror note exists before boot");
+  await assert.rejects(readFile(note), { code: "ENOENT" }, "no mirror note exists before boot");
 
   const server = await buildServer(
-    { home, vaultRoot: vault, hostname: "mac.test.ts.net", apiKey: "k", vapid: { publicKey: "p", privateKey: "s", subject: "mailto:t@example.com" }, browseRoots: [vault], sessionTtlMs: 1000, staticDir: join(home, "static"), version: "0.0.0-test" },
+    {
+      home,
+      vaultRoot: vault,
+      hostname: "mac.test.ts.net",
+      apiKey: "k",
+      vapid: { publicKey: "p", privateKey: "s", subject: "mailto:t@example.com" },
+      browseRoots: [vault],
+      additionalDirectories: [],
+      sessionTtlMs: 1000,
+      staticDir: join(home, "static"),
+      version: "0.0.0-test",
+    },
     { agents: new FakeAgentFactory(), pushSend: async () => undefined },
   );
 

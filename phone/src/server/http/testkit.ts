@@ -5,7 +5,7 @@
  * to simulate a server crash and reboot.
  */
 
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SyncFrame, ThreadEvent } from "../../shared/protocol";
@@ -27,8 +27,7 @@ export interface Stack {
   readonly supervisor: Supervisor;
   /** What the model's `send_to_phone` tool calls; tests call it directly since the fake agent has no tools. */
   readonly offers: Offers;
-  /** The subscriptions on disk, the way a reboot would read them. */
-  subscriptions(): Promise<PushSubscriptionRecord[]>;
+  subscriptions(): Promise<readonly PushSubscriptionRecord[]>;
   /** Authenticated JSON request helper using the API key door. */
   api(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<Response>;
   /** Abandon this stack without killing anything (a crash), then boot a new one over the same home. */
@@ -55,6 +54,7 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
       apiKey: "apiKey" in opts ? opts.apiKey : API_KEY,
       vapid: { publicKey: "vapid-public", privateKey: "vapid-private", subject: "mailto:test@example.com" },
       browseRoots: [join(h, "work")],
+      additionalDirectories: [],
       sessionTtlMs: 3600_000,
       staticDir,
       version: "0.0.0-test",
@@ -71,7 +71,7 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
     logs: server.logs,
     supervisor: server.supervisor,
     offers: server.offers,
-    subscriptions: async () => Object.values(JSON.parse(await readFile(join(h, "push", "subscriptions.json"), "utf8").catch(() => "{}")) as Record<string, PushSubscriptionRecord>),
+    subscriptions: () => server.push.list(),
     api: (method, path, body, headers = {}) =>
       server.fetch(
         new Request(`https://${HOST}${path}`, {

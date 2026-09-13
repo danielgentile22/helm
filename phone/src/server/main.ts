@@ -24,7 +24,7 @@ export async function main(): Promise<void> {
   });
 
   if ((await helm.webauthn.listCredentials()).length === 0) {
-    console.log(`[helm] no passkey enrolled yet. Open this on the phone within 10 minutes:\n  ${helm.publicOrigin}/enroll?token=${helm.enroll.mint()}`);
+    console.log(`[helm] no passkey enrolled yet. Open this on the phone within 10 minutes:\n  https://${env.HELM_HOSTNAME}/enroll?token=${helm.enroll.mint()}`);
   }
 
   let stopping = false;

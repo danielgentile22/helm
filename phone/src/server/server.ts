@@ -20,7 +20,7 @@ import type { ThreadId } from "../shared/protocol";
 import type { AgentFactory } from "./core/agent";
 import { LogRegistry } from "./core/log";
 import { Mirror } from "./core/mirror";
-import { PushService, type Send } from "./core/push";
+import { PushService, type Send, type VapidKeys } from "./core/push";
 import { SettingsStore } from "./core/settings";
 import { Supervisor } from "./core/supervisor";
 import { ThreadStore } from "./core/thread-store";
@@ -37,8 +37,11 @@ export interface ServerConfig {
   /** Tailnet hostname: the WebAuthn relying party id and the public origin's host. */
   readonly hostname: string;
   readonly apiKey: string | undefined;
-  readonly vapid: { readonly publicKey: string; readonly privateKey: string; readonly subject: string };
+  readonly vapid: VapidKeys;
+  /** Directories the file browser may list. */
   readonly browseRoots: readonly string[];
+  /** Directories every agent session may read beyond its cwd. */
+  readonly additionalDirectories: readonly string[];
   readonly sessionTtlMs: number;
   readonly staticDir: string;
   readonly version: string;
@@ -57,10 +60,10 @@ export interface Server {
   readonly logs: LogRegistry;
   readonly supervisor: Supervisor;
   readonly offers: Offers;
+  readonly push: PushService;
   readonly mirror: Mirror;
   readonly webauthn: WebAuthn;
   readonly enroll: EnrollTokens;
-  readonly publicOrigin: string;
   /** Threads repaired at boot. */
   readonly recovered: readonly ThreadId[];
   shutdown(): Promise<void>;
@@ -74,6 +77,7 @@ export function configFromEnv(env: Env, version: string): ServerConfig {
     apiKey: env.HELM_API_KEY,
     vapid: { publicKey: env.HELM_VAPID_PUBLIC, privateKey: env.HELM_VAPID_PRIVATE, subject: env.HELM_VAPID_SUBJECT },
     browseRoots: env.HELM_ADD_DIRS,
+    additionalDirectories: env.HELM_ADD_DIRS,
     sessionTtlMs: env.HELM_SESSION_HOURS * 3600_000,
     staticDir: env.HELM_STATIC_DIR,
     version,
@@ -85,14 +89,14 @@ export async function buildServer(cfg: ServerConfig, deps: ServerDeps): Promise<
   const logs = new LogRegistry(threadsRoot);
   const threads = new ThreadStore(threadsRoot);
   const offers = new Offers(threads, logs);
-  const supervisor = new Supervisor(logs, threads, deps.agents, { additionalDirectories: cfg.browseRoots, idleParkMs: cfg.idleParkMs ?? LIMITS.IDLE_PARK_MS, offers });
+  const supervisor = new Supervisor(logs, threads, deps.agents, { additionalDirectories: cfg.additionalDirectories, idleParkMs: cfg.idleParkMs ?? LIMITS.IDLE_PARK_MS, offers });
   const uploads = new Uploads(threads, logs);
   const settings = new SettingsStore(join(cfg.home, "settings.json"), { defaultCwd: cfg.vaultRoot });
   const sessions = new FileSessionStore(join(cfg.home, "auth", "sessions.json"));
   const publicOrigin = `https://${cfg.hostname}`;
   const webauthn = new WebAuthn({ rpId: cfg.hostname, origin: publicOrigin, credentialsFile: join(cfg.home, "auth", "credentials.json"), sessions, sessionTtlMs: cfg.sessionTtlMs });
   const enroll = new EnrollTokens();
-  const push = new PushService(join(cfg.home, "push", "subscriptions.json"), cfg.vapid, threads, deps.pushSend ? { send: deps.pushSend } : undefined);
+  const push = new PushService(join(cfg.home, "push", "subscriptions.json"), cfg.vapid, threads, { send: deps.pushSend });
   const mirror = new Mirror(cfg.vaultRoot, threads);
 
   logs.onOpen((log) => {
@@ -123,5 +127,5 @@ export async function buildServer(cfg: ServerConfig, deps: ServerDeps): Promise<
     heartbeatMs: cfg.heartbeatMs,
   });
 
-  return { fetch: app.fetch, logs, supervisor, offers, mirror, webauthn, enroll, publicOrigin, recovered, shutdown: () => supervisor.shutdown() };
+  return { fetch: app.fetch, logs, supervisor, offers, push, mirror, webauthn, enroll, recovered, shutdown: () => supervisor.shutdown() };
 }
