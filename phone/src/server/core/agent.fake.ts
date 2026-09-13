@@ -6,7 +6,7 @@
  * whatever sequence of events the test needs, with whatever timing.
  */
 
-import type { ClaudeSessionId, Effort, ModelId, SlashCommand, ToolUseId, TurnId, Usage } from "../../shared/protocol";
+import type { AskAnswer, AskId, AskPayload, ClaudeSessionId, Effort, ModelId, PermissionMode, SlashCommand, ToolUseId, TurnId, Usage } from "../../shared/protocol";
 import { Pushable } from "../util/pushable";
 import type { AgentEvent, AgentFactory, AgentSession, RawModel, SpawnOptions, TurnInput } from "./agent";
 
@@ -20,6 +20,12 @@ export interface FakeTurn {
   /** Open a tool and leave it open, so a script can hold the thread mid-tool. */
   toolStart(name: string, input: unknown): ToolUseId;
   toolEnd(id: ToolUseId, output: string, isError?: boolean): void;
+  /**
+   * Pause on the user: emits `ask.opened` and resolves with whatever answer()
+   * the supervisor forwards, the way the SDK's permission callback blocks.
+   * The fake never emits the `ask.answered`; the supervisor logs that.
+   */
+  ask(ask: AskPayload): Promise<AskAnswer>;
   /** Finish the turn. Exactly once per send; the fake enforces it. */
   end(outcome?: "ok" | "error", error?: string | null, usage?: Usage | null): void;
   /** Resolves when the supervisor calls interrupt() during this turn. */
@@ -45,7 +51,11 @@ export class FakeSession implements AgentSession {
   killed = false;
   readonly setModelCalls: ModelId[] = [];
   readonly setEffortCalls: Effort[] = [];
+  readonly setPermissionModeCalls: PermissionMode[] = [];
   readonly sends: TurnInput[] = [];
+  /** Every answer the supervisor forwarded, in order. */
+  readonly answers: { askId: AskId; answer: AskAnswer }[] = [];
+  private readonly waiting = new Map<AskId, (answer: AskAnswer) => void>();
   private current: { turnId: TurnId; ended: boolean; settle: () => void; onInterrupt: () => void } | null = null;
   private dead = false;
 
@@ -106,6 +116,12 @@ export class FakeSession implements AgentSession {
         return toolUseId;
       },
       toolEnd: (toolUseId, output, isError = false) => turn.emit({ kind: "tool.finished", turnId: input.turnId, toolUseId, output, isError }),
+      ask: (ask) => {
+        const askId = `ask-${Math.random().toString(36).slice(2, 8)}` as AskId;
+        const answered = new Promise<AskAnswer>((resolve) => this.waiting.set(askId, resolve));
+        turn.emit({ kind: "ask.opened", turnId: input.turnId, askId, ask });
+        return answered;
+      },
       tool: (name, inp, output, isError = false) => turn.toolEnd(turn.toolStart(name, inp), output, isError),
       end: (outcome = "ok", error = null, usage = defaultUsage) =>
         turn.emit({ kind: "turn.ended", turnId: input.turnId, outcome, sessionId: this.sessionId, usage, error }),
@@ -144,6 +160,15 @@ export class FakeSession implements AgentSession {
   }
   async setEffort(effort: Effort): Promise<void> {
     this.setEffortCalls.push(effort);
+  }
+  async setPermissionMode(mode: PermissionMode): Promise<void> {
+    this.setPermissionModeCalls.push(mode);
+  }
+  answer(askId: AskId, answer: AskAnswer): void {
+    this.answers.push({ askId, answer });
+    const resolve = this.waiting.get(askId);
+    this.waiting.delete(askId);
+    resolve?.(answer);
   }
   events(): AsyncIterable<AgentEvent> {
     return this.out;

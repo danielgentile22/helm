@@ -35,11 +35,14 @@ import { z } from "zod";
 import type { ModelInfo, Options, Query, SDKMessage, SDKUserMessage, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { EFFORTS, LIMITS, MODEL_POLICY_DENY } from "../../shared/protocol";
 import type {
+  AskAnswer,
+  AskId,
   ClaudeSessionId,
   Effort,
   ModelId,
   ModelChoice,
   OfferedFile,
+  PermissionMode,
   SlashCommand,
   StagedUpload,
   ThreadEventBody,
@@ -54,6 +57,7 @@ export interface SpawnOptions {
   readonly cwd: string;
   readonly model: ModelId;
   readonly effort: Effort;
+  readonly permissionMode: PermissionMode;
   /** Present when we have a session to resume; absent on a brand-new thread. */
   readonly resume: ClaudeSessionId | null;
   /** `--add-dir` equivalents; from config, default ~/Projects ~/Desktop ~/Documents. */
@@ -78,6 +82,10 @@ export interface TurnInput {
  * Events the adapter produces, already in log vocabulary. `session.bound`
  * appears once per spawn; `turn.ended` exactly once per TurnInput, even on
  * error or interrupt (settle-exactly-once, carried over from the old route).
+ * `ask.opened` is yielded when the SDK's permission callback blocks; the
+ * adapter never yields the matching `ask.answered` for a person's answer
+ * (the supervisor logs that before forwarding it), only for a decision
+ * Claude Code made on its own, as an opened-and-answered pair.
  */
 export type AgentEvent = Extract<
   ThreadEventBody,
@@ -88,6 +96,8 @@ export type AgentEvent = Extract<
       | "assistant.thinking"
       | "tool.started"
       | "tool.finished"
+      | "ask.opened"
+      | "ask.answered"
       | "turn.ended";
   }
 >;
@@ -107,6 +117,13 @@ export interface AgentSession {
   interrupt(): Promise<void>;
   setModel(model: ModelId): Promise<void>;
   setEffort(effort: Effort): Promise<void>;
+  /** Live switch; takes effect at the next permission decision. */
+  setPermissionMode(mode: PermissionMode): Promise<void>;
+  /**
+   * Settle a pending ask. The adapter forwards the answer to the SDK exactly
+   * as given and never decides; an unknown or already-settled id is a no-op.
+   */
+  answer(askId: AskId, answer: AskAnswer): void;
   /** Ordered stream of AgentEvent for the life of the process. Ends when the process exits. */
   events(): AsyncIterable<AgentEvent>;
   /** The live slash-command menu, terminal-only entries removed. Empty when the session is dead. */
