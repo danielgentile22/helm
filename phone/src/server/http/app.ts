@@ -339,35 +339,33 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     return c.json([staged], 201);
   });
 
-  app.get("/api/threads/:id/uploads/:uploadId", async (c) => {
-    const t = await thread(c);
-    if (t instanceof Response) return t;
-    const resolved = await deps.uploads.resolve(t.threadId, [c.req.param("uploadId")]).catch(() => []);
-    const upload = resolved[0];
-    if (!upload) return fail(c, 404, "no such upload");
-    const size = await stat(upload.path).then((s) => s.size, () => null);
-    if (size === null) return fail(c, 404, "upload file is gone");
-    c.header("Content-Type", upload.mime);
-    c.header("Content-Length", String(size));
-    c.header("Content-Disposition", `inline; filename="${upload.name}"`);
-    // The id is a uuid and the bytes never change under it, so a phone may hold on to them.
-    c.header("Cache-Control", "private, max-age=3600");
-    return c.body(Readable.toWeb(createReadStream(upload.path)) as ReadableStream);
-  });
-
-  app.get("/api/threads/:id/files/:fileId", async (c) => {
-    const t = await thread(c);
-    if (t instanceof Response) return t;
-    const file = await deps.offers.resolve(t.threadId, c.req.param("fileId"));
-    if (!file) return fail(c, 404, "no such file was offered");
+  /**
+   * Stream a file the log knows about. An upload is a copy whose bytes never
+   * change under its id, so the phone may hold on to it for an hour. An offer
+   * is a live path, so nothing may cache it.
+   */
+  const serveFile = async (c: Context, file: { path: string; name: string; mime: string } | null, cache: "max-age=3600" | "no-store"): Promise<Response> => {
+    if (!file) return fail(c, 404, "no such file");
     const size = await stat(file.path).then((s) => (s.isFile() ? s.size : null), () => null);
     if (size === null) return fail(c, 404, "the file is no longer there");
     c.header("Content-Type", file.mime);
     c.header("Content-Length", String(size));
     c.header("Content-Disposition", `inline; filename="${file.name}"`);
-    // A live path, not a copy: the bytes under this id can change, so nothing may hold on to them.
-    c.header("Cache-Control", "private, no-store");
+    c.header("Cache-Control", `private, ${cache}`);
     return c.body(Readable.toWeb(createReadStream(file.path)) as ReadableStream);
+  };
+
+  app.get("/api/threads/:id/uploads/:uploadId", async (c) => {
+    const t = await thread(c);
+    if (t instanceof Response) return t;
+    const [upload] = await deps.uploads.resolve(t.threadId, [c.req.param("uploadId")]).catch(() => []);
+    return serveFile(c, upload ?? null, "max-age=3600");
+  });
+
+  app.get("/api/threads/:id/files/:fileId", async (c) => {
+    const t = await thread(c);
+    if (t instanceof Response) return t;
+    return serveFile(c, await deps.offers.resolve(t.threadId, c.req.param("fileId")), "no-store");
   });
 
   app.get("/api/threads/:id/events", async (c) => {
