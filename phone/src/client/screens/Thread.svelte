@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import type { ThreadId } from "../../shared/protocol";
   import type { HelmClient } from "../api";
+  import Composer from "../components/Composer.svelte";
   import Gauge from "../components/Gauge.svelte";
   import Menu from "../components/Menu.svelte";
   import StatusBar from "../components/StatusBar.svelte";
@@ -21,9 +22,7 @@
   let failure = $state<unknown>(null);
   let menuOpen = $state(false);
   let openSheet = $state<"rename" | "model" | "info" | "archive" | null>(null);
-  let uploading = $state(false);
-  let inputEl: HTMLTextAreaElement | null = $state(null);
-  let fileEl: HTMLInputElement | null = $state(null);
+  let insert = $state<(text: string) => void>(() => undefined);
   let atBottom = $state(true);
   /** Blocks the reader has already had under their eyes. Frozen while they are scrolled up. */
   let seenCount = $state(0);
@@ -86,44 +85,6 @@
     if (location.hash === "#end") void tick().then(follow);
   });
 
-  function autogrow(): void {
-    if (!inputEl) return;
-    inputEl.style.height = "";
-    inputEl.style.height = `${Math.min(inputEl.scrollHeight, window.innerHeight * 0.4)}px`;
-  }
-
-  async function send(): Promise<void> {
-    if (!session || !inputEl) return;
-    const text = inputEl.value.trim();
-    if (!text && !session.attachments.length) return;
-    const uploads = session.attachments;
-    inputEl.value = "";
-    inputEl.style.height = "";
-    session.attachments = [];
-    await session.submit(text, uploads);
-  }
-
-  /** Insert a quoted block at the caret and hand the composer back to the reader. */
-  function quote(quoted: string): void {
-    if (!inputEl) return;
-    const start = inputEl.selectionStart ?? inputEl.value.length;
-    const end = inputEl.selectionEnd ?? start;
-    inputEl.value = inputEl.value.slice(0, start) + quoted + inputEl.value.slice(end);
-    const caret = start + quoted.length;
-    inputEl.focus();
-    inputEl.setSelectionRange(caret, caret);
-    autogrow();
-  }
-
-  async function pickFiles(): Promise<void> {
-    if (!fileEl) return;
-    const files = Array.from(fileEl.files ?? []);
-    fileEl.value = "";
-    if (!files.length || !session) return;
-    uploading = true;
-    await session.upload(files);
-    uploading = false;
-  }
 </script>
 
 {#if failure}
@@ -151,7 +112,7 @@
     </header>
     <StatusBar conn={s.conn} seen={s.view.headSeq} head={s.summary.headSeq} />
     </div>
-    <Transcript {blocks} openTurn={s.view.openTurn} replaying={s.view.replaying} onResend={(text) => void s.submit(text, [])} onQuote={quote} uploadUrl={(uploadId) => api.uploadUrl(threadId, uploadId)} />
+    <Transcript {blocks} openTurn={s.view.openTurn} replaying={s.view.replaying} onResend={(text) => void s.submit(text, [])} onQuote={(quoted) => insert(quoted)} uploadUrl={(uploadId) => api.uploadUrl(threadId, uploadId)} />
     {#if s.error}
       <div class="inline-error">
         <span class="glyph">▲</span>
@@ -159,25 +120,12 @@
         <button class="icon-btn" aria-label="Dismiss" onclick={() => (s.error = null)}>✕</button>
       </div>
     {/if}
-    <div class="attachments">
-      {#each s.attachments as a (a.uploadId)}<span>{a.name}</span>{/each}
-    </div>
-    <div class="composer">
+    <div class="dock">
       {#if unseen > 0}
         <button class="jump" onclick={follow}><span class="glyph">▾</span>{unseen} new</button>
       {/if}
-      <button class="btn" disabled={uploading} onclick={() => fileEl?.click()}>+</button>
-      <textarea
-        bind:this={inputEl}
-        placeholder="Message"
-        rows="1"
-        oninput={autogrow}
-        onkeydown={(e) => (e.key === "Enter" && (e.metaKey || e.ctrlKey) ? void send() : undefined)}
-      ></textarea>
-      <button class="btn primary" onclick={() => void send()}>Send</button>
-      <button class="btn" hidden={!s.running} onclick={() => s.interrupt()}>Stop</button>
+      <Composer session={s} {api} onModel={() => (openSheet = "model")} bind:insert />
     </div>
-    <input type="file" multiple hidden bind:this={fileEl} onchange={pickFiles} />
     {#if openSheet === "rename"}
       <Rename {api} config={s.summary.config} onClose={() => (openSheet = null)} />
     {:else if openSheet === "model"}
