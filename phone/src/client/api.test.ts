@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { Seq, SyncFrame, ThreadEvent, ThreadId } from "../shared/protocol";
+import type { Seq, SyncFrame, ThreadEvent, ThreadId, UploadId } from "../shared/protocol";
 import { HelmClient, type EventSourceLike } from "./api";
 
 /** A scripted EventSource: the test drives it by calling emit / sync / fail. */
@@ -101,6 +101,30 @@ test("a sync frame with a head behind the cursor restarts from zero", async () =
   await tick();
   assert.equal(FakeES.instances[1]!.url, "http://x/api/threads/t1/events?after=0");
   stop();
+});
+
+test("the command calls unwrap the envelope, and the upload URL is built once", async () => {
+  const seen: { method: string; url: string }[] = [];
+  const commands = [{ name: "grill", description: "Grill a plan", argumentHint: "<plan>" }];
+  const c = new HelmClient({
+    baseUrl: "http://x",
+    fetch: (async (url: string, init?: RequestInit) => {
+      seen.push({ method: init?.method ?? "GET", url });
+      return new Response(JSON.stringify({ commands }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch,
+  });
+  assert.deepEqual(await c.listCommands("t1" as ThreadId), commands);
+  assert.deepEqual(await c.reloadCommands("t1" as ThreadId), commands);
+  assert.deepEqual(seen, [
+    { method: "GET", url: "http://x/api/threads/t1/commands" },
+    { method: "POST", url: "http://x/api/threads/t1/commands/reload" },
+  ]);
+  assert.equal(c.uploadUrl("t1" as ThreadId, "u9" as UploadId), "http://x/api/threads/t1/uploads/u9");
+});
+
+test("a 503 from the command endpoint reaches the caller as an HttpError to fall back on", async () => {
+  const c = new HelmClient({ baseUrl: "http://x", fetch: (async () => new Response(JSON.stringify({ error: "commands unavailable" }), { status: 503, headers: { "content-type": "application/json" } })) as typeof fetch });
+  await assert.rejects(c.listCommands("t1" as ThreadId), (err: Error & { status?: number }) => err.status === 503 && err.message === "commands unavailable");
 });
 
 test("call() surfaces the server's error message with its status", async () => {

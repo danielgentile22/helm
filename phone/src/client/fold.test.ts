@@ -8,12 +8,15 @@ const origin = { via: "pwa", label: "iphone" } as const;
 let seq = 0;
 const ev = (body: object): ThreadEvent => ({ seq: ++seq as Seq, ts: "2026-09-11T10:00:00.000Z", ...body }) as ThreadEvent;
 
+const shot = { uploadId: "u1", path: "/tmp/u1", name: "shot.png", mime: "image/png", bytes: 12 };
+const note = { uploadId: "u2", path: "/tmp/u2", name: "notes.txt", mime: "text/plain", bytes: 3 };
+
 function turn(): ThreadEvent[] {
   seq = 0;
   const t = "t:3" as TurnId;
   return [
     ev({ kind: "thread.created", config: { threadId, cwd: "/v", model: "m" as never, effort: "high", title: null, createdAt: "", archivedAt: null } }),
-    ev({ kind: "input.queued", clientMsgId: "c1" as never, text: "hi", uploads: [], origin }),
+    ev({ kind: "input.queued", clientMsgId: "c1" as never, text: "hi", uploads: [shot, note], origin }),
     ev({ kind: "turn.started", turnId: t, clientMsgId: "c1" as never, model: "m" as never, effort: "high", spawned: true }),
     ev({ kind: "session.bound", sessionId: "s" as never }),
     ev({ kind: "assistant.thinking", turnId: t, delta: "hm" }),
@@ -38,6 +41,16 @@ test("fold builds prompt, thinking, text blocks, merged tool rows, and the turn 
   );
 });
 
+test("a queued prompt keeps every upload's id, name and mime so images can be fetched back", () => {
+  const view = foldAll(emptyView(threadId), turn().slice(0, 2));
+  const line = view.lines[0];
+  assert.equal(line?.kind, "prompt");
+  assert.deepEqual(line?.kind === "prompt" && line.uploads, [
+    { uploadId: "u1", name: "shot.png", mime: "image/png" },
+    { uploadId: "u2", name: "notes.txt", mime: "text/plain" },
+  ]);
+});
+
 test("fold marks the turn open while running and requires seq to be exactly head plus one", () => {
   const events = turn();
   const mid = foldAll(emptyView(threadId), events.slice(0, 7));
@@ -49,9 +62,10 @@ test("fold marks the turn open while running and requires seq to be exactly head
 test("a pending prompt is replaced by its input.queued and dropped inputs are marked", () => {
   const events = turn();
   let view = fold(emptyView(threadId), events[0]!);
-  view = addPendingPrompt(view, "c1", "hi", "iphone");
+  view = addPendingPrompt(view, "c1", "hi", "iphone", [{ uploadId: shot.uploadId as never, name: shot.name, mime: shot.mime }]);
   assert.equal(view.lines.length, 1);
   assert.equal(view.lines[0]?.kind === "prompt" && view.lines[0].state, "pending");
+  assert.deepEqual(view.lines[0]?.kind === "prompt" && view.lines[0].uploads.map((u) => u.name), ["shot.png"], "the pending line already carries what was staged");
   view = fold(view, events[1]!);
   assert.equal(view.lines.length, 1, "pending line replaced, not duplicated");
   assert.equal(view.lines[0]?.kind === "prompt" && view.lines[0].state, "queued");

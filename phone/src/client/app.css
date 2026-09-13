@@ -88,6 +88,8 @@ a { color: var(--accent); }
 .menuscrim { position: fixed; inset: 0; z-index: 5; }
 .menu { position: absolute; right: 0; top: calc(100% + var(--s-3)); z-index: 6; min-width: 160px; background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-md); box-shadow: var(--shadow); overflow: hidden; animation: popin var(--d-base) var(--e-out) both; }
 @keyframes popin { from { transform: translateY(-6px); opacity: 0; } }
+.menu.up { top: auto; right: auto; left: 0; bottom: calc(100% + var(--s-3)); animation: popup var(--d-base) var(--e-out) both; }
+.inputrow .anchor { position: relative; flex: none; }
 .mitem { display: block; width: 100%; padding: var(--s-4) var(--s-5); text-align: left; font-size: var(--t-sm); background: transparent; border: 0; border-bottom: 1px solid var(--hair); }
 .mitem:last-child { border-bottom: 0; }
 
@@ -122,6 +124,8 @@ a { color: var(--accent); }
 .origin i { font-style: normal; color: var(--ink-3); }
 /* white-space: pre-wrap, so the prompt keeps the line breaks the user typed. */
 .prompt-text { margin: 0; padding: var(--s-4) var(--s-5); font-family: var(--mono); font-size: var(--t-sm); line-height: 1.5; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--sunken); border-left: 2px solid var(--accent-solid); border-radius: 0 var(--r-md) var(--r-md) 0; }
+.shots { display: flex; flex-wrap: wrap; gap: var(--s-3); margin-top: var(--s-3); }
+.shots img { max-width: min(100%, 260px); max-height: 320px; border: 1px solid var(--hair); border-radius: var(--r-md); }
 .attached { margin-top: var(--s-3); font-size: var(--t-xs); color: var(--ink-3); }
 .resend { margin-top: var(--s-3); }
 
@@ -196,16 +200,55 @@ a { color: var(--accent); }
 .endline .glyph { flex: none; }
 .note { font-family: var(--mono); font-size: var(--t-xs); color: var(--ink-3); }
 
+.dock { position: sticky; bottom: 0; z-index: 3; background: var(--bg); }
 .jump { position: absolute; left: 50%; bottom: calc(100% + var(--s-4)); transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: var(--t-xs); font-weight: 600; color: var(--bg); background: var(--ink); border: 0; border-radius: var(--r-pill); box-shadow: var(--shadow); }
-.composer { position: sticky; bottom: 0; background: var(--bg); border-top: 1px solid var(--hair); padding: var(--s-4) var(--s-4) calc(env(safe-area-inset-bottom) + var(--s-4)); display: flex; gap: var(--s-4); align-items: flex-end; }
-.composer textarea { flex: 1; resize: none; min-height: 40px; max-height: 40vh; padding: var(--s-4) var(--s-5); border-radius: var(--r-lg); border: 1px solid var(--hair); background: var(--surface); }
-.attachments { padding: 0 var(--s-5) var(--s-3); font-size: var(--t-xs); color: var(--ink-3); display: flex; gap: var(--s-4); flex-wrap: wrap; }
-.attachments span { border: 1px solid var(--hair); border-radius: var(--r-sm); padding: var(--s-1) var(--s-3); }
+.composer { background: var(--bg); border-top: 1px solid var(--hair); padding-bottom: env(safe-area-inset-bottom); }
+.quick { display: flex; gap: var(--s-3); align-items: center; padding: var(--s-4) var(--s-5) 0; overflow-x: auto; }
+.quick .chip { flex: none; }
+.chip.stop { color: var(--ink); border-color: var(--ink-3); font-weight: 600; }
+.stage { display: flex; gap: var(--s-3); align-items: center; flex-wrap: wrap; padding: var(--s-4) var(--s-5) 0; }
+.stage .th { position: relative; width: 52px; height: 52px; flex: none; border: 1px solid var(--hair); border-radius: var(--r-md); overflow: hidden; }
+.stage .th img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.stage .x { position: absolute; top: 3px; right: 3px; display: grid; place-items: center; width: 17px; height: 17px; padding: 0; font-size: 9px; line-height: 1; color: var(--bg); background: var(--ink); border: 0; border-radius: var(--r-pill); }
+.chip.file .x { position: static; width: 14px; height: 14px; display: grid; place-items: center; padding: 0; font-size: 9px; color: var(--ink-2); background: transparent; border: 0; }
+.inputrow { display: flex; gap: var(--s-4); align-items: flex-end; padding: var(--s-4) var(--s-5) 0; }
+.inputrow .box { display: flex; flex: 1; min-width: 0; align-items: center; flex-wrap: wrap; gap: var(--s-3); padding: 9px var(--s-5); background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-lg); }
+.inputrow .ta { flex: 1; min-width: 60px; resize: none; min-height: 22px; max-height: 40vh; padding: 0; font-size: var(--t-base); background: transparent; border: 0; outline: none; }
+.chip.cmd { color: var(--accent); background: var(--accent-soft); border-color: transparent; font-family: var(--mono); }
+.chip.cmd b { color: var(--accent); }
+.chip.cmd .x { width: 14px; height: 14px; display: grid; place-items: center; padding: 0; font-size: 9px; color: inherit; background: transparent; border: 0; }
+
+.popanchor { position: relative; }
+.pop { position: absolute; left: var(--s-5); right: var(--s-5); bottom: calc(100% + var(--s-3)); z-index: 4; background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-lg); box-shadow: var(--shadow); overflow: hidden; animation: popup var(--d-base) var(--e-out) both; }
+@keyframes popup { from { transform: translateY(8px); opacity: 0; } }
+.pop .ph { padding: var(--s-3) var(--s-5); font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--ink-3); border-bottom: 1px solid var(--hair); }
+.cmd-row { display: flex; width: 100%; align-items: baseline; gap: var(--s-4); padding: var(--s-4) var(--s-5); text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--hair); }
+.cmd-row:last-child { border-bottom: 0; }
+.cmd-row.sel { background: var(--accent-soft); }
+.cmd-row .nm { flex: none; font-family: var(--mono); font-size: var(--t-sm); font-weight: 600; color: var(--accent); }
+.cmd-row .ds { flex: 1; min-width: 0; font-size: var(--t-xs); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-row .ah { flex: none; font-family: var(--mono); font-size: var(--t-mono-xs); color: var(--ink-3); }
+.attach { display: grid; place-items: center; flex: none; width: 40px; height: 40px; font-size: var(--t-md); color: var(--ink-2); background: transparent; border: 1px solid var(--hair); border-radius: var(--r-pill); }
+.attach:disabled { opacity: .5; cursor: default; }
+/* The morph is border-radius and colour only, so the target never moves under the thumb. */
+.send { display: grid; place-items: center; flex: none; width: 40px; height: 40px; font-size: var(--t-md); color: var(--on-accent); background: var(--accent-solid); border: 0; border-radius: var(--r-pill); transition: border-radius var(--d-base) var(--e-spring), background var(--d-base) var(--e-std), color var(--d-base) var(--e-std); }
+.send.stop { color: var(--bg); background: var(--ink); border-radius: var(--r-md); }
+.helper { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-3) var(--s-5) var(--s-4); font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: .04em; color: var(--ink-3); }
+.helper .keys { margin-left: auto; }
 .sheet { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: flex-end; z-index: 5; }
 .sheet .grab { width: 38px; height: 4px; margin: 0 auto var(--s-2); border-radius: var(--r-pill); background: var(--rail); }
 .sheet .panel { animation: sheetup var(--d-enter) var(--e-out) both; background: var(--surface); width: 100%; max-height: 90dvh; overflow: auto; border-radius: var(--r-lg) var(--r-lg) 0 0; padding: var(--s-6) var(--s-6) calc(env(safe-area-inset-bottom) + var(--s-6)); display: flex; flex-direction: column; gap: var(--s-5); }
 @keyframes sheetup { from { transform: translateY(100%); } }
 .sheet h2 { margin: 0; font-size: var(--t-md); }
+.sheet .shead { display: flex; align-items: center; gap: var(--s-4); }
+.sheet .shead h2 { flex: 1; }
+.search { padding: 8px var(--s-5); font-size: var(--t-sm); background: var(--sunken); border: 1px solid var(--hair); border-radius: var(--r-md); }
+/* The browser default ring is blue, which reads as a third signal hue next to amber and indigo. */
+.search:focus-visible, .cmd-row:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: 1px; }
+.inputrow .box:focus-within { border-color: var(--accent-solid); box-shadow: 0 0 0 1px var(--accent-solid); }
+.scope { font-family: var(--mono); font-size: var(--t-mono-xs); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet .list { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; border: 1px solid var(--hair); border-radius: var(--r-md); }
+.sheet .list .cmd-row:last-child { border-bottom: 0; }
 .field { display: flex; flex-direction: column; gap: var(--s-2); }
 .field label { font-size: var(--t-xs); color: var(--ink-3); }
 .field select, .field input { padding: var(--s-4) var(--s-4); border-radius: var(--r-md); border: 1px solid var(--hair); background: var(--bg); }
@@ -238,7 +281,7 @@ a { color: var(--accent); }
    which the earlier reduced-motion block cannot, having been written before them. */
 @media (prefers-reduced-motion: reduce) {
   .turn.is-live::before { animation: none; background: var(--accent-solid); }
-  .act .now, .statusbar, .menu, .sheet .panel { animation: none; }
+  .act .now, .statusbar, .menu, .pop, .sheet .panel { animation: none; }
   .spin { animation: none; }
   .think-body.is-streaming::after, .md.is-streaming > :last-child::after { animation: none; opacity: 1; }
 }
