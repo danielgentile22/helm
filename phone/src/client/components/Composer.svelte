@@ -35,14 +35,14 @@
   const stopping = $derived(session.running && !hasContent);
 
   /** State word plus its own glyph, so the composer never reports state by colour alone. */
-  const PHASE: Readonly<Record<string, { word: string; glyph: string }>> = {
+  const PHASE = {
     offline: { word: "offline", glyph: "▲" },
     replaying: { word: "replaying", glyph: "↻" },
     running: { word: "running", glyph: "◆" },
     idle: { word: "idle", glyph: "◌" },
-  };
-  const phaseKey = $derived(session.conn === "offline" ? "offline" : session.conn === "connecting" || session.conn === "replaying" ? "replaying" : session.running ? "running" : "idle");
-  const phase = $derived(PHASE[phaseKey]!);
+  } as const;
+  const phaseKey = $derived<keyof typeof PHASE>(session.conn === "offline" ? "offline" : session.conn === "connecting" || session.conn === "replaying" ? "replaying" : session.running ? "running" : "idle");
+  const phase = $derived(PHASE[phaseKey]);
 
   const keysShown = typeof matchMedia === "function" && matchMedia("(pointer: fine)").matches;
 
