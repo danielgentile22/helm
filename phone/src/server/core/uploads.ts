@@ -16,14 +16,17 @@ import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import type { Origin, StagedUpload, ThreadId, UploadId } from "../../shared/protocol";
-import type { LogRegistry } from "./log";
 import { safeName, sniffMime } from "./files";
+import type { LogRegistry } from "./log";
+import { LogIndex } from "./log-index";
 import type { ThreadStore } from "./thread-store";
 
 export class Uploads {
-  private readonly staged = new Map<ThreadId, Map<UploadId, StagedUpload>>();
+  private readonly index: LogIndex<UploadId, StagedUpload>;
 
-  constructor(private readonly threads: ThreadStore, private readonly logs: LogRegistry) {}
+  constructor(private readonly threads: ThreadStore, private readonly logs: LogRegistry) {
+    this.index = new LogIndex(logs, (ev) => (ev.kind === "upload.staged" ? [ev.upload.uploadId, ev.upload] : null));
+  }
 
   /** Write one file to disk and log it. Returns the staged record the client will reference in send(). */
   async stage(
@@ -56,34 +59,25 @@ export class Uploads {
     const upload: StagedUpload = { uploadId, path, name: safe, mime: sniffMime(head) ?? part.mime, bytes };
     const log = await this.logs.get(threadId);
     await log.append({ kind: "upload.staged", upload, origin });
-    let byThread = this.staged.get(threadId);
-    if (!byThread) this.staged.set(threadId, (byThread = new Map()));
-    byThread.set(uploadId, upload);
+    this.index.remember(threadId, uploadId, upload);
     return upload;
   }
 
   /** Resolve ids the client sent to staged records; unknown ids are an error at the boundary, not silently skipped. */
   async resolve(threadId: ThreadId, ids: readonly string[]): Promise<readonly StagedUpload[]> {
-    if (ids.length === 0) return [];
-    const known = this.staged.get(threadId) ?? new Map<UploadId, StagedUpload>();
-    const missing = ids.filter((id) => !known.has(id as UploadId));
-    if (missing.length) {
-      // Staged before a restart: the log remembers.
-      const log = await this.logs.get(threadId);
-      for await (const ev of log.read(0)) if (ev.kind === "upload.staged") known.set(ev.upload.uploadId, ev.upload);
-      this.staged.set(threadId, known);
-    }
-    return ids.map((id) => {
-      const u = known.get(id as UploadId);
+    const out: StagedUpload[] = [];
+    for (const id of ids) {
+      const u = await this.index.lookup(threadId, id);
       if (!u) throw new Error(`unknown upload id: ${id}`);
-      return u;
-    });
+      out.push(u);
+    }
+    return out;
   }
 
   /** Delete the staging directory with the thread on archive. */
   async purge(threadId: ThreadId): Promise<void> {
     const config = await this.threads.get(threadId);
     if (config) await rm(this.threads.uploadsDir(config), { recursive: true, force: true });
-    this.staged.delete(threadId);
+    this.index.purge(threadId);
   }
 }
