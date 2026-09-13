@@ -278,7 +278,7 @@ a { color: var(--accent); }
    which the earlier reduced-motion block cannot, having been written before them. */
 @media (prefers-reduced-motion: reduce) {
   .turn.is-live::before { animation: none; background: var(--accent-solid); }
-  .act .now, .statusbar, .menu, .sheet .panel { animation: none; }
+  .act .now, .statusbar, .menu, .pop, .sheet .panel { animation: none; }
   .spin { animation: none; }
   .think-body.is-streaming::after, .md.is-streaming > :last-child::after { animation: none; opacity: 1; }
 }
