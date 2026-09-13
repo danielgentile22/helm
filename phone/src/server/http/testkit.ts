@@ -129,7 +129,7 @@ export async function readSse(res: Response, until: (frames: Frame[]) => boolean
   return frames;
 }
 
-function parseFrame(block: string): Frame | null {
+export function parseFrame(block: string): Frame | null {
   let id: number | null = null;
   let event = "message";
   let data = "";
