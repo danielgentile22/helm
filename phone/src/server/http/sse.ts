@@ -27,7 +27,6 @@ import { streamSSE } from "hono/streaming";
 import { LIMITS } from "../../shared/protocol";
 import type { Cursor, SyncFrame, ThreadEvent, ThreadId } from "../../shared/protocol";
 import type { LogRegistry, ThreadLog } from "../core/log";
-import { parseCursor } from "../core/ids";
 import type { Supervisor } from "../core/supervisor";
 import { Pushable } from "../util/pushable";
 
@@ -102,7 +101,11 @@ export function respondGlobal(c: Context, logs: LogRegistry, heartbeatMs?: numbe
 
 /** Pure. Parse `after` query param or Last-Event-ID header into a cursor; bad input is 400. */
 export function cursorFrom(url: URL, lastEventId: string | null): { ok: true; after: Cursor } | { ok: false } {
-  return parseCursor(lastEventId ?? url.searchParams.get("after"));
+  const raw = lastEventId ?? url.searchParams.get("after");
+  if (raw === null || raw === "") return { ok: true, after: 0 };
+  if (!/^\d+$/.test(raw)) return { ok: false };
+  const n = Number(raw);
+  return Number.isSafeInteger(n) ? { ok: true, after: n as Cursor } : { ok: false };
 }
 
 function respond(c: Context, open: (signal: AbortSignal) => AsyncIterable<string>): Response {

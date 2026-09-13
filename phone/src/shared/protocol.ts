@@ -19,7 +19,7 @@ type Brand<T, Name extends string> = T & { readonly [brand]: Name };
 export type Seq = Brand<number, "Seq">;
 /** Position after which a client wants events. 0 means "from the beginning". */
 export type Cursor = Seq | 0;
-/** UUID; client may mint it (see resolveThreadId in server/core/ids.ts). */
+/** UUID; client may mint it (see parseCreateThread in server/http/app.ts). */
 export type ThreadId = Brand<string, "ThreadId">;
 /** Minted at the `turn.started` append; equals `t:<seq of that append>`. */
 export type TurnId = Brand<string, "TurnId">;

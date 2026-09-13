@@ -145,4 +145,8 @@ test("cursorFrom: Last-Event-ID wins over ?after, bad values are rejected", () =
   assert.deepEqual(cursorFrom(new URL("http://x/e"), null), { ok: true, after: 0 });
   assert.deepEqual(cursorFrom(new URL("http://x/e?after=-1"), null), { ok: false });
   assert.deepEqual(cursorFrom(new URL("http://x/e?after=abc"), null), { ok: false });
+  assert.deepEqual(cursorFrom(new URL("http://x/e?after="), null), { ok: true, after: 0 });
+  assert.deepEqual(cursorFrom(new URL("http://x/e?after=1.5"), null), { ok: false });
+  assert.deepEqual(cursorFrom(new URL("http://x/e?after=99999999999999999999"), null), { ok: false });
+  assert.deepEqual(cursorFrom(new URL("http://x/e"), ""), { ok: true, after: 0 });
 });
