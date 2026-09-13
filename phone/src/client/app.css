@@ -243,6 +243,8 @@ a { color: var(--accent); }
 .sheet .shead { display: flex; align-items: center; gap: var(--s-4); }
 .sheet .shead h2 { flex: 1; }
 .search { padding: 8px var(--s-5); font-size: var(--t-sm); background: var(--sunken); border: 1px solid var(--hair); border-radius: var(--r-md); }
+/* The browser default ring is blue, which reads as a third signal hue next to amber and indigo. */
+.search:focus-visible, .inputrow .ta:focus-visible, .cmd-row:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: 1px; }
 .scope { font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sheet .list { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; border: 1px solid var(--hair); border-radius: var(--r-md); }
 .sheet .list .cmd-row:last-child { border-bottom: 0; }
