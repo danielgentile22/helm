@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ModelId, ThreadConfig, ThreadId, ToolUseId, TurnId } from "../../shared/protocol";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ClientMsgId, ModelId, ThreadConfig, ThreadEventBody, ThreadId, ToolUseId, TurnId } from "../../shared/protocol";
 import { threadSummary } from "./summary";
+import { ThreadLog } from "./log";
 import type { ThreadHead } from "./log";
 
 const config: ThreadConfig = {
@@ -60,18 +64,23 @@ test("doing ignores a tool the session can no longer be running, and keeps the t
   assert.equal(d.kind === "text" && d.tail.endsWith("THE END"), true, "the tail is the end of the text, not the start");
 });
 
-test("a turn that produced no text keeps the previous turn's text", () => {
-  const s = threadSummary(
-    head({
-      lastText: { turnId: "t:1" as TurnId, text: "Earlier answer" },
-      lastTurnEndedAt: "2026-09-12T00:00:00.000Z",
-      lastOutcome: "ok",
-    }),
-    config,
-    "idle",
-  );
+test("a turn that produced no text keeps the previous turn's text", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "helm2-summary-"));
+  const log = await ThreadLog.open(config.threadId, dir);
+  const origin = { via: "pwa", label: "iphone" } as const;
+  const turn = (n: number, delta: string | null): ThreadEventBody[] => [
+    { kind: "input.queued", clientMsgId: `m${n}` as ClientMsgId, text: "go", uploads: [], origin },
+    { kind: "turn.started", turnId: `t:${n}` as TurnId, clientMsgId: `m${n}` as ClientMsgId, model: config.model, effort: "high", spawned: true },
+    ...(delta === null ? [] : [{ kind: "assistant.text", turnId: `t:${n}` as TurnId, blockIx: 0, delta } as const]),
+    { kind: "turn.ended", turnId: `t:${n}` as TurnId, outcome: "ok", sessionId: null, usage: null, error: null },
+  ];
+  for (const body of [{ kind: "thread.created", config } as const, ...turn(1, "Earlier answer"), ...turn(2, null)]) await log.append(body);
+
+  const s = threadSummary(log.getHead(), config, "idle");
   assert.equal(s.preview, "Earlier answer");
   assert.deepEqual(s.doing, { kind: "text", tail: "Earlier answer" });
+  assert.equal(log.getHead().lastText?.turnId, "t:1", "the text is the first turn's");
+  assert.notEqual(s.lastTurnEndedAt, null, "the second turn still ended");
 });
 
 test("preview keeps the first 120 chars and the tail keeps the last 120 of the same text", () => {
