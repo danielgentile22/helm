@@ -26,7 +26,7 @@
 
 import { mkdir, readdir, readFile, stat, unlink, appendFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { askSummary, fmtBytes, toolSummary } from "../../shared/protocol";
+import { answerPhrase, askSummary, fmtBytes, toolSummary } from "../../shared/protocol";
 import type { Cursor, Seq, ThreadConfig, ThreadEvent, ThreadId } from "../../shared/protocol";
 import { groupTurns, isCompleted, type AskItem, type CompletedTurn, type TurnEnd } from "../../shared/turns";
 import type { ThreadLog, Unsubscribe } from "./log";
@@ -206,7 +206,7 @@ function answerVerb(item: AskItem): string {
       case "deny":
         return a.answer.reason ? `denied: ${a.answer.reason}` : "denied";
       case "answers":
-        return a.answer.answers.map((q) => (q.kind === "options" ? q.labels.join(", ") : q.text)).join("; ");
+        return a.answer.answers.map(answerPhrase).join("; ");
     }
   })();
   return `${verb} [${a.by.origin.label}]`;

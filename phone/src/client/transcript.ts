@@ -10,7 +10,7 @@
  * screen.
  */
 
-import { toolSummary } from "../shared/protocol";
+import { answerPhrase, toolSummary } from "../shared/protocol";
 import type { ToolUseId, TurnId, Usage } from "../shared/protocol";
 import type { AskItem, FileItem, Item, Prompt, ToolItem, Turn } from "../shared/turns";
 import { fmtTime } from "./format";
@@ -89,6 +89,8 @@ function turnBlocks(turn: Turn, open: boolean): Block[] {
         blocks.push({ kind: "file", key: `file:${item.fileId}`, file: item });
         break;
       case "ask":
+        // A decision Claude Code made alone is already on the tool row as "denied"; a card would ask the reader to answer something settled.
+        if (item.answer?.by.by === "system" && item.answer.by.reason === "rule") break;
         blocks.push({ kind: "ask", key: `ask:${item.askId}`, ask: item, live: open && item.answer === null });
         break;
       case "note":
@@ -127,7 +129,7 @@ export function answerLine(item: AskItem): string {
   if (settled.by.by === "system") {
     const reason = settled.answer.kind === "deny" ? settled.answer.reason : null;
     if (settled.by.reason === "rule") return reason ? `Auto-denied by a rule: ${reason} · ${stamp}` : `Auto-denied by a rule · ${stamp}`;
-    const words = { interrupted: "interrupted", restart: "server restarted", archived: "archived" }[settled.by.reason];
+    const words = { interrupted: "interrupted", restart: "server restarted", exited: "Claude Code exited", archived: "archived" }[settled.by.reason];
     return `Expired (${words}) · ${stamp}`;
   }
   const who = settled.by.origin.label;
@@ -139,7 +141,7 @@ export function answerLine(item: AskItem): string {
     case "deny":
       return settled.answer.reason ? `Denied by ${who}: ${settled.answer.reason} · ${stamp}` : `Denied by ${who} · ${stamp}`;
     case "answers": {
-      const said = settled.answer.answers.map((a) => (a.kind === "text" ? a.text : a.labels.join(", ")));
+      const said = settled.answer.answers.map(answerPhrase);
       return `Answered: ${said.join(" · ")} · ${stamp}`;
     }
   }

@@ -225,6 +225,18 @@ test("a tool the turn denied is marked denied for its activity block, and an all
   assert.deepEqual([...act.denied].sort(), ["tu-denied", "tu-expired"]);
 });
 
+test("a decision Claude Code made alone marks the tool row denied and draws no card", () => {
+  const events = [
+    ...started(),
+    ev({ kind: "ask.opened", turnId: T, askId: "r1", ask: { kind: "tool", toolName: "Bash", input: {}, toolUseId: "tu-rule", title: null, description: null } }),
+    answeredEv("r1", { kind: "deny", reason: "deny rule" }, { by: "system", reason: "rule" }),
+    ...tool("Bash"),
+  ];
+  const blocks = toBlocks(build(events, T));
+  assert.deepEqual(kinds(blocks), ["prompt", "activity"]);
+  assert.deepEqual([...activity(blocks)[0]!.denied], ["tu-rule"]);
+});
+
 test("answerLine names who answered and what, and tells an expiry apart from a denial", () => {
   const item = (answer: object, by: object): Parameters<typeof answerLine>[0] => ({
     kind: "ask",

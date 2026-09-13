@@ -128,6 +128,7 @@ function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
       if (activeTool?.toolUseId === ev.toolUseId) activeTool = null;
       break;
     case "ask.opened": {
+      if (ev.turnId !== openTurn) break;
       pendingAsks = [...pendingAsks, { askId: ev.askId, turnId: ev.turnId, ask: ev.ask }];
       const ids = new Set(recentAskIds);
       ids.add(ev.askId);

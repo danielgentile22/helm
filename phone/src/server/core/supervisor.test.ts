@@ -306,7 +306,7 @@ test("archive seals pending asks as {system: archived}, not interrupted", async 
   await h.cleanup();
 });
 
-test("a process that dies with an ask pending seals it as {system: restart} before the error end", async () => {
+test("a process that dies with an ask pending seals it as {system: exited} before the error end", async () => {
   const h = await harness(async (t) => {
     void t.ask(bashAsk);
     await new Promise((r) => setTimeout(r, 10));
@@ -316,7 +316,7 @@ test("a process that dies with an ask pending seals it as {system: restart} befo
   await h.sup.send(h.threadId, msg("m1"));
   const end = await ended;
   assert.equal(end.kind === "turn.ended" && end.error, "Claude Code session exited");
-  assert.deepEqual(sealReasons(await h.events()), ["deny:restart"]);
+  assert.deepEqual(sealReasons(await h.events()), ["deny:exited"]);
   assert.equal(h.log.getHead().pendingAsks.length, 0);
   await h.cleanup();
 });

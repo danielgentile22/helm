@@ -172,12 +172,13 @@ export type AskAnswer =
 /**
  * Who settled an ask. A person answered through a device; the system answered
  * on their behalf when the request could no longer be waited on (`interrupted`,
- * `archived`), when the server rebooted with the turn open (`restart`), or when
+ * `archived`), when the server rebooted with the turn open (`restart`), when
+ * the Claude Code process died under it (`exited`), or when
  * Claude Code decided without asking (`rule`: a deny rule or classifier). A
  * system answer is always a denial, which is how expiry stays distinct from a
  * person's "Deny" in the transcript.
  */
-export type AskSystemReason = "interrupted" | "restart" | "archived" | "rule";
+export type AskSystemReason = "interrupted" | "restart" | "exited" | "archived" | "rule";
 export type AskAnsweredBy = { readonly by: "user"; readonly origin: Origin } | { readonly by: "system"; readonly reason: AskSystemReason };
 
 export interface AnswerRequest {
@@ -190,6 +191,16 @@ export interface PendingAsk {
   readonly askId: AskId;
   readonly turnId: TurnId;
   readonly ask: AskPayload;
+}
+
+/** Whether an answer has the shape the ask can take: a question takes answers or deny, a tool takes anything but answers. */
+export function answerFits(ask: AskPayload, answer: AskAnswer): boolean {
+  return ask.kind === "question" ? answer.kind === "answers" || answer.kind === "deny" : answer.kind !== "answers";
+}
+
+/** One question's answer in words: the labels picked, or the text typed. The SDK, the mirror and the card all say it this way. */
+export function answerPhrase(a: QuestionAnswer): string {
+  return a.kind === "options" ? a.labels.join(", ") : a.text;
 }
 
 /**

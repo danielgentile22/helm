@@ -34,7 +34,6 @@ import type {
   Effort,
   ModelId,
   Origin,
-  PendingAsk,
   PermissionMode,
   SendResponse,
   StagedUpload,
@@ -48,6 +47,7 @@ import type {
 } from "../../shared/protocol";
 import type { AgentEvent, AgentFactory, AgentSession } from "./agent";
 import { PHONE_APPENDIX } from "./agent";
+import { answerFits } from "../../shared/protocol";
 import { MODEL_ORIGIN, type Offers } from "./offers";
 import { turnIdFor } from "./log";
 import type { LogRegistry, ThreadLog } from "./log";
@@ -140,7 +140,7 @@ export class Supervisor {
     const settled = (): AnswerResult => (log.getHead().recentAskIds.has(askId) ? "conflict" : "unknown");
     const pending = log.getHead().pendingAsks.find((a) => a.askId === askId);
     if (!pending) return settled();
-    if (!fits(pending, answer)) return "mismatch";
+    if (!answerFits(pending.ask, answer)) return "mismatch";
     const ev = await log.appendIf((h) => h.pendingAsks.some((a) => a.askId === askId), { kind: "ask.answered", turnId: pending.turnId, askId, answer, by: { by: "user", origin } });
     if (!ev) return settled();
     const s = this.state(threadId);
@@ -338,8 +338,7 @@ export class Supervisor {
     await sent;
     if (ended) this.settleIdle(threadId);
     if (!ended) {
-      // The process is gone, so its asks can never be answered; `restart` is the reason that names a vanished process, and the phone reads it as expiry.
-      await this.seal(threadId, log, "restart");
+      await this.seal(threadId, log, "exited");
       await log.append({ kind: "turn.ended", turnId, outcome: "error", sessionId: live.agent.sessionId ?? log.getHead().sessionId, usage: null, error: "Claude Code session exited" });
       await live.agent.kill();
       this.states.set(threadId, COLD);
@@ -384,11 +383,6 @@ export class Supervisor {
     this.states.set(threadId, { tag: "parked" });
     await s.live.agent.kill();
   }
-}
-
-/** Whether an answer has the shape the ask can take. */
-function fits(ask: PendingAsk, answer: AskAnswer): boolean {
-  return ask.ask.kind === "question" ? answer.kind === "answers" || answer.kind === "deny" : answer.kind !== "answers";
 }
 
 /** Derive a title from the first user text: first line, <= 60 chars, no trailing punctuation. Pure. */

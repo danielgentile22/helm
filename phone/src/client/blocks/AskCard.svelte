@@ -31,6 +31,8 @@
   const input = $derived(payload.kind === "tool" ? (typeof payload.input === "string" ? payload.input : JSON.stringify(payload.input, null, 1)) : "");
   const questions = $derived<readonly AskQuestion[]>(payload.kind === "question" ? payload.questions : []);
   const complete = $derived(questions.length > 0 && questions.every((_, i) => picks[i]));
+  /** A lone single-select answers on the tap; anything else collects first. */
+  const needsConfirm = $derived(questions.length > 1 || questions.some((q) => q.multiSelect));
   /** A card in a closed turn is a record: it reads back, it does not take answers. */
   const locked = $derived(busy || !live);
 
@@ -130,15 +132,10 @@
       </div>
       <button class="btn small" type="button" disabled={busy} onclick={() => void submit({ kind: "allowTurn" })}>Allow for this turn</button>
     {/if}
-  {:else if live && questions.length > 1}
+  {:else if live && needsConfirm}
     <div class="arow">
       <span class="grow"></span>
       <button class="btn primary" type="button" disabled={busy || !complete} onclick={() => void submit({ kind: "answers", answers: picks.filter((p): p is QuestionAnswer => p !== null) })}>Confirm</button>
-    </div>
-  {:else if live && questions.some((q) => q.multiSelect)}
-    <div class="arow">
-      <span class="grow"></span>
-      <button class="btn primary" type="button" disabled={busy || !complete} onclick={() => void submit({ kind: "answers", answers: [picks[0]!] })}>Confirm</button>
     </div>
   {/if}
 </div>

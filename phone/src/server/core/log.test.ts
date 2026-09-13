@@ -182,6 +182,8 @@ test("asks: the pending set is opened minus answered, cleared by turn.ended, and
   await log.append(ended("t:3"));
   assert.deepEqual(log.getHead().pendingAsks, []);
   assert.deepEqual([...log.getHead().recentAskIds], ["a1", "a2"]);
+  await log.append(askOpened("t:3", "a3"));
+  assert.deepEqual(log.getHead().pendingAsks, [], "an ask for a turn that is not open is never pending");
   await rm(dir, { recursive: true });
 });
 

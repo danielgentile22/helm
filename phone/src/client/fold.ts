@@ -56,6 +56,7 @@ export function fold(view: ThreadView, ev: ThreadEvent): ThreadView {
     case "turn.started":
       return { ...base, openTurn: ev.turnId, session: "running", pendingAsks: [] };
     case "ask.opened":
+      if (ev.turnId !== view.openTurn) return base;
       return { ...base, pendingAsks: [...view.pendingAsks, { kind: "ask", askId: ev.askId, ask: ev.ask, openedAt: ev.ts, answer: null }] };
     case "ask.answered":
       return { ...base, pendingAsks: view.pendingAsks.filter((a) => a.askId !== ev.askId) };

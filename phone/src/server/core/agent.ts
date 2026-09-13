@@ -37,7 +37,7 @@ import { homedir } from "node:os";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { CanUseTool, ModelInfo, Options, PermissionResult, Query, SDKMessage, SDKUserMessage, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
-import { EFFORTS, LIMITS, MODEL_POLICY_DENY } from "../../shared/protocol";
+import { answerPhrase, EFFORTS, LIMITS, MODEL_POLICY_DENY } from "../../shared/protocol";
 import type {
   AskAnswer,
   AskId,
@@ -49,7 +49,6 @@ import type {
   ModelChoice,
   OfferedFile,
   PermissionMode,
-  QuestionAnswer,
   SlashCommand,
   StagedUpload,
   ThreadEventBody,
@@ -389,8 +388,6 @@ export function askPayloadFrom(toolName: string, input: Record<string, unknown>,
   return { kind: "tool", toolName, input: truncateJson(input, LIMITS.TOOL_INPUT_MAX), toolUseId: opts.toolUseID as ToolUseId, title: opts.title ?? null, description: opts.description ?? null };
 }
 
-const answerText = (a: QuestionAnswer): string => (a.kind === "options" ? a.labels.join(", ") : a.text);
-
 /**
  * Pure: the SDK result an answer maps to. A question ask is answered through
  * `updatedInput.answers` keyed by question text, the documented convention
@@ -401,7 +398,7 @@ const answerText = (a: QuestionAnswer): string => (a.kind === "options" ? a.labe
 export function permissionResultFor(ask: AskPayload, answer: AskAnswer, input: Record<string, unknown>): PermissionResult {
   if (ask.kind === "question") {
     if (answer.kind !== "answers") return { behavior: "deny", message: (answer.kind === "deny" && answer.reason) || "No answer" };
-    const answers = Object.fromEntries(ask.questions.map((q, i) => [q.question, answer.answers[i] ? answerText(answer.answers[i]) : ""]));
+    const answers = Object.fromEntries(ask.questions.map((q, i) => [q.question, answer.answers[i] ? answerPhrase(answer.answers[i]) : ""]));
     return { behavior: "allow", updatedInput: { ...input, answers } };
   }
   switch (answer.kind) {
