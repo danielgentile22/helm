@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, writeFile, mkdir, rm, truncate } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LogRegistry, ThreadLog } from "./log";
+import { LogRegistry, ThreadLog, turnIdFor } from "./log";
 import type {
   ClaudeSessionId,
   ClientMsgId,
@@ -73,6 +73,13 @@ async function writeLog(dir: string, bodies: readonly ThreadEventBody[]): Promis
   for (const b of bodies) await log.append(b);
   return log;
 }
+
+test("turnIdFor names a turn by the seq of its turn.started, so a TurnId is always derivable from the log", async () => {
+  assert.equal(turnIdFor(4 as Seq), "t:4");
+  const log = await writeLog(await freshDir(), [{ kind: "thread.created", config: config() }]);
+  const ev = await log.append((seq) => started(turnIdFor(seq), "m1"));
+  assert.equal(ev.kind === "turn.started" && ev.turnId, `t:${ev.seq}`);
+});
 
 test("append mints contiguous seq and read(after) replays exactly seq > after", async () => {
   const dir = await freshDir();
