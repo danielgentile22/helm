@@ -6,17 +6,12 @@
  * tool is what the thread is actually blocked on.
  */
 
-import { toolSummary } from "../../shared/protocol";
+import { tidy, toolSummary } from "../../shared/protocol";
 import type { DoingNow, SyncFrame } from "../../shared/protocol";
 import type { ThreadHead } from "./log";
 
 /** How much of the text tail the row can fit. */
 const TAIL_CHARS = 120;
-
-/** Collapse runs of whitespace and shorten the home directory, so one row holds as much meaning as it can. */
-function tidy(text: string): string {
-  return text.replace(/\s+/gu, " ").trim().replace(/\/(?:Users|home)\/[^/]+/gu, "~");
-}
 
 /**
  * A tool counts only while the session is running: in any other state the
@@ -25,7 +20,8 @@ function tidy(text: string): string {
  */
 export function doingNow(head: ThreadHead, session: SyncFrame["session"]): DoingNow | null {
   if (session === "running" && head.activeTool) {
-    return { kind: "tool", name: head.activeTool.name, arg: toolSummary(head.activeTool.name, head.activeTool.input).arg };
+    const { label, arg } = toolSummary(head.activeTool.name, head.activeTool.input);
+    return { kind: "tool", name: label, arg };
   }
   const text = tidy(head.lastText?.text ?? "");
   if (text === "") return null;

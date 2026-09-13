@@ -22,6 +22,10 @@ const head = (over: Partial<ThreadHead>): ThreadHead => ({
 
 const tool = (name: string, input: unknown): ThreadHead["activeTool"] => ({ toolUseId: "tu-1" as ToolUseId, name, input });
 
+test("doingNow names an mcp tool the way the transcript does", () => {
+  assert.deepEqual(doingNow(head({ activeTool: tool("mcp__claude-in-chrome__navigate", { url: "https://x" }) }), "running"), { kind: "tool", name: "claude-in-chrome:navigate", arg: "https://x" });
+});
+
 test("doingNow prefers a live tool, falls back to the text tail, and reports nothing when there is nothing", () => {
   const t = "t:4" as TurnId;
   assert.deepEqual(doingNow(head({ activeTool: tool("Bash", { command: "npm test" }), lastText: { turnId: t, text: "hi" } }), "running"), {

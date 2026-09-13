@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toolSummary } from "./protocol";
+import { tidy, toolSummary } from "./protocol";
 
 test("every tool in the table names its own argument field and category", () => {
   assert.deepEqual(toolSummary("Bash", { command: "npm test", timeout: 5 }), { label: "Bash", arg: "npm test", category: "run" });
@@ -45,4 +45,9 @@ test("an mcp name reads as server:tool, and an ordinary name is left alone", () 
   assert.equal(toolSummary("mcp__claude_ai_Gmail__send_message", {}).label, "claude_ai_Gmail:send_message");
   assert.equal(toolSummary("Read", {}).label, "Read");
   assert.equal(toolSummary("mcp__lonely", {}).label, "mcp__lonely");
+});
+
+test("tidy collapses whitespace and shortens a home directory anywhere in the text", () => {
+  assert.equal(tidy("  a \n b  "), "a b");
+  assert.equal(tidy("see /Users/x/y and /home/z/w"), "see ~/y and ~/w");
 });

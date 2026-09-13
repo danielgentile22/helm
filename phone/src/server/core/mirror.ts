@@ -229,9 +229,9 @@ export function renderTurn(events: readonly ThreadEvent[]): string {
   }
   for (const ev of events) {
     if (ev.kind !== "tool.started") continue;
-    const arg = toolSummary(ev.name, ev.input).arg;
+    const { label, arg } = toolSummary(ev.name, ev.input);
     const mark = failed.has(ev.toolUseId) ? " (failed)" : "";
-    tools.push(`${ev.name}${arg ? ` ${arg}` : ""}${mark}`);
+    tools.push(`${label}${arg ? ` ${arg}` : ""}${mark}`);
   }
 
   const sent: string[] = [];
