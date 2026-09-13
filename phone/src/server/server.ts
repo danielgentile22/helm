@@ -123,6 +123,7 @@ export async function buildServer(cfg: ServerConfig, deps: ServerDeps): Promise<
     staticDir: cfg.staticDir,
     browseRoots: cfg.browseRoots,
     defaultCwd: cfg.vaultRoot,
+    vaultRoot: cfg.vaultRoot,
     publicOrigin,
     heartbeatMs: cfg.heartbeatMs,
   });

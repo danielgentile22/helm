@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { readFile, readdir, rm, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { LIMITS } from "../../shared/protocol";
-import type { HelmSettings, SlashCommand, ThreadConfig, ThreadId, ThreadSummary } from "../../shared/protocol";
-import { parseCreateThread, parsePatch, parseSend, passkeyRows } from "./app";
+import type { AskPayload, HelmSettings, SlashCommand, ThreadConfig, ThreadEvent, ThreadId, ThreadSummary } from "../../shared/protocol";
+import { groupTurns } from "../../shared/turns";
+import { parseAnswer, parseCreateThread, parsePatch, parseSend, passkeyRows } from "./app";
 import { API_KEY, buildStack, eventSeqs, events, readSse, type Frame, type Stack } from "./testkit";
 
 const THREAD = "0f0f0f0f-0000-4000-8000-0000000000aa";
@@ -188,7 +189,7 @@ test("interrupt is 204 whether or not a turn is running, and stops a hanging tur
   assert.equal((await s.api("POST", `/api/threads/${THREAD}/interrupt`)).status, 204);
   const done = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
   await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "go" });
-  await new Promise((r) => setTimeout(r, 30));
+  await until(async () => (await (await s.api("GET", `/api/threads/${THREAD}`)).json()) as ThreadSummary, (t) => t.session === "running");
   assert.equal((await s.api("POST", `/api/threads/${THREAD}/interrupt`)).status, 204);
   const end = events(await done).at(-1);
   assert.equal(end?.kind === "turn.ended" && end.outcome, "interrupted");
@@ -295,7 +296,7 @@ test("parsers: send, create, patch", () => {
 
 test("the phone's view: folding the SSE frames a client receives reconstructs the transcript, from any cursor, across a crash", async () => {
   const { emptyView, foldAll, applySync } = await import("../../client/fold");
-  const seed = { threadId: THREAD as never, cwd: "/v", model: "m" as never, effort: "high" as const, title: null, createdAt: "", archivedAt: null };
+  const seed = { threadId: THREAD as never, cwd: "/v", model: "m" as never, effort: "high" as const, permissionMode: "bypass" as const, title: null, createdAt: "", archivedAt: null };
   const s = await buildStack(async (t) => {
     t.thinking("plan");
     t.text("Sure. ", 0);
@@ -444,12 +445,12 @@ test("settings: defaults on first read, patches round-trip across a restart, bad
   const s = await buildStack();
   const read = async (): Promise<HelmSettings> => (await (await s.api("GET", "/api/settings")).json()) as HelmSettings;
 
-  assert.deepEqual(await read(), { theme: "system", defaultModel: null, defaultEffort: "medium", defaultCwd: join(s.home, "work") });
+  assert.deepEqual(await read(), { theme: "system", defaultModel: null, defaultEffort: "medium", defaultCwd: join(s.home, "work"), defaultPermissionMode: "ask" });
 
-  const patched = await s.api("PATCH", "/api/settings", { theme: "dark", defaultModel: "claude-sonnet-5", defaultEffort: "high", defaultCwd: join(s.home, "work", "proj") });
+  const patched = await s.api("PATCH", "/api/settings", { theme: "dark", defaultModel: "claude-sonnet-5", defaultEffort: "high", defaultCwd: join(s.home, "work", "proj"), defaultPermissionMode: "bypass" });
   assert.equal(patched.status, 200);
   const saved = (await patched.json()) as HelmSettings;
-  assert.deepEqual(saved, { theme: "dark", defaultModel: "claude-sonnet-5", defaultEffort: "high", defaultCwd: join(s.home, "work", "proj") });
+  assert.deepEqual(saved, { theme: "dark", defaultModel: "claude-sonnet-5", defaultEffort: "high", defaultCwd: join(s.home, "work", "proj"), defaultPermissionMode: "bypass" });
   assert.deepEqual(await read(), saved, "a re-read matches what the patch returned");
 
   const bad = async (body: unknown): Promise<string> => ((await (await s.api("PATCH", "/api/settings", body)).json()) as { error: string }).error;
@@ -459,6 +460,7 @@ test("settings: defaults on first read, patches round-trip across a restart, bad
   assert.equal(await bad({ defaultEffort: "ultra" }), "defaultEffort must be one of low, medium, high, xhigh, max");
   assert.equal(await bad({ defaultCwd: "relative/path" }), "defaultCwd must be an absolute path");
   assert.equal(await bad({ defaultCwd: join(s.home, "work", "nope") }), "defaultCwd is not an existing directory");
+  assert.equal(await bad({ defaultPermissionMode: "yolo" }), "defaultPermissionMode must be one of ask, bypass");
   assert.equal(await bad({}), "nothing to change");
   assert.equal((await s.api("PATCH", "/api/settings", { theme: "neon" })).status, 400);
 
@@ -466,7 +468,7 @@ test("settings: defaults on first read, patches round-trip across a restart, bad
   assert.equal(((await cleared.json()) as HelmSettings).defaultModel, null, "null clears the preference");
 
   const r2 = await s.restart();
-  assert.deepEqual(await (await r2.api("GET", "/api/settings")).json(), { theme: "dark", defaultModel: null, defaultEffort: "high", defaultCwd: join(s.home, "work", "proj") });
+  assert.deepEqual(await (await r2.api("GET", "/api/settings")).json(), { theme: "dark", defaultModel: null, defaultEffort: "high", defaultCwd: join(s.home, "work", "proj"), defaultPermissionMode: "bypass" });
   assert.equal((await r2.fetch(new Request("https://mac.test.ts.net/api/settings"))).status, 401);
   await r2.cleanup();
 });
@@ -581,4 +583,160 @@ test("push fires on a finished turn only when no SSE viewer is attached", async 
   await new Promise((r) => setTimeout(r, 100));
   assert.equal(s.pushed.length, 1, "no push while a viewer had the thread open");
   await s.cleanup();
+});
+
+const bashAsk: AskPayload = { kind: "tool", toolName: "Bash", input: { command: "git push origin main" }, toolUseId: "tu-1" as never, title: "Claude wants to run git push", description: null };
+
+/** Every cursor replays to the same turns as the full stream: prefix seen live plus tail replayed from disk. */
+async function assertReplayFolds(s: Stack, threadId: string, full: ThreadEvent[]): Promise<void> {
+  const want = groupTurns(full);
+  for (let c = 0; c <= full.length; c++) {
+    const tail = await readSse(await s.api("GET", `/api/threads/${threadId}/events?after=${c}`), (fr) => fr.some((x) => x.kind === "sync"));
+    assert.deepEqual(eventSeqs(tail), full.slice(c).map((e) => e.seq), `cursor ${c}`);
+    assert.deepEqual(groupTurns([...full.slice(0, c), ...events(tail)]), want, `cursor ${c} folds differently`);
+  }
+}
+
+test("asks: a turn pauses on a permission, the first answer wins (204), the second is 409, a stranger is 404, and every cursor replays the same", async () => {
+  const s = await buildStack(async (t) => {
+    t.text("Pushing. ");
+    const answer = await t.ask(bashAsk);
+    t.text(`Got ${answer.kind}.`, 1);
+    t.end();
+  });
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5", permissionMode: "ask" });
+  const live = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "push it" });
+  const waiting = await until(async () => (await (await s.api("GET", `/api/threads/${THREAD}`)).json()) as ThreadSummary, (t) => t.waiting);
+  assert.deepEqual(waiting.doing, { kind: "tool", name: "Bash", arg: "git push origin main" });
+  const askId = (await s.logs.get(THREAD as ThreadId)).getHead().pendingAsks[0]!.askId;
+
+  assert.equal((await s.api("POST", `/api/threads/${THREAD}/answer`, { askId, answer: { kind: "answers", answers: [{ kind: "text", text: "x" }] } })).status, 400, "a tool ask takes no question answers");
+  assert.equal((await s.api("POST", `/api/threads/${THREAD}/answer`, { askId: "nope", answer: { kind: "allow" } })).status, 404);
+  assert.equal((await s.api("POST", `/api/threads/${THREAD}/answer`, { askId, answer: { kind: "allow" }, label: "laptop" })).status, 204);
+  const dup = await s.api("POST", `/api/threads/${THREAD}/answer`, { askId, answer: { kind: "deny", reason: "no" } });
+  assert.equal(dup.status, 409);
+  assert.deepEqual(await dup.json(), { error: "already answered or expired" });
+
+  const full = events(await live);
+  const kinds = full.map((e) => e.kind);
+  assert.deepEqual(kinds.slice(-5), ["assistant.text", "ask.opened", "ask.answered", "assistant.text", "turn.ended"]);
+  const answered = full.find((e) => e.kind === "ask.answered");
+  assert.ok(answered && answered.kind === "ask.answered");
+  assert.deepEqual(answered.answer, { kind: "allow" });
+  assert.deepEqual(answered.by, { by: "user", origin: { via: "key", label: "laptop" } });
+  assert.ok(full.some((e) => e.kind === "assistant.text" && e.delta === "Got allow."), "the script received the answer");
+  assert.equal(((await (await s.api("GET", `/api/threads/${THREAD}`)).json()) as ThreadSummary).waiting, false);
+  await assertReplayFolds(s, THREAD, full);
+  assert.equal((await s.api("POST", `/api/threads/${THREAD}/answer`, { askId, answer: { kind: "allow" } })).status, 409, "settled asks stay conflicts after the turn");
+  await s.cleanup();
+});
+
+test("asks: a crash with an ask pending seals it as restart before the orphaned end, and nothing waits after reboot", async () => {
+  const s = await buildStack(async (t) => {
+    await t.ask(bashAsk);
+    await t.interrupted;
+  });
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "go" });
+  await until(async () => (await (await s.api("GET", `/api/threads/${THREAD}`)).json()) as ThreadSummary, (t) => t.waiting);
+  const r = await s.restart();
+  const after = events(await readSse(await r.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => f.some((x) => x.kind === "sync")));
+  const tail = after.slice(-2).map((e) => (e.kind === "ask.answered" ? `${e.kind}:${e.answer.kind}:${e.by.by === "system" ? e.by.reason : "?"}` : e.kind === "turn.ended" ? `${e.kind}:${e.outcome}` : e.kind));
+  assert.deepEqual(tail, ["ask.answered:deny:restart", "turn.ended:orphaned"]);
+  const summary = (await (await r.api("GET", `/api/threads/${THREAD}`)).json()) as ThreadSummary;
+  assert.equal(summary.waiting, false);
+  assert.equal(summary.session, "cold");
+  assert.equal(groupTurns(after)[0]!.items.every((i) => i.kind !== "ask" || i.answer !== null), true, "no card is live after reboot");
+  await r.cleanup();
+});
+
+test("asks: interrupt seals a pending ask as interrupted and the route then 409s", async () => {
+  const s = await buildStack(async (t) => {
+    await t.ask(bashAsk);
+    await t.interrupted;
+  });
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  const done = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "go" });
+  await until(async () => (await (await s.api("GET", `/api/threads/${THREAD}`)).json()) as ThreadSummary, (t) => t.waiting);
+  const askId = (await s.logs.get(THREAD as ThreadId)).getHead().pendingAsks[0]!.askId;
+  assert.equal((await s.api("POST", `/api/threads/${THREAD}/interrupt`)).status, 204);
+  const full = events(await done);
+  const sealed = full.find((e) => e.kind === "ask.answered");
+  assert.ok(sealed && sealed.kind === "ask.answered");
+  assert.deepEqual(sealed.by, { by: "system", reason: "interrupted" });
+  const end = full.at(-1);
+  assert.equal(end?.kind === "turn.ended" && end.outcome, "interrupted");
+  assert.equal((await s.api("POST", `/api/threads/${THREAD}/answer`, { askId, answer: { kind: "allow" } })).status, 409);
+  await s.cleanup();
+});
+
+test("asks: a question round-trips option labels and free text; the same ask cannot take a plain allow", async () => {
+  const q: AskPayload = { kind: "question", questions: [{ question: "Which?", header: "Pick", options: [{ label: "A", description: "" }, { label: "B", description: "" }], multiSelect: true }, { question: "Name?", header: "Name", options: [{ label: "x", description: "" }, { label: "y", description: "" }], multiSelect: false }] };
+  const s = await buildStack(async (t) => {
+    const a = await t.ask(q);
+    t.text(a.kind === "answers" ? a.answers.map((x) => (x.kind === "options" ? x.labels.join("+") : x.text)).join("|") : a.kind);
+    t.end();
+  });
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  const done = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "ask me" });
+  const waiting = await until(async () => (await (await s.api("GET", `/api/threads/${THREAD}`)).json()) as ThreadSummary, (t) => t.waiting);
+  assert.deepEqual(waiting.doing, { kind: "tool", name: "Question", arg: "Which?" });
+  const askId = (await s.logs.get(THREAD as ThreadId)).getHead().pendingAsks[0]!.askId;
+  assert.equal((await s.api("POST", `/api/threads/${THREAD}/answer`, { askId, answer: { kind: "allow" } })).status, 400);
+  assert.equal((await s.api("POST", `/api/threads/${THREAD}/answer`, { askId, answer: { kind: "answers", answers: [] } })).status, 400);
+  assert.equal((await s.api("POST", `/api/threads/${THREAD}/answer`, { askId, answer: { kind: "answers", answers: [{ kind: "options", labels: ["A", "B"] }, { kind: "text", text: "zed" }] } })).status, 204);
+  const full = events(await done);
+  assert.ok(full.some((e) => e.kind === "assistant.text" && e.delta === "A+B|zed"));
+  await s.cleanup();
+});
+
+test("thread creation: vault cwd starts in bypass, another cwd takes the server default, an explicit mode wins; PATCH records and applies the mode live", async () => {
+  const s = await buildStack(async (t) => {
+    t.text("ok");
+    t.end();
+  });
+  const mode = async (body: Record<string, unknown>): Promise<string> => ((await (await s.api("POST", "/api/threads", { model: "claude-opus-5", ...body })).json()) as ThreadConfig).permissionMode;
+  assert.equal(await mode({}), "bypass", "the vault root, whatever the default");
+  assert.equal(await mode({ cwd: join(s.home, "work", "proj") }), "ask", "the server default outside the vault");
+  assert.equal(await mode({ cwd: join(s.home, "work", "proj"), permissionMode: "bypass" }), "bypass");
+  assert.equal(await mode({ permissionMode: "ask" }), "ask", "explicit wins in the vault too");
+  assert.equal((await s.api("POST", "/api/threads", { model: "claude-opus-5", permissionMode: "yolo" })).status, 400);
+  await s.api("PATCH", "/api/settings", { defaultPermissionMode: "bypass" });
+  assert.equal(await mode({ cwd: join(s.home, "work", "proj") }), "bypass", "the server default moved");
+
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5", permissionMode: "ask" });
+  const done = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "hi" });
+  await done;
+  await untilIdle(s, THREAD);
+  assert.equal(s.agents.last.spawnOpts.permissionMode, "ask");
+  const patched = await s.api("PATCH", `/api/threads/${THREAD}`, { permissionMode: "bypass" });
+  assert.equal(patched.status, 200);
+  assert.equal(((await patched.json()) as ThreadConfig).permissionMode, "bypass");
+  assert.deepEqual(s.agents.last.setPermissionModeCalls, ["bypass"]);
+  const evs = events(await readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => f.some((x) => x.kind === "sync")));
+  assert.ok(evs.some((e) => e.kind === "thread.config" && e.patch.permissionMode === "bypass"));
+  assert.equal((await s.api("PATCH", `/api/threads/${THREAD}`, { permissionMode: "maybe" })).status, 400);
+  await s.cleanup();
+});
+
+test("parsers: answer", () => {
+  assert.equal(parseAnswer(null).ok, false);
+  assert.equal(parseAnswer({ askId: "", answer: { kind: "allow" } }).ok, false);
+  assert.equal(parseAnswer({ askId: "a", answer: "allow" }).ok, false);
+  assert.equal(parseAnswer({ askId: "a", answer: { kind: "maybe" } }).ok, false);
+  assert.deepEqual(parseAnswer({ askId: "a", answer: { kind: "allowTurn" }, label: " laptop " }), { ok: true, value: { askId: "a", answer: { kind: "allowTurn" }, label: "laptop" } });
+  assert.deepEqual(parseAnswer({ askId: "a", answer: { kind: "deny" } }), { ok: true, value: { askId: "a", answer: { kind: "deny", reason: null }, label: undefined } });
+  assert.deepEqual(parseAnswer({ askId: "a", answer: { kind: "deny", reason: "  " } }), { ok: true, value: { askId: "a", answer: { kind: "deny", reason: null }, label: undefined } });
+  assert.equal(parseAnswer({ askId: "a", answer: { kind: "deny", reason: 5 } }).ok, false);
+  const long = parseAnswer({ askId: "a", answer: { kind: "deny", reason: "x".repeat(LIMITS.ANSWER_CHARS + 1) } });
+  assert.equal(!long.ok && long.status, 413);
+  assert.equal(parseAnswer({ askId: "a", answer: { kind: "answers", answers: [] } }).ok, false);
+  assert.equal(parseAnswer({ askId: "a", answer: { kind: "answers", answers: [{ kind: "options", labels: [] }] } }).ok, false);
+  assert.equal(parseAnswer({ askId: "a", answer: { kind: "answers", answers: [{ kind: "text", text: " " }] } }).ok, false);
+  assert.equal(parseAnswer({ askId: "a", answer: { kind: "answers", answers: Array(5).fill({ kind: "text", text: "x" }) } }).ok, false);
+  assert.equal(parseAnswer({ askId: "a", answer: { kind: "answers", answers: [{ kind: "options", labels: ["A"] }, { kind: "text", text: "t" }] } }).ok, true);
 });

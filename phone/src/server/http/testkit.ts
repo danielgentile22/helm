@@ -88,6 +88,8 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
     shutdown: () => server.shutdown(),
     cleanup: async () => {
       await server.shutdown();
+      // The mirror may still be writing the last turn into the vault; rm on a directory being written fails with ENOTEMPTY.
+      await server.mirror.idle();
       await rm(h, { recursive: true, force: true });
     },
   };
