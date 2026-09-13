@@ -48,7 +48,7 @@ import type {
   Usage,
 } from "../../shared/protocol";
 import { Pushable } from "../util/pushable";
-import { isImageMime } from "./uploads";
+import { isImageMime } from "./files";
 
 export interface SpawnOptions {
   readonly cwd: string;

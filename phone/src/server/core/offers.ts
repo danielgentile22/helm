@@ -10,19 +10,22 @@
 
 import { randomUUID } from "node:crypto";
 import { open, stat } from "node:fs/promises";
-import { basename, extname, isAbsolute } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import { LIMITS, type FileId, type OfferedFile, type Origin, type ThreadId } from "../../shared/protocol";
+import { mimeFromExtension, safeName, sniffMime } from "./files";
 import type { LogRegistry } from "./log";
+import { LogIndex } from "./log-index";
 import type { ThreadStore } from "./thread-store";
-import { safeName, sniffMime } from "./uploads";
 
 /** The origin stamped on offers made by the model's tool call. */
 export const MODEL_ORIGIN: Origin = { via: "key", label: "model" };
 
 export class Offers {
-  private readonly known = new Map<ThreadId, Map<FileId, OfferedFile>>();
+  private readonly index: LogIndex<FileId, OfferedFile>;
 
-  constructor(private readonly threads: ThreadStore, private readonly logs: LogRegistry) {}
+  constructor(private readonly threads: ThreadStore, private readonly logs: LogRegistry) {
+    this.index = new LogIndex(logs, (ev) => (ev.kind === "file.offered" ? [ev.file.fileId, ev.file] : null));
+  }
 
   /**
    * Validate the path, sniff the type, log the offer. Throws with a plain
@@ -47,29 +50,18 @@ export class Offers {
     };
     const log = await this.logs.get(threadId);
     await log.append({ kind: "file.offered", file, origin });
-    this.byThread(threadId).set(file.fileId, file);
+    this.index.remember(threadId, file.fileId, file);
     return file;
   }
 
   /** The offered record for an id, rebuilt from the log after a restart. Null when never offered in this thread. */
-  async resolve(threadId: ThreadId, fileId: string): Promise<OfferedFile | null> {
-    const known = this.byThread(threadId);
-    if (!known.has(fileId as FileId)) {
-      const log = await this.logs.get(threadId);
-      for await (const ev of log.read(0)) if (ev.kind === "file.offered") known.set(ev.file.fileId, ev.file);
-    }
-    return known.get(fileId as FileId) ?? null;
+  resolve(threadId: ThreadId, fileId: string): Promise<OfferedFile | null> {
+    return this.index.lookup(threadId, fileId as FileId);
   }
 
   /** Forget a thread's offers on archive. The files are the user's own and stay where they are. */
   purge(threadId: ThreadId): void {
-    this.known.delete(threadId);
-  }
-
-  private byThread(threadId: ThreadId): Map<FileId, OfferedFile> {
-    let m = this.known.get(threadId);
-    if (!m) this.known.set(threadId, (m = new Map()));
-    return m;
+    this.index.purge(threadId);
   }
 }
 
@@ -82,27 +74,4 @@ async function sniffFile(path: string): Promise<string | null> {
   } finally {
     await fh.close();
   }
-}
-
-const EXT_MIME: Readonly<Record<string, string>> = {
-  ".txt": "text/plain",
-  ".md": "text/markdown",
-  ".csv": "text/csv",
-  ".json": "application/json",
-  ".html": "text/html",
-  ".svg": "image/svg+xml",
-  ".heic": "image/heic",
-  ".mp4": "video/mp4",
-  ".mov": "video/quicktime",
-  ".m4a": "audio/mp4",
-  ".mp3": "audio/mpeg",
-  ".zip": "application/zip",
-  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-};
-
-/** What the share sheet keys on when the magic bytes say nothing. Unknown extensions are plain bytes. */
-export function mimeFromExtension(path: string): string {
-  return EXT_MIME[extname(path).toLowerCase()] ?? "application/octet-stream";
 }
