@@ -2,6 +2,7 @@
   import { fly } from "svelte/transition";
   import type { HelmClient } from "./api";
   import { HttpError } from "./api";
+  import { layout } from "./layout.svelte";
   import { screenIn } from "./motion";
   import { router } from "./route.svelte";
   import Enroll from "./screens/Enroll.svelte";
@@ -66,17 +67,36 @@
   <Login {api} onSignedIn={signedIn} />
 {:else if me}
   {@const route = router.route}
-  {#key route.name === "thread" ? `thread:${route.threadId}` : route.name}
-    <div class="arrives" in:fly|global={screenIn}>
-      {#if route.name === "thread"}
-        <Thread {api} threadId={route.threadId} />
-      {:else if route.name === "settings"}
-        <SettingsScreen {api} />
-      {:else if route.name === "list"}
-        <List {api} />
-      {/if}
+  {#if layout.mode === "split"}
+    <div class="panes">
+      <aside class="pane-list"><List {api} /></aside>
+      <section class="pane-main">
+        {#key route.name === "thread" ? `thread:${route.threadId}` : route.name}
+          <div class="arrives" in:fly|global={screenIn}>
+            {#if route.name === "thread"}
+              <Thread {api} threadId={route.threadId} />
+            {:else if route.name === "settings"}
+              <SettingsScreen {api} />
+            {:else}
+              <p class="muted center pane-empty">Pick a thread</p>
+            {/if}
+          </div>
+        {/key}
+      </section>
     </div>
-  {/key}
+  {:else}
+    {#key route.name === "thread" ? `thread:${route.threadId}` : route.name}
+      <div class="arrives" in:fly|global={screenIn}>
+        {#if route.name === "thread"}
+          <Thread {api} threadId={route.threadId} />
+        {:else if route.name === "settings"}
+          <SettingsScreen {api} />
+        {:else if route.name === "list"}
+          <List {api} />
+        {/if}
+      </div>
+    {/key}
+  {/if}
 {:else}
   <main class="screen"><p class="muted center">Loading Helm</p></main>
 {/if}

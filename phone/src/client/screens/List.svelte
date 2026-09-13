@@ -146,6 +146,7 @@
                 type="button"
                 class:is-running={r.state === "running"}
                 class:is-archived={r.state === "archived"}
+                class:is-open={router.route.name === "thread" && router.route.threadId === r.summary.config.threadId}
                 animate:flip={{ duration: motion.base }}
                 onclick={() => router.navigate(`/t/${r.summary.config.threadId}`)}
               >

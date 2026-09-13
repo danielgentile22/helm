@@ -40,6 +40,7 @@ a { color: var(--accent); }
 .row .rail i { height: 440%; background-size: 100% 50%; animation: railrun var(--d-rail) linear infinite; }
 @keyframes railrun { to { transform: translateY(-50%); } }
 .row.is-archived { opacity: .55; }
+.row.is-open { background: var(--sunken); }
 .row .r1 { display: flex; align-items: baseline; gap: var(--s-4); }
 .row .title { flex: 1; font-size: var(--t-base); font-weight: 600; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .when { flex: none; font-family: var(--mono); font-size: var(--t-mono-xs); color: var(--ink-3); }
@@ -279,6 +280,23 @@ a { color: var(--accent); }
 .seg button { border: 0; background: transparent; color: var(--ink-2); font-size: var(--t-sm); padding: var(--s-3) var(--s-4); border-radius: var(--r-pill); white-space: nowrap; }
 .seg button[aria-pressed="true"] { background: var(--accent-solid); color: var(--on-accent); font-weight: 600; }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: var(--r-md); background: transparent; color: var(--ink-2); }
+
+/* ---------- two panes ---------- */
+/* The right pane keeps window scrolling, so the thread's sticky .head and .dock and its
+   scroll-following logic work exactly as they do on one screen. Only the list scrolls itself. */
+.panes { display: flex; align-items: flex-start; }
+.pane-list { position: sticky; top: 0; flex: none; width: 340px; height: 100dvh; overflow-y: auto; border-right: 1px solid var(--hair); }
+.pane-list .screen { min-height: 100%; }
+.pane-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 100dvh; }
+.pane-main .arrives { flex: 1; display: flex; flex-direction: column; }
+.pane-main > .arrives > .screen { flex: 1; }
+.pane-empty { flex: 1; display: grid; place-content: center; }
+
+@media (min-width: 900px) {
+  .sheet { align-items: center; justify-content: center; }
+  .sheet .panel { width: min(560px, 92vw); border-radius: var(--r-lg); padding-bottom: var(--s-6); }
+  .pane-main .topbar [aria-label="Back"] { display: none; }
+}
 
 /* Last in the file on purpose: these override the transcript animations declared above,
    which the earlier reduced-motion block cannot, having been written before them. */
