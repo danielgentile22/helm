@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { DEFAULT_EFFORT, type Effort, type ModelChoice } from "../../shared/protocol";
+  import { DEFAULT_EFFORT, type Effort, type ModelChoice, type PermissionMode } from "../../shared/protocol";
   import type { HelmClient } from "../api";
   import DirBrowser from "../components/DirBrowser.svelte";
   import Sheet from "../components/Sheet.svelte";
@@ -17,6 +17,8 @@
   let model = $state("");
   let effort = $state<string>(DEFAULT_EFFORT);
   let err = $state("");
+  /** "default" omits the field, which is what lets the vault keep starting in bypass. */
+  let permission = $state<PermissionMode | "default">("default");
 
   const choice = $derived(catalog.find((c) => c.id === model));
   const efforts = $derived(choice?.efforts ?? []);
@@ -38,7 +40,13 @@
 
   async function create(): Promise<void> {
     try {
-      const cfg = await api.createThread({ threadId: uuid(), cwd, model: model as ModelChoice["id"], effort: (effort || DEFAULT_EFFORT) as Effort });
+      const cfg = await api.createThread({
+        threadId: uuid(),
+        cwd,
+        model: model as ModelChoice["id"],
+        effort: (effort || DEFAULT_EFFORT) as Effort,
+        ...(permission === "default" ? {} : { permissionMode: permission }),
+      });
       onClose();
       router.navigate(`/t/${cfg.threadId}`);
     } catch (e) {
@@ -69,6 +77,14 @@
       <label for="new-effort">Effort</label>
       <select id="new-effort" bind:value={effort}>
         {#each efforts as e (e)}<option value={e}>{e}</option>{/each}
+      </select>
+    </div>
+    <div class="field">
+      <label for="new-permission">Permissions</label>
+      <select id="new-permission" bind:value={permission}>
+        <option value="default">Default for this folder</option>
+        <option value="ask">Ask before gated tools</option>
+        <option value="bypass">Bypass (run everything)</option>
       </select>
     </div>
     <p class="error">{err}</p>

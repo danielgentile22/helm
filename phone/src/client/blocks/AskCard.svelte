@@ -73,16 +73,16 @@
 
 <div class="askcard" class:is-settled={settled}>
   {#if payload.kind === "tool"}
-    <div class="aq">Claude wants to <b>{summary?.label}</b></div>
+    <!-- The SDK's own sentence when it wrote one, else the tool name in the same shape. -->
+    <div class="aq">{#if payload.title}{payload.title}{:else}Claude wants to <b>{summary?.label}</b>{/if}</div>
     {#if summary?.arg}<div class="aarg">{summary.arg}</div>{/if}
-    {#if payload.title}<div class="atitle">{payload.title}</div>{/if}
     {#if payload.description}<div class="adesc">{payload.description}</div>{/if}
     <button class="btn small" type="button" aria-expanded={showInput} onclick={() => (showInput = !showInput)}>{showInput ? "hide input" : "input"}</button>
     {#if showInput}<pre class="io">{input}</pre>{/if}
   {:else}
     {#each questions as q, ix (ix)}
       <div class="aqblock">
-        <span class="chip">{q.header}</span>
+        <span class="qhdr">{q.header}</span>
         <div class="aq">{q.question}</div>
         <div class="aopts">
           {#each q.options as o (o.label)}

@@ -215,6 +215,7 @@ a { color: var(--accent); }
 .askcard .arow .grow { flex: 1; }
 .askcard .ain { flex: 1; min-width: 0; padding: var(--s-3) var(--s-4); font-size: var(--t-sm); background: var(--bg); border: 1px solid var(--hair); border-radius: var(--r-md); }
 .askcard .aqblock { align-self: stretch; display: flex; flex-direction: column; gap: var(--s-3); }
+.askcard .qhdr { align-self: flex-start; padding: 2px 8px; font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); background: var(--sunken); border-radius: var(--r-pill); }
 .askcard .aopts { display: flex; flex-direction: column; gap: var(--s-3); }
 .askcard .aopt { display: flex; align-items: baseline; gap: var(--s-4); width: 100%; padding: var(--s-4); text-align: left; background: var(--bg); border: 1px solid var(--hair); border-radius: var(--r-md); }
 .askcard .aopt[aria-pressed="true"] { border-color: var(--accent-solid); }

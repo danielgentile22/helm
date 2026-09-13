@@ -133,7 +133,7 @@
     {:else if openSheet === "model"}
       <ModelEffort {api} config={s.config} onClose={() => (openSheet = null)} />
     {:else if openSheet === "info"}
-      <ThreadInfo view={s.view} onClose={() => (openSheet = null)} />
+      <ThreadInfo {api} view={s.view} onClose={() => (openSheet = null)} />
     {:else if openSheet === "archive"}
       <ArchiveConfirm {api} {threadId} onClose={() => (openSheet = null)} />
     {/if}
