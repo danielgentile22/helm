@@ -1,10 +1,10 @@
 <script lang="ts">
   import type { UploadId } from "../../shared/protocol";
-  import type { PromptLine } from "../transcript";
+  import type { Prompt } from "../transcript";
 
-  let { line, onResend, uploadUrl }: { line: PromptLine; onResend: (text: string) => void; uploadUrl: (uploadId: UploadId) => string } = $props();
+  let { line, onResend, uploadUrl }: { line: Prompt; onResend: (text: string) => void; uploadUrl: (uploadId: UploadId) => string } = $props();
 
-  const STATE_WORD: Readonly<Record<PromptLine["state"], string>> = {
+  const STATE_WORD: Readonly<Record<Prompt["state"], string>> = {
     pending: "sending",
     queued: "queued",
     started: "",

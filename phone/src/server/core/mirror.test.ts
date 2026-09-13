@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { ThreadLog } from "./log";
 import { Mirror, lastMirroredSeq, mirrorPath, renderTurn } from "./mirror";
 import { ThreadStore } from "./thread-store";
+import { groupTurns } from "../../shared/turns";
 import type {
   ClaudeSessionId,
   ClientMsgId,
@@ -48,6 +49,8 @@ const usage: Usage = {
   durationMs: 1200,
 };
 
+const turnOf = (events: ThreadEvent[]) => groupTurns(events)[0]!;
+
 /** A fixture turn: two text blocks, a thinking delta, one failed tool call, an error outcome. */
 function fixtureTurn(): ThreadEvent[] {
   return [
@@ -64,7 +67,7 @@ function fixtureTurn(): ThreadEvent[] {
 }
 
 test("renderTurn renders the prompt, text blocks, tool lines, footer, and marker", () => {
-  const md = renderTurn(fixtureTurn());
+  const md = renderTurn(groupTurns(fixtureTurn())[0]!);
 
   assert.match(md, /^## 2026-09-11T00:00:02\.000Z .*iphone/m, "heading carries the timestamp and the origin label");
   assert.match(md, /^> hello$/m, "prompt is a blockquote, line by line");
@@ -86,20 +89,20 @@ test("renderTurn renders the prompt, text blocks, tool lines, footer, and marker
 });
 
 test("renderTurn on a clean ok turn with no usage omits the usage half of the footer", () => {
-  const md = renderTurn([
+  const md = renderTurn(turnOf([
     ev(1, { kind: "input.queued", clientMsgId: "m9" as ClientMsgId, text: "hi", uploads: [], origin }),
     ev(2, { kind: "turn.started", turnId: "t:2" as TurnId, clientMsgId: "m9" as ClientMsgId, model, effort: "low", spawned: false }),
     ev(3, { kind: "assistant.text", turnId: "t:2" as TurnId, blockIx: 0, delta: "yes" }),
     ev(4, { kind: "turn.ended", turnId: "t:2" as TurnId, outcome: "ok", sessionId, usage: null, error: null }),
-  ]);
+  ]));
   assert.match(md, /^> hi$/m);
   assert.match(md, /^yes$/m);
   assert.ok(!md.includes("tokens"), "no usage line when the turn carried none");
   assert.match(md, /<!-- helm:seq=4 -->\s*$/);
 });
 
-test("renderTurn throws when the slice has no turn.ended", () => {
-  assert.throws(() => renderTurn([ev(2, { kind: "turn.started", turnId: "t:2" as TurnId, clientMsgId: "m1" as ClientMsgId, model, effort: "high", spawned: true })]));
+test("renderTurn throws when the turn has no turn.ended", () => {
+  assert.throws(() => renderTurn(turnOf([ev(2, { kind: "turn.started", turnId: "t:2" as TurnId, clientMsgId: "m1" as ClientMsgId, model, effort: "high", spawned: true })])));
 });
 
 test("lastMirroredSeq reads the highest marker, 0 when there is none", () => {
@@ -208,6 +211,31 @@ test("resume catches up a turn the mirror missed, and a second resume is byte id
   await rm(h.vault, { recursive: true });
 });
 
+test("a prompt queued below the last marker still heads its own turn's block", async () => {
+  const h = await harness();
+  const mirror = new Mirror(h.vault, h.store);
+  mirror.watch(h.log);
+  await h.log.append({ kind: "input.queued", clientMsgId: "m1" as ClientMsgId, text: "first prompt", uploads: [], origin });
+  const first = await h.log.append((seq) => ({ kind: "turn.started" as const, turnId: `t:${seq}` as TurnId, clientMsgId: "m1" as ClientMsgId, model, effort: "high" as const, spawned: false }));
+  await h.log.append({ kind: "input.queued", clientMsgId: "m2" as ClientMsgId, text: "second prompt", uploads: [], origin });
+  await h.log.append({ kind: "turn.ended", turnId: first.turnId, outcome: "ok", sessionId, usage, error: null });
+  await mirror.idle();
+  const one = await readFile(h.note, "utf8");
+  assert.equal(one.match(/^## /gm)?.length, 1);
+  assert.ok(!one.includes("second prompt"), "the queued prompt is not mirrored until its turn ends");
+
+  const second = await h.log.append((seq) => ({ kind: "turn.started" as const, turnId: `t:${seq}` as TurnId, clientMsgId: "m2" as ClientMsgId, model, effort: "high" as const, spawned: false }));
+  await h.log.append({ kind: "assistant.text", turnId: second.turnId, blockIx: 0, delta: "second reply" });
+  await h.log.append({ kind: "turn.ended", turnId: second.turnId, outcome: "ok", sessionId, usage, error: null });
+  await mirror.idle();
+  const two = await readFile(h.note, "utf8");
+  assert.equal(two.match(/^## /gm)?.length, 2);
+  assert.match(two, /^> second prompt$/m, "the prompt sits below the first marker and is still found");
+  assert.match(two, /^second reply$/m);
+
+  await rm(h.vault, { recursive: true });
+});
+
 test("resume skips a turn that has no turn.ended", async () => {
   const h = await harness();
   await appendTurn(h.log, "m1", "first prompt", "first reply");
@@ -253,13 +281,13 @@ test("prune is a no-op when the vault has no chats directory, and creates nothin
 });
 
 test("renderTurn lists a file sent to the phone with its size and note, never its path", () => {
-  const md = renderTurn([
+  const md = renderTurn(turnOf([
     ev(1, { kind: "input.queued", clientMsgId: "m9" as ClientMsgId, text: "send me the report", uploads: [], origin }),
     ev(2, { kind: "turn.started", turnId: "t:2" as TurnId, clientMsgId: "m9" as ClientMsgId, model, effort: "low", spawned: false }),
     ev(3, { kind: "file.offered", file: { fileId: "f1" as never, path: "/Users/d/Desktop/report.pdf", name: "report.pdf", mime: "application/pdf", bytes: 2_400_000, note: "the Q3 one" }, origin: { via: "key", label: "model" } }),
     ev(4, { kind: "assistant.text", turnId: "t:2" as TurnId, blockIx: 0, delta: "Sent." }),
     ev(5, { kind: "turn.ended", turnId: "t:2" as TurnId, outcome: "ok", sessionId, usage: null, error: null }),
-  ]);
+  ]));
   assert.match(md, /^> sent to phone: report\.pdf \(2\.4 MB\): the Q3 one$/m);
   assert.ok(!md.includes("/Users/d"), "the path stays out of the vault note");
   assert.match(md, /^Sent\.$/m);

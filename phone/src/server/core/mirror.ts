@@ -7,10 +7,11 @@
  *
  * Idempotent: each turn block ends with `<!-- helm:seq=N -->` where N is the
  * seq of the turn.ended. Every append, whether driven by watch() or by
- * resume(), re-reads that marker and writes only the turns beyond it, so a
- * crash between log append and mirror append never duplicates or skips a
- * turn. Appends for one thread run on a per-thread serial queue, so a live
- * turn.ended landing during a boot catch-up cannot interleave with it.
+ * resume(), re-reads that marker, reads the log from there, and writes only
+ * the turns beyond it, so a crash between log append and mirror append never
+ * duplicates or skips a turn. Appends for one thread run on a per-thread
+ * serial queue, so a live turn.ended landing during a boot catch-up cannot
+ * interleave with it.
  *
  * Best effort: a write that fails is logged and swallowed. The log is canon;
  * a missing mirror block is repaired by the next resume().
@@ -26,7 +27,8 @@
 import { mkdir, readdir, readFile, stat, unlink, appendFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fmtBytes, toolSummary } from "../../shared/protocol";
-import type { ClientMsgId, ThreadConfig, ThreadEvent, ThreadId } from "../../shared/protocol";
+import type { Cursor, Seq, ThreadConfig, ThreadEvent, ThreadId } from "../../shared/protocol";
+import { groupTurns, type Turn, type TurnEnd } from "../../shared/turns";
 import type { ThreadLog, Unsubscribe } from "./log";
 import type { ThreadStore } from "./thread-store";
 
@@ -99,9 +101,9 @@ export class Mirror {
 
   /**
    * Append every completed turn whose turn.ended is beyond the note's last
-   * marker. The whole log is scanned rather than only the tail after the
-   * marker, because a message queued during the previous turn has a seq
-   * below that marker while its own turn does not.
+   * marker. Reads from the marker; a message queued during the previous turn
+   * has a seq below it while its own turn does not, and that one case
+   * re-reads from zero so the prompt is not lost.
    */
   private async catchUp(log: ThreadLog): Promise<void> {
     const file = mirrorPath(this.vaultRoot, log.threadId);
@@ -109,10 +111,13 @@ export class Mirror {
       if (err.code === "ENOENT") return "";
       throw err;
     });
-    const events: ThreadEvent[] = [];
-    for await (const ev of log.read(0)) events.push(ev);
-
-    const turns = completedTurnsAfter(events, lastMirroredSeq(existing));
+    const after = lastMirroredSeq(existing);
+    let events = await collect(log.read(after));
+    let turns = completedAfter(events, after);
+    if (after > 0 && turns.some((t) => t.prompt === null)) {
+      events = await collect(log.read(0));
+      turns = completedAfter(events, after);
+    }
     if (turns.length === 0) return;
 
     let out = "";
@@ -124,34 +129,15 @@ export class Mirror {
   }
 }
 
-/**
- * Groups a full event list into the completed turns whose turn.ended is past
- * `after`. Each slice runs from turn.started through turn.ended, prefixed by
- * the input.queued carrying that turn's clientMsgId. A trailing turn.started
- * with no turn.ended is dropped: the log's open() seals those, so the only
- * way to see one is a turn still running.
- */
-function completedTurnsAfter(events: readonly ThreadEvent[], after: number): ThreadEvent[][] {
-  const queued = new Map<ClientMsgId, ThreadEvent>();
-  const out: ThreadEvent[][] = [];
-  let current: ThreadEvent[] | null = null;
-  for (const ev of events) {
-    if (ev.kind === "input.queued") queued.set(ev.clientMsgId, ev);
-    if (ev.kind === "turn.started") {
-      current = [ev];
-      continue;
-    }
-    if (!current) continue;
-    current.push(ev);
-    if (ev.kind !== "turn.ended") continue;
-    const started = current[0];
-    if (ev.seq > after && started?.kind === "turn.started") {
-      const prompt = queued.get(started.clientMsgId);
-      out.push(prompt ? [prompt, ...current] : current);
-    }
-    current = null;
-  }
+async function collect(events: AsyncIterable<ThreadEvent>): Promise<ThreadEvent[]> {
+  const out: ThreadEvent[] = [];
+  for await (const ev of events) out.push(ev);
   return out;
+}
+
+/** The turns that ended past `after`. A turn still running has no end and is left for the next catch-up. */
+function completedAfter(events: readonly ThreadEvent[], after: Cursor): readonly Turn[] {
+  return groupTurns(events).filter((t) => t.end !== null && t.end.seq > after);
 }
 
 function configFromLog(events: readonly ThreadEvent[]): ThreadConfig | null {
@@ -188,7 +174,7 @@ function blockquote(text: string): string {
     .join("\n");
 }
 
-function footer(ended: Extract<ThreadEvent, { kind: "turn.ended" }>): string {
+function footer(ended: TurnEnd): string {
   const parts = [`_${ended.outcome}_`];
   const u = ended.usage;
   if (u) {
@@ -201,59 +187,44 @@ function footer(ended: Extract<ThreadEvent, { kind: "turn.ended" }>): string {
 }
 
 /**
- * Pure. Renders one completed turn. `events` is the slice from turn.started
- * through turn.ended plus the input.queued that carries the turn's
- * clientMsgId. Tool calls are rendered as one line each
+ * Pure. Renders one completed turn. Tool calls are rendered as one line each
  * (`> Read Atlas/Areas/Health.md`) with no output, so the mirror stays a
  * readable conversation; the full detail is in events.jsonl. Thinking is
  * omitted for the same reason. A failed tool is marked with the word
  * "failed", never with color alone.
  */
-export function renderTurn(events: readonly ThreadEvent[]): string {
-  const ended = events.find((e) => e.kind === "turn.ended");
-  if (!ended || ended.kind !== "turn.ended") throw new Error("renderTurn: the slice has no turn.ended");
-  const started = events.find((e) => e.kind === "turn.started");
-  const prompt = events.find((e) => e.kind === "input.queued");
+export function renderTurn(turn: Turn): string {
+  const ended = turn.end;
+  if (!ended) throw new Error("renderTurn: the turn has no turn.ended");
+  const prompt = turn.prompt;
 
-  const blocks = new Map<number, string>();
-  const order: number[] = [];
+  const texts: string[] = [];
   const tools: string[] = [];
-  const failed = new Set<string>();
-  for (const ev of events) {
-    if (ev.kind === "assistant.text") {
-      if (!blocks.has(ev.blockIx)) order.push(ev.blockIx);
-      blocks.set(ev.blockIx, (blocks.get(ev.blockIx) ?? "") + ev.delta);
-    } else if (ev.kind === "tool.finished" && ev.isError) {
-      failed.add(ev.toolUseId);
+  const sent: string[] = [];
+  for (const item of turn.items) {
+    if (item.kind === "text") {
+      const text = item.text.trim();
+      if (text.length > 0) texts.push(text);
+    } else if (item.kind === "tool") {
+      const { label, arg } = toolSummary(item.name, item.input);
+      const mark = item.isError ? " (failed)" : "";
+      tools.push(`${label}${arg ? ` ${arg}` : ""}${mark}`);
+    } else if (item.kind === "file") {
+      sent.push(`sent to phone: ${item.name} (${fmtBytes(item.bytes)})${item.note ? `: ${item.note}` : ""}`);
     }
   }
-  for (const ev of events) {
-    if (ev.kind !== "tool.started") continue;
-    const { label, arg } = toolSummary(ev.name, ev.input);
-    const mark = failed.has(ev.toolUseId) ? " (failed)" : "";
-    tools.push(`${label}${arg ? ` ${arg}` : ""}${mark}`);
-  }
 
-  const sent: string[] = [];
-  for (const ev of events) {
-    if (ev.kind !== "file.offered") continue;
-    sent.push(`sent to phone: ${ev.file.name} (${fmtBytes(ev.file.bytes)})${ev.file.note ? `: ${ev.file.note}` : ""}`);
-  }
-
-  const label = prompt?.kind === "input.queued" ? ` [${prompt.origin.label}]` : "";
-  const ts = prompt?.ts ?? started?.ts ?? ended.ts;
+  const label = prompt ? ` [${prompt.label}]` : "";
+  const ts = prompt?.ts ?? turn.startedAt ?? ended.ts;
   const out: string[] = [`## ${ts}${label}`];
 
-  if (prompt?.kind === "input.queued") {
+  if (prompt) {
     const lines = [prompt.text.trimEnd()];
     if (prompt.uploads.length > 0) lines.push("", `uploads: ${prompt.uploads.map((u) => u.name).join(", ")}`);
     out.push(blockquote(lines.join("\n")));
   }
 
-  for (const ix of order) {
-    const text = (blocks.get(ix) ?? "").trim();
-    if (text.length > 0) out.push(text);
-  }
+  out.push(...texts);
   if (tools.length > 0) out.push(tools.map((t) => `> ${t}`).join("\n"));
   if (sent.length > 0) out.push(sent.map((t) => `> ${t}`).join("\n"));
 
@@ -271,11 +242,11 @@ export function mirrorPath(vaultRoot: string, threadId: ThreadId): string {
 }
 
 /** Pure. Reads the highest `<!-- helm:seq=N -->` marker; 0 if the file is missing or has none. */
-export function lastMirroredSeq(markdown: string): number {
-  let max = 0;
+export function lastMirroredSeq(markdown: string): Cursor {
+  let max: Cursor = 0;
   for (const m of markdown.matchAll(MARKER)) {
     const n = Number(m[1]);
-    if (Number.isFinite(n) && n > max) max = n;
+    if (Number.isFinite(n) && n > max) max = n as Seq;
   }
   return max;
 }

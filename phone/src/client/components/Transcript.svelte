@@ -6,10 +6,10 @@
   import PromptBlock from "../blocks/PromptBlock.svelte";
   import TextBlock from "../blocks/TextBlock.svelte";
   import ThinkingBlock from "../blocks/ThinkingBlock.svelte";
-  import type { Block } from "../transcript";
+  import type { Block, Section } from "../transcript";
 
   let {
-    blocks,
+    sections,
     openTurn,
     replaying,
     onResend,
@@ -18,7 +18,7 @@
     fileUrl,
     fetchFile,
   }: {
-    blocks: readonly Block[];
+    sections: readonly Section[];
     openTurn: TurnId | null;
     replaying: boolean;
     onResend: (text: string) => void;
@@ -28,65 +28,7 @@
     fetchFile: (fileId: string, onProgress: (bytes: number) => void) => Promise<Blob>;
   } = $props();
 
-  interface Turn {
-    key: string;
-    turnId: TurnId | null;
-    blocks: { block: Block; key: string; glyph: string }[];
-  }
-
   const GLYPH: Readonly<Record<Block["kind"], string>> = { prompt: "❯", thinking: "∴", text: "·", activity: "$", end: "", file: "↓", note: "" };
-
-  function keyOf(block: Block, ix: number): string {
-    switch (block.kind) {
-      case "prompt":
-        return block.line.clientMsgId;
-      case "thinking":
-        return `${block.turnId}:think:${ix}`;
-      case "text":
-        return `${block.turnId}:text:${block.blockIx}`;
-      case "activity":
-        return block.key;
-      case "end":
-        return `${block.turnId}:end`;
-      case "file":
-        return `file:${block.line.fileId}`;
-      case "note":
-        return `note:${ix}`;
-    }
-  }
-
-  /**
-   * One section per turn, because the travelling rail light belongs to the
-   * stretch of log the running turn owns. A prompt opens a section and the
-   * first block carrying a turn id claims it; anything with an unclaimed
-   * turn id opens a section of its own.
-   */
-  function toTurns(list: readonly Block[]): Turn[] {
-    const turns: Turn[] = [];
-    let cur: Turn | null = null;
-    let adoptable = false;
-    list.forEach((block, ix) => {
-      const entry = { block, key: keyOf(block, ix), glyph: GLYPH[block.kind] };
-      const turnId = block.kind === "prompt" || block.kind === "note" || block.kind === "file" ? null : block.turnId;
-      if (block.kind === "prompt") {
-        cur = { key: `p:${block.line.clientMsgId}`, turnId: null, blocks: [entry] };
-        adoptable = block.line.state === "started";
-        turns.push(cur);
-        return;
-      }
-      if (turnId !== null && cur !== null && cur.turnId === null && adoptable) cur.turnId = turnId;
-      if (cur === null || (turnId !== null && turnId !== cur.turnId)) {
-        cur = { key: turnId !== null ? `t:${turnId}` : `n:${ix}`, turnId, blocks: [entry] };
-        adoptable = false;
-        turns.push(cur);
-        return;
-      }
-      cur.blocks.push(entry);
-    });
-    return turns;
-  }
-
-  const turns = $derived(toTurns(blocks));
 
   /**
    * A block animates only if the log was already on screen, and live, before the render that
@@ -98,7 +40,7 @@
   let animates = false;
   let wasLive = false;
   $effect.pre(() => {
-    void blocks;
+    void sections;
     animates = wasLive;
     wasLive = !replaying;
   });
@@ -127,14 +69,14 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="transcript" onclick={onCopy}>
-  {#each turns as turn (turn.key)}
+  {#each sections as turn (turn.key)}
     {@const live = turn.turnId !== null && turn.turnId === openTurn}
     <section class="turn" class:is-live={live}>
       {#if live}<span class="rail" aria-hidden="true"><i></i></span>{/if}
-      {#each turn.blocks as { block, key, glyph } (key)}
-        <div class="blk blk-{block.kind}" data-glyph={glyph} use:enters>
+      {#each turn.blocks as block (block.key)}
+        <div class="blk blk-{block.kind}" data-glyph={GLYPH[block.kind]} use:enters>
           {#if block.kind === "prompt"}
-            <PromptBlock line={block.line} {onResend} {uploadUrl} />
+            <PromptBlock line={block.prompt} {onResend} {uploadUrl} />
           {:else if block.kind === "thinking"}
             <ThinkingBlock text={block.text} collapsed={block.collapsed} streaming={block.streaming} />
           {:else if block.kind === "text"}
@@ -144,7 +86,7 @@
           {:else if block.kind === "end"}
             <EndLine outcome={block.outcome} error={block.error} />
           {:else if block.kind === "file"}
-            <FileCard line={block.line} url={fileUrl(block.line.fileId)} fetch={(onProgress) => fetchFile(block.line.fileId, onProgress)} />
+            <FileCard line={block.file} url={fileUrl(block.file.fileId)} fetch={(onProgress) => fetchFile(block.file.fileId, onProgress)} />
           {:else}
             <div class="note">{block.text}</div>
           {/if}

@@ -7,9 +7,9 @@
    * Without a share sheet (laptop browsers) the tap opens the file in a tab.
    */
   import { fmtBytes } from "../../shared/protocol";
-  import type { FileLine } from "../transcript";
+  import type { FileItem } from "../transcript";
 
-  let { line, url, fetch: fetchFile }: { line: FileLine; url: string; fetch: (onProgress: (bytes: number) => void) => Promise<Blob> } = $props();
+  let { line, url, fetch: fetchFile }: { line: FileItem; url: string; fetch: (onProgress: (bytes: number) => void) => Promise<Blob> } = $props();
 
   type State = { tag: "idle" } | { tag: "fetching"; bytes: number } | { tag: "ready"; file: File } | { tag: "gone" } | { tag: "failed"; reason: string };
   let state = $state<State>({ tag: "idle" });

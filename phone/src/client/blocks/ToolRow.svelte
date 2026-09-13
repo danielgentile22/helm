@@ -1,9 +1,9 @@
 <script lang="ts">
   import { toolSummary } from "../../shared/protocol";
-  import { toolDiff, type ToolLine } from "../transcript";
+  import { toolDiff, type ToolItem } from "../transcript";
   import Diff from "./Diff.svelte";
 
-  let { tool }: { tool: ToolLine } = $props();
+  let { tool }: { tool: ToolItem } = $props();
 
   const OUTPUT_LINES = 200;
 

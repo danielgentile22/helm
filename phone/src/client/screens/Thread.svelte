@@ -13,7 +13,7 @@
   import Rename from "../sheets/Rename.svelte";
   import ThreadInfo from "../sheets/ThreadInfo.svelte";
   import { ThreadSession } from "../thread.svelte";
-  import { jumpCount, toBlocks } from "../transcript";
+  import { blockCount, jumpCount, toBlocks } from "../transcript";
   import ErrorScreen from "./ErrorScreen.svelte";
 
   let { api, threadId }: { api: HelmClient; threadId: ThreadId } = $props();
@@ -28,8 +28,8 @@
   let seenCount = $state(0);
   let deepLinked = false;
 
-  const blocks = $derived(session ? toBlocks(session.view) : []);
-  const unseen = $derived(jumpCount(blocks, seenCount));
+  const sections = $derived(session ? toBlocks(session.view) : []);
+  const unseen = $derived(jumpCount(sections, seenCount));
 
   const nearBottom = (): boolean => document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 80;
   const toBottom = (): void => window.scrollTo(0, document.body.scrollHeight);
@@ -69,9 +69,9 @@
     return () => window.removeEventListener("scroll", onScroll);
   });
 
-  // Reads atBottom as well as the blocks, so resuming the follow catches the count up too.
+  // Reads atBottom as well as the sections, so resuming the follow catches the count up too.
   $effect(() => {
-    const count = blocks.length;
+    const count = blockCount(sections);
     if (!atBottom) return;
     seenCount = count;
     void tick().then(toBottom);
@@ -112,7 +112,7 @@
     </header>
     <StatusBar conn={s.conn} seen={s.view.headSeq} head={s.summary.headSeq} />
     </div>
-    <Transcript {blocks} openTurn={s.view.openTurn} replaying={s.view.replaying} onResend={(text) => void s.submit(text, [])} onQuote={(quoted) => insert(quoted)} uploadUrl={(uploadId) => api.uploadUrl(threadId, uploadId)} fileUrl={(fileId) => api.fileUrl(threadId, fileId)} fetchFile={(fileId, onProgress) => api.fetchFile(threadId, fileId, onProgress)} />
+    <Transcript {sections} openTurn={s.view.openTurn} replaying={s.view.replaying} onResend={(text) => void s.submit(text, [])} onQuote={(quoted) => insert(quoted)} uploadUrl={(uploadId) => api.uploadUrl(threadId, uploadId)} fileUrl={(fileId) => api.fileUrl(threadId, fileId)} fetchFile={(fileId, onProgress) => api.fetchFile(threadId, fileId, onProgress)} />
     {#if s.error}
       <div class="inline-error">
         <span class="glyph">▲</span>
