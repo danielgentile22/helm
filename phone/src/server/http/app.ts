@@ -47,7 +47,6 @@ import { extname, join, normalize } from "node:path";
 import { Readable } from "node:stream";
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { streamSSE } from "hono/streaming";
 import { DEFAULT_EFFORT, EFFORTS, LIMITS, THEMES } from "../../shared/protocol";
 import type {
   ClientMsgId,
@@ -77,7 +76,7 @@ import type { Offers } from "../core/offers";
 import type { Uploads } from "../core/uploads";
 import type { AuthDeps, EnrollTokens, WebAuthnCeremonies } from "./auth";
 import { API_KEY_HEADER, authenticate, bodyTooLarge, checkApiKey, sessionCookie } from "./auth";
-import { cursorFrom, formatComment, formatControl, formatEvent, formatGlobalEvent, streamGlobal, streamThread } from "./sse";
+import { cursorFrom, respondGlobal, respondThread } from "./sse";
 
 export interface PushDeps {
   publicKey(): string;
@@ -376,36 +375,10 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     if (t instanceof Response) return t;
     const cur = cursorFrom(new URL(c.req.url), c.req.header("last-event-id") ?? null);
     if (!cur.ok) return fail(c, 400, "bad cursor");
-    return streamSSE(c, async (stream) => {
-      let resolveClosed = (): void => {};
-      const closed = new Promise<void>((r) => (resolveClosed = r));
-      stream.onAbort(() => resolveClosed());
-      await stream.writeln("retry: 1000\n");
-      await streamThread(
-        t.log,
-        deps.supervisor,
-        cur.after,
-        {
-          event: (ev) => void stream.write(formatEvent(ev)),
-          control: (name, frame) => void stream.write(formatControl(name, frame)),
-          comment: (text) => void stream.write(formatComment(text)),
-          close: () => resolveClosed(),
-          closed,
-        },
-        { heartbeatMs: deps.heartbeatMs },
-      );
-    });
+    return respondThread(c, t.log, deps.supervisor, cur.after, deps.heartbeatMs);
   });
 
-  app.get("/api/events", async (c) =>
-    streamSSE(c, async (stream) => {
-      let resolveClosed = (): void => {};
-      const closed = new Promise<void>((r) => (resolveClosed = r));
-      stream.onAbort(() => resolveClosed());
-      await stream.writeln("retry: 1000\n");
-      await streamGlobal(deps.logs, { event: (id, ev) => void stream.write(formatGlobalEvent(id, ev)), comment: (text) => void stream.write(formatComment(text)), closed }, { heartbeatMs: deps.heartbeatMs });
-    }),
-  );
+  app.get("/api/events", (c) => respondGlobal(c, deps.logs, deps.heartbeatMs));
 
   app.get("/api/dirs", async (c) => {
     const path = c.req.query("path");

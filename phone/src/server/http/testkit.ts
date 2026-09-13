@@ -8,7 +8,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PushPayload, SyncFrame, ThreadEvent } from "../../shared/protocol";
+import type { PushPayload, SyncFrame, ThreadEvent, ThreadId } from "../../shared/protocol";
 import { FakeAgentFactory, echoScript, type FakeScript } from "../core/agent.fake";
 import type { LogRegistry } from "../core/log";
 import type { PushSubscriptionRecord } from "../core/push";
@@ -94,7 +94,8 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
   return stack;
 }
 
-export type Frame = { kind: "event"; id: number; ev: ThreadEvent } | { kind: "sync"; frame: SyncFrame } | { kind: "comment"; text: string };
+/** The global stream tags each event with its thread; the thread stream does not. */
+export type Frame = { kind: "event"; id: number; ev: ThreadEvent & { threadId?: ThreadId } } | { kind: "sync"; frame: SyncFrame } | { kind: "comment"; text: string };
 
 /**
  * Read an SSE response, parsing frames, until `until` returns true or the
@@ -129,7 +130,7 @@ export async function readSse(res: Response, until: (frames: Frame[]) => boolean
   return frames;
 }
 
-function parseFrame(block: string): Frame | null {
+export function parseFrame(block: string): Frame | null {
   let id: number | null = null;
   let event = "message";
   let data = "";
