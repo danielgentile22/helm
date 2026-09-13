@@ -46,7 +46,7 @@ export class Mirror {
    * Returns the detach function, the way LogRegistry.onOpen does.
    */
   watch(log: ThreadLog): Unsubscribe {
-    return log.subscribe((ev) => {
+    return log.subscribe("projection", (ev) => {
       if (ev.kind !== "turn.ended") return;
       void this.enqueue(log.threadId, () => this.catchUp(log)).catch((err) => {
         // Never throw into the log's subscriber loop.

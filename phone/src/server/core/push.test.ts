@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PushService, payloadFor, shouldNotify, type PushSubscriptionRecord } from "./push";
+import { PushService, payloadFor, type PushSubscriptionRecord } from "./push";
 import { ThreadLog } from "./log";
 import { ThreadStore } from "./thread-store";
 import type {
@@ -12,7 +12,6 @@ import type {
   ModelId,
   PushPayload,
   Seq,
-  ThreadEventBody,
   ThreadId,
   TurnId,
   TurnOutcome,
@@ -56,34 +55,6 @@ async function readFileRecords(file: string): Promise<readonly PushSubscriptionR
   const parsed = JSON.parse(await readFile(file, "utf8")) as Record<string, PushSubscriptionRecord>;
   return Object.values(parsed);
 }
-
-// ---------------------------------------------------------------------------
-// Pure: shouldNotify
-// ---------------------------------------------------------------------------
-
-test("shouldNotify fires on any turn.ended with nobody watching", () => {
-  assert.equal(shouldNotify(endedEvent("ok"), 0), true);
-  assert.equal(shouldNotify(endedEvent("error", "boom"), 0), true);
-  assert.equal(shouldNotify(endedEvent("interrupted"), 0), true);
-
-  // Somebody has the thread open over SSE.
-  assert.equal(shouldNotify(endedEvent("ok"), 1), false);
-  assert.equal(shouldNotify(endedEvent("ok"), 4), false);
-
-  // An orphaned turn is exactly the case where the user has to resend, so it notifies too.
-  assert.equal(shouldNotify(endedEvent("orphaned"), 0), true);
-  assert.equal(shouldNotify(endedEvent("orphaned"), 2), false, "still quiet while somebody is watching");
-
-  // Every other event kind.
-  const other: ThreadEventBody[] = [
-    { kind: "turn.started", turnId, clientMsgId: "m1" as ClientMsgId, model: "claude-opus-5" as ModelId, effort: "high", spawned: true },
-    { kind: "assistant.text", turnId, blockIx: 0, delta: "hi" },
-    { kind: "input.queued", clientMsgId: "m1" as ClientMsgId, text: "hi", uploads: [], origin },
-  ];
-  for (const body of other) {
-    assert.equal(shouldNotify({ ...body, seq: 3 as Seq, ts: "2026-09-11T00:00:00.000Z" }, 0), false, body.kind);
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Pure: payloadFor
@@ -199,7 +170,7 @@ test("watch stays quiet while an SSE subscriber is attached", async () => {
   try {
     await r.push.subscribe(sub("https://push.example/a"));
     r.push.watch(r.log);
-    const detach = r.log.subscribe(() => undefined); // stands in for an open SSE stream
+    const detach = r.log.subscribe("viewer", () => undefined);
 
     await runTurn(r.log);
     await settle();
@@ -210,6 +181,27 @@ test("watch stays quiet while an SSE subscriber is attached", async () => {
     await r.log.append({ kind: "turn.started", turnId: "t:7" as TurnId, clientMsgId: "m2" as ClientMsgId, model: "claude-opus-5" as ModelId, effort: "high", spawned: false });
     await r.log.append({ kind: "turn.ended", turnId: "t:7" as TurnId, outcome: "ok", sessionId: null, usage: null, error: null });
     await waitFor(() => r.sent.length === 1, "one send after detach");
+  } finally {
+    await r.cleanup();
+  }
+});
+
+test("a projection subscriber does not count as a viewer, and every outcome notifies", async () => {
+  const r = await rig();
+  try {
+    await r.push.subscribe(sub("https://push.example/a"));
+    r.push.watch(r.log);
+    r.log.subscribe("projection", () => undefined);
+
+    const outcomes: TurnOutcome[] = ["ok", "error", "interrupted", "orphaned"];
+    for (const [i, outcome] of outcomes.entries()) {
+      const t = `t:${i}` as TurnId;
+      await r.log.append({ kind: "turn.started", turnId: t, clientMsgId: `m${i}` as ClientMsgId, model: "claude-opus-5" as ModelId, effort: "high", spawned: false });
+      await r.log.append({ kind: "assistant.text", turnId: t, blockIx: 0, delta: "partial" });
+      await r.log.append({ kind: "turn.ended", turnId: t, outcome, sessionId: null, usage: null, error: outcome === "error" ? "boom" : null });
+    }
+    await waitFor(() => r.sent.length === outcomes.length, "one send per outcome");
+    assert.deepEqual(r.sent.map((s) => s.payload.kind), outcomes, "no other event kind fired a send");
   } finally {
     await r.cleanup();
   }

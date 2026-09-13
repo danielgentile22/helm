@@ -73,7 +73,7 @@ test("streamThread: replay from cursor, then sync, then live, with appends racin
   assert.equal(sync.frame.openTurn, null);
   assert.equal(sync.frame.queuedCount, 10 + beforeSync);
   assert.equal(sink.frames.at(-1)?.t, "close");
-  assert.equal(h.log.subscriberCount(), 0, "listener detached after disconnect");
+  assert.equal(h.log.viewerCount(), 0, "listener detached after disconnect");
   await h.cleanup();
 });
 
@@ -133,7 +133,7 @@ test("streamGlobal forwards only thread and turn boundary events, tagged by thre
   resolveClosed();
   await done;
   assert.deepEqual(got, ["ee:input.queued", "ff:thread.config", "ee:turn.ended", "11:thread.archived"]);
-  assert.equal(h.log.subscriberCount(), 0);
+  assert.equal(h.log.viewerCount(), 0);
   await h.cleanup();
 });
 

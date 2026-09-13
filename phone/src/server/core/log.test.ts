@@ -182,7 +182,7 @@ test("I2: a subscriber sees an event only once it is on disk; subscribe-before-r
 
   const seen: ThreadEvent[] = [];
   const onDiskAtEmit: boolean[] = [];
-  const unsub = log.subscribe((ev) => {
+  const unsub = log.subscribe("viewer", (ev) => {
     seen.push(ev);
     // Synchronous check that the line is already in the file.
     const text = readFileSync(join(dir, "events.jsonl"), "utf8");
@@ -203,7 +203,7 @@ test("I2: a subscriber sees an event only once it is on disk; subscribe-before-r
   const lastSent = replayed.at(-1)?.seq ?? 0;
   const merged = [...replayed, ...seen.filter((e) => e.seq > lastSent)];
   assert.deepEqual(merged.map((e) => e.seq), [1, 2, 3, 4]);
-  assert.equal(log.subscriberCount(), 0);
+  assert.equal(log.viewerCount(), 0);
   await rm(dir, { recursive: true });
 });
 
@@ -254,7 +254,7 @@ test("hardening: multi-byte text survives replay across read chunk boundaries", 
   const log = await writeLog(dir, [{ kind: "thread.created", config: config() }]);
   const delta = "héllo wörld ünïcödé 日本語 🚀 ".repeat(40);
   const live: string[] = [];
-  log.subscribe((ev) => ev.kind === "assistant.text" && live.push(ev.delta));
+  log.subscribe("projection", (ev) => ev.kind === "assistant.text" && live.push(ev.delta));
   for (let i = 0; i < 150; i++) await log.append({ kind: "assistant.text", turnId: "t:1" as TurnId, blockIx: 0, delta });
   const replayed = (await collect(log, 1 as Cursor)).map((e) => (e.kind === "assistant.text" ? e.delta : ""));
   assert.deepEqual(replayed, live);

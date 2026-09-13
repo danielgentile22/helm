@@ -53,7 +53,6 @@ test("boot attaches watchers before recovery and resumes the mirror after repair
   assert.equal(afterBoot.match(/^## /gm)?.length, 1, "resume wrote the turn recovery found");
 
   const log = await server.logs.get(threadId);
-  assert.equal(log.subscriberCount(), 2, "push and mirror both watch the log recovery opened");
   await appendTurn(log, "m2", "second prompt", "second reply");
   await server.mirror.idle();
   assert.equal((await readFile(note, "utf8")).match(/^## /gm)?.length, 2, "the recovered log's watcher mirrors a new turn");

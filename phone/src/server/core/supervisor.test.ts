@@ -37,7 +37,7 @@ async function harness(script: FakeScript = echoScript, idleParkMs = 60_000) {
   /** Resolves on the next turn.ended appended to the log. */
   const nextTurnEnd = (): Promise<ThreadEvent> =>
     new Promise((resolve) => {
-      const unsub = log.subscribe((ev) => {
+      const unsub = log.subscribe("projection", (ev) => {
         if (ev.kind === "turn.ended") {
           unsub();
           resolve(ev);

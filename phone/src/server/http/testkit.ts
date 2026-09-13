@@ -8,7 +8,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SyncFrame, ThreadEvent } from "../../shared/protocol";
+import type { PushPayload, SyncFrame, ThreadEvent } from "../../shared/protocol";
 import { FakeAgentFactory, echoScript, type FakeScript } from "../core/agent.fake";
 import type { LogRegistry } from "../core/log";
 import type { PushSubscriptionRecord } from "../core/push";
@@ -28,6 +28,8 @@ export interface Stack {
   /** What the model's `send_to_phone` tool calls; tests call it directly since the fake agent has no tools. */
   readonly offers: Offers;
   subscriptions(): Promise<readonly PushSubscriptionRecord[]>;
+  /** Every push payload the server tried to deliver, in order. */
+  readonly pushed: PushPayload[];
   /** Authenticated JSON request helper using the API key door. */
   api(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<Response>;
   /** Abandon this stack without killing anything (a crash), then boot a new one over the same home. */
@@ -46,6 +48,7 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
   await writeFile(join(h, "work", "proj", "CLAUDE.md"), "");
 
   const agents = new FakeAgentFactory(script);
+  const pushed: PushPayload[] = [];
   const server = await buildServer(
     {
       home: h,
@@ -61,7 +64,7 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
       idleParkMs: 60_000,
       heartbeatMs: 60_000,
     },
-    { agents, pushSend: async () => undefined },
+    { agents, pushSend: async (_sub, payload) => void pushed.push(payload) },
   );
 
   const stack: Stack = {
@@ -72,6 +75,7 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
     supervisor: server.supervisor,
     offers: server.offers,
     subscriptions: () => server.push.list(),
+    pushed,
     api: (method, path, body, headers = {}) =>
       server.fetch(
         new Request(`https://${HOST}${path}`, {

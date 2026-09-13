@@ -6,10 +6,12 @@
  * written atomically. A 404/410 from the push service deletes the entry.
  * VAPID keys come from .env (HELM_VAPID_PUBLIC / HELM_VAPID_PRIVATE / HELM_VAPID_SUBJECT).
  *
- * "Nobody is watching" is read off ThreadLog.subscriberCount(). The watcher
- * installed by watch() is itself a subscriber, so it compares against the
- * count minus one: zero means every other listener (every open SSE stream)
- * has gone away.
+ * "Nobody is watching" is ThreadLog.viewerCount() === 0: no open SSE stream
+ * for that thread. Projections like this watcher and the mirror never count.
+ * Heartbeats keep a dead phone connection from lingering more than ~2
+ * intervals. Every outcome notifies, `orphaned` included: a turn that died
+ * with the server is precisely the case where the work did not happen and
+ * the user has to resend, so staying quiet loses the message.
  */
 
 import webpush from "web-push";
@@ -117,10 +119,9 @@ export class PushService {
    * thread created after boot is covered too.
    */
   watch(log: ThreadLog): void {
-    log.subscribe((ev) => {
-      // Minus one for this watcher itself: what is left is the open SSE streams.
-      if (!shouldNotify(ev, log.subscriberCount() - 1)) return;
-      void this.notify(log, ev as Extract<ThreadEvent, { kind: "turn.ended" }>);
+    log.subscribe("projection", (ev) => {
+      if (ev.kind !== "turn.ended" || log.viewerCount() > 0) return;
+      void this.notify(log, ev);
     });
   }
 
@@ -159,21 +160,6 @@ export class PushService {
       });
     }
   }
-}
-
-/**
- * Pure. Notify on turn.ended when no SSE subscriber is attached. The SSE
- * subscriber count is the proxy for "the app is open"; heartbeats keep a
- * dead phone connection from lingering more than ~2 intervals.
- *
- * `liveSubscribers` excludes the push watcher's own subscription; watch()
- * passes subscriberCount() - 1. Every outcome notifies, `orphaned` included:
- * a turn that died with the server is precisely the case where the work did
- * not happen and the user has to resend, so staying quiet loses the message.
- */
-export function shouldNotify(ev: ThreadEvent, liveSubscribers: number): boolean {
-  if (ev.kind !== "turn.ended") return false;
-  return liveSubscribers <= 0;
 }
 
 /** Pure. Title from thread config, body from outcome plus the last text preview. */
