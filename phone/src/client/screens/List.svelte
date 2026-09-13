@@ -11,6 +11,7 @@
   import { fmtRelative, shortPath } from "../format";
   import { groupThreads } from "../groups";
   import { models } from "../models";
+  import { motion } from "../motion";
   import { createWithDefaults } from "../newThread";
   import { router } from "../route.svelte";
   import { settings } from "../settings.svelte";
@@ -32,8 +33,6 @@
   let suppressClick = false;
 
   const groups = $derived(groupThreads(threads, showArchived));
-
-  const flipMs = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--d-base")) || 200;
 
   function splitPath(cwd: string): { head: string; tail: string } {
     const p = shortPath(cwd);
@@ -147,9 +146,10 @@
                 type="button"
                 class:is-running={r.state === "running"}
                 class:is-archived={r.state === "archived"}
-                animate:flip={{ duration: flipMs }}
+                animate:flip={{ duration: motion.base }}
                 onclick={() => router.navigate(`/t/${r.summary.config.threadId}`)}
               >
+                {#if r.state === "running"}<span class="rail" aria-hidden="true"><i></i></span>{/if}
                 <span class="r1">
                   <span class="title">{r.summary.config.title ?? "Untitled"}</span>
                   <span class="when">{fmtRelative(r.when, new Date())}</span>

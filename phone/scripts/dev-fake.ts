@@ -22,6 +22,14 @@ const script: FakeScript = async (t) => {
     t.end();
     return;
   }
+  if (text.includes("stream")) {
+    for (let i = 0; i < 400; i++) {
+      t.text(`delta ${i} `);
+      await new Promise((r) => setTimeout(r, 15));
+    }
+    t.end();
+    return;
+  }
   if (text.includes("slow")) {
     t.thinking("Considering the request.");
     const id = t.toolStart("Bash", { command: "sleep 30" });

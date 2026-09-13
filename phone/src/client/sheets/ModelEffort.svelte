@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import type { Effort, ModelChoice, ThreadConfig } from "../../shared/protocol";
   import type { HelmClient } from "../api";
+  import Sheet from "../components/Sheet.svelte";
   import { models } from "../models";
 
   let { api, config, onClose }: { api: HelmClient; config: ThreadConfig; onClose: () => void } = $props();
@@ -42,27 +43,25 @@
 </script>
 
 {#if catalog.length}
-  <div class="sheet" onclick={(e) => e.target === e.currentTarget && onClose()} role="presentation">
-    <div class="panel">
-      <h2>Model and effort</h2>
-      <p class="muted">Applies at the next turn.</p>
-      <div class="field">
-        <label for="cfg-model">Model</label>
-        <select id="cfg-model" bind:value={model}>
-          {#each catalog as m (m.id)}<option value={m.id}>{m.label}</option>{/each}
-        </select>
-      </div>
-      <div class="field" hidden={effortHidden}>
-        <label for="cfg-effort">Effort</label>
-        <select id="cfg-effort" bind:value={effort}>
-          {#each efforts as e (e)}<option value={e}>{e}</option>{/each}
-        </select>
-      </div>
-      <div class="actions">
-        <button class="btn" onclick={onClose}>Cancel</button>
-        <span class="grow"></span>
-        <button class="btn primary" onclick={apply}>Apply</button>
-      </div>
+  <Sheet {onClose}>
+    <h2>Model and effort</h2>
+    <p class="muted">Applies at the next turn.</p>
+    <div class="field">
+      <label for="cfg-model">Model</label>
+      <select id="cfg-model" bind:value={model}>
+        {#each catalog as m (m.id)}<option value={m.id}>{m.label}</option>{/each}
+      </select>
     </div>
-  </div>
+    <div class="field" hidden={effortHidden}>
+      <label for="cfg-effort">Effort</label>
+      <select id="cfg-effort" bind:value={effort}>
+        {#each efforts as e (e)}<option value={e}>{e}</option>{/each}
+      </select>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick={onClose}>Cancel</button>
+      <span class="grow"></span>
+      <button class="btn primary" onclick={apply}>Apply</button>
+    </div>
+  </Sheet>
 {/if}

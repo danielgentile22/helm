@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { fly } from "svelte/transition";
   import type { HelmClient } from "./api";
   import { HttpError } from "./api";
+  import { screenIn } from "./motion";
   import { router } from "./route.svelte";
   import Enroll from "./screens/Enroll.svelte";
   import ErrorScreen from "./screens/ErrorScreen.svelte";
@@ -63,15 +65,18 @@
 {:else if unauthorized}
   <Login {api} onSignedIn={signedIn} />
 {:else if me}
-  {#if router.route.name === "thread"}
-    {#key router.route.threadId}
-      <Thread {api} threadId={router.route.threadId} />
-    {/key}
-  {:else if router.route.name === "settings"}
-    <SettingsScreen {api} />
-  {:else if router.route.name === "list"}
-    <List {api} />
-  {/if}
+  {@const route = router.route}
+  {#key route.name === "thread" ? `thread:${route.threadId}` : route.name}
+    <div class="arrives" in:fly|global={screenIn}>
+      {#if route.name === "thread"}
+        <Thread {api} threadId={route.threadId} />
+      {:else if route.name === "settings"}
+        <SettingsScreen {api} />
+      {:else if route.name === "list"}
+        <List {api} />
+      {/if}
+    </div>
+  {/key}
 {:else}
   <main class="screen"><p class="muted center">Loading Helm</p></main>
 {/if}

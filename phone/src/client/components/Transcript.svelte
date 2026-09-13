@@ -107,7 +107,9 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="transcript" onclick={onCopy}>
   {#each turns as turn (turn.key)}
-    <section class="turn" class:is-live={turn.turnId !== null && turn.turnId === openTurn}>
+    {@const live = turn.turnId !== null && turn.turnId === openTurn}
+    <section class="turn" class:is-live={live}>
+      {#if live}<span class="rail" aria-hidden="true"><i></i></span>{/if}
       {#each turn.blocks as { block, key, glyph } (key)}
         <div class="blk blk-{block.kind}" data-glyph={glyph} use:enters>
           {#if block.kind === "prompt"}
