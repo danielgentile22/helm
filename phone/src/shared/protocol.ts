@@ -357,3 +357,71 @@ export function fmtBytes(n: number): string {
   if (mb < 1000) return `${mb.toFixed(1)} MB`;
   return `${(mb / 1000).toFixed(1)} GB`;
 }
+
+// ---------------------------------------------------------------------------
+// Tool summaries
+// ---------------------------------------------------------------------------
+
+export type ToolCategory = "read" | "run" | "edit" | "other";
+
+export interface ToolSummary {
+  readonly label: string;
+  readonly arg: string;
+  readonly category: ToolCategory;
+}
+
+/** One row per tool: which input field a human would name, and what kind of work it is. */
+const TOOLS: Readonly<Record<string, { arg: string; category: ToolCategory }>> = {
+  Bash: { arg: "command", category: "run" },
+  Read: { arg: "file_path", category: "read" },
+  Edit: { arg: "file_path", category: "edit" },
+  Write: { arg: "file_path", category: "edit" },
+  MultiEdit: { arg: "file_path", category: "edit" },
+  NotebookEdit: { arg: "notebook_path", category: "edit" },
+  Grep: { arg: "pattern", category: "read" },
+  Glob: { arg: "pattern", category: "read" },
+  LS: { arg: "path", category: "read" },
+  ToolSearch: { arg: "query", category: "read" },
+  WebFetch: { arg: "url", category: "read" },
+  WebSearch: { arg: "query", category: "read" },
+  Agent: { arg: "description", category: "other" },
+  Skill: { arg: "skill", category: "other" },
+};
+
+const ARG_CHARS = 80;
+/** Shared code cannot read node:os, so the home directory is matched by shape instead. */
+const HOME = /\/(?:Users|home)\/[^/]+/gu;
+
+function tidyArg(text: string): string {
+  return text.replace(/\s+/gu, " ").trim().replace(HOME, "~").slice(0, ARG_CHARS);
+}
+
+/** `mcp__<server>__<tool>` reads as `<server>:<tool>`; null for an ordinary name. */
+function mcpLabel(name: string): string | null {
+  if (!name.startsWith("mcp__")) return null;
+  const [server, ...rest] = name.slice("mcp__".length).split("__");
+  if (!server || rest.length === 0) return null;
+  return `${server}:${rest.join("__")}`;
+}
+
+function firstString(input: Record<string, unknown>): string {
+  for (const v of Object.values(input)) if (typeof v === "string") return v;
+  return "";
+}
+
+/**
+ * The label, salient argument and kind of work of a tool call. Shared so the
+ * thread list, the transcript and the vault mirror name a call the same way.
+ * The argument falls back to the first string field, so an unknown MCP tool
+ * still says something.
+ */
+export function toolSummary(name: string, input: unknown): ToolSummary {
+  const label = mcpLabel(name) ?? name;
+  const row = TOOLS[name];
+  const category = row?.category ?? "other";
+  if (typeof input !== "object" || input === null) return { label, arg: "", category };
+  const rec = input as Record<string, unknown>;
+  const direct = row === undefined ? undefined : rec[row.arg];
+  const raw = typeof direct === "string" ? direct : firstString(rec);
+  return { label, arg: tidyArg(raw), category };
+}

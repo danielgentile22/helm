@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { fmtDuration, toolArg } from "../format";
+  import { toolSummary } from "../../shared/protocol";
+  import { fmtDuration } from "../format";
   import { summarize, type Block } from "../transcript";
   import ToolRow from "./ToolRow.svelte";
 
@@ -20,6 +21,7 @@
   // summarize() writes one sentence; splitting on the digits is what lets the counts
   // carry weight without a second string format to keep in step with it.
   const parts = $derived(summarize(block.counts).split(/(\d+)/));
+  const current = $derived(block.current === null ? null : toolSummary(block.current.name, block.current.input));
   const elapsed = $derived(block.running ? now - new Date(block.startedAt).getTime() : block.durationMs);
 </script>
 
@@ -29,12 +31,11 @@
     <span class="sum">{#each parts as part, i (i)}{#if i % 2}<b>{part}</b>{:else}{part}{/if}{/each}</span>
     {#if elapsed !== null}<span class="dur">{fmtDuration(elapsed)}</span>{/if}
   </button>
-  {#if !open && block.current}
-    {@const current = block.current}
+  {#if !open && current}
     <div class="now">
       <span class="dot pulse"></span>
-      <span>{current.name}</span>
-      <span class="arg">{toolArg(current.input)}</span>
+      <span>{current.label}</span>
+      <span class="arg">{current.arg}</span>
     </div>
   {/if}
   {#if open}

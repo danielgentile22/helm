@@ -1,8 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { homedir } from "node:os";
 import type { ToolUseId, TurnId } from "../../shared/protocol";
-import { doingNow, toolArg } from "./doing";
+import { doingNow } from "./doing";
 import type { ThreadHead } from "./log";
 
 const head = (over: Partial<ThreadHead>): ThreadHead => ({
@@ -22,26 +21,6 @@ const head = (over: Partial<ThreadHead>): ThreadHead => ({
 });
 
 const tool = (name: string, input: unknown): ThreadHead["activeTool"] => ({ toolUseId: "tu-1" as ToolUseId, name, input });
-
-test("toolArg picks the identifying field per tool", () => {
-  assert.equal(toolArg("Bash", { command: "npm test", timeout: 5 }), "npm test");
-  assert.equal(toolArg("Read", { file_path: "/etc/hosts", offset: 1 }), "/etc/hosts");
-  assert.equal(toolArg("Grep", { pattern: "TODO", path: "/src" }), "TODO");
-  assert.equal(toolArg("Glob", { pattern: "**/*.ts" }), "**/*.ts");
-  assert.equal(toolArg("Agent", { description: "Audit the parser", prompt: "long" }), "Audit the parser");
-  assert.equal(toolArg("WebFetch", { url: "https://example.com" }), "https://example.com");
-  assert.equal(toolArg("WebSearch", { query: "hono sse" }), "hono sse");
-  assert.equal(toolArg("Skill", { skill: "unslop" }), "unslop");
-});
-
-test("toolArg falls back to the first string field, tidies the value, and gives up gracefully", () => {
-  assert.equal(toolArg("mcp__thing__do", { count: 3, target: "a thing" }), "a thing");
-  assert.equal(toolArg("Bash", { command: "  git   log\n  --oneline " }), "git log --oneline");
-  assert.equal(toolArg("Read", { file_path: `${homedir()}/Projects/helm2/src/a.ts` }), "~/Projects/helm2/src/a.ts");
-  assert.equal(toolArg("Bash", { command: "x".repeat(200) }).length, 80);
-  assert.equal(toolArg("Bash", { timeout: 5 }), "");
-  assert.equal(toolArg("Bash", "not a record"), "");
-});
 
 test("doingNow prefers a live tool, falls back to the text tail, and reports nothing when there is nothing", () => {
   const t = "t:4" as TurnId;

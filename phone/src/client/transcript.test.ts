@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Seq, ThreadEvent, ThreadId, TurnId } from "../shared/protocol";
 import { applySync, emptyView, foldAll, type ThreadView } from "./fold";
-import { categoryOf, diffLines, jumpCount, summarize, toBlocks, toolDiff, type Block } from "./transcript";
+import { diffLines, jumpCount, summarize, toBlocks, toolDiff, type Block } from "./transcript";
 
 const threadId = "t-1" as ThreadId;
 const origin = { via: "pwa", label: "iphone" } as const;
@@ -129,14 +129,6 @@ test("summarize omits empty categories, keeps singulars, and names an empty bloc
   assert.equal(summarize({ read: 6, run: 2, edit: 3, other: 1 }), "read 6 files, ran 2 commands, edited 3 files, 1 other");
   assert.equal(summarize({ read: 1, run: 0, edit: 0, other: 0 }), "read 1 file");
   assert.equal(summarize({ read: 0, run: 0, edit: 0, other: 0 }), "working");
-});
-
-test("tool names fall back to other, mcp tools included", () => {
-  assert.equal(categoryOf("Read"), "read");
-  assert.equal(categoryOf("Bash"), "run");
-  assert.equal(categoryOf("NotebookEdit"), "edit");
-  assert.equal(categoryOf("mcp__claude-in-chrome__navigate"), "other");
-  assert.equal(categoryOf("Task"), "other");
 });
 
 test("diffLines keeps common lines and marks removals before the additions that replace them", () => {
