@@ -10,6 +10,9 @@
 
   const shown = $derived(filterCommands(session.commands, query.replace(/^\//, "").trim()));
 
+  /** autofocus does not fire on an element the sheet inserts after load. */
+  const takeFocus = (node: HTMLInputElement): void => node.focus();
+
   async function reload(): Promise<void> {
     reloading = true;
     await session.loadCommands(true);
@@ -29,8 +32,7 @@
       </button>
       <button class="icon-btn" type="button" aria-label="Close" onclick={onClose}>✕</button>
     </div>
-    <!-- svelte-ignore a11y_autofocus -->
-    <input class="search" autofocus bind:value={query} aria-label="Search commands" placeholder="Search {session.commands.length} commands" />
+    <input class="search" use:takeFocus bind:value={query} aria-label="Search commands" placeholder="Search {session.commands.length} commands" />
     {#if session.commandsError}
       <p class="error"><span class="glyph">▲</span> {session.commandsError}</p>
     {/if}

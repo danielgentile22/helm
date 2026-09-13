@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type { ModelChoice, SlashCommand } from "../../shared/protocol";
   import type { HelmClient } from "../api";
   import { commandLabel, emptyDraft, filterCommands, sentText, slashToken, type Draft } from "../commands";
@@ -82,15 +83,20 @@
     inputEl.style.height = `${Math.min(inputEl.scrollHeight, window.innerHeight * 0.4)}px`;
   }
 
+  // The caret and the height are both set after the flush, because until then the
+  // element still holds the old value and would measure and select against it.
   insert = (text: string): void => {
     if (!inputEl) return;
-    const start = inputEl.selectionStart ?? draft.text.length;
-    const end = inputEl.selectionEnd ?? start;
+    const el = inputEl;
+    const start = el.selectionStart ?? draft.text.length;
+    const end = el.selectionEnd ?? start;
     draft.text = draft.text.slice(0, start) + text + draft.text.slice(end);
     const caret = start + text.length;
-    inputEl.focus();
-    inputEl.setSelectionRange(caret, caret);
-    autogrow();
+    void tick().then(() => {
+      el.focus();
+      el.setSelectionRange(caret, caret);
+      autogrow();
+    });
   };
 
   async function send(): Promise<void> {
@@ -154,6 +160,8 @@
     void stage(images);
   }
 </script>
+
+<svelte:window onkeydown={(e) => e.key === "Escape" && sourcesOpen && (sourcesOpen = false)} />
 
 <div class="composer">
   <div class="quick">
