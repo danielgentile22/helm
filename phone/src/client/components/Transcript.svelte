@@ -1,6 +1,7 @@
 <script lang="ts">
-  import type { TurnId, UploadId } from "../../shared/protocol";
+  import type { AskAnswer, AskId, TurnId, UploadId } from "../../shared/protocol";
   import ActivityBlock from "../blocks/ActivityBlock.svelte";
+  import AskCard from "../blocks/AskCard.svelte";
   import EndLine from "../blocks/EndLine.svelte";
   import FileCard from "../blocks/FileCard.svelte";
   import PromptBlock from "../blocks/PromptBlock.svelte";
@@ -14,6 +15,7 @@
     replaying,
     onResend,
     onQuote,
+    onAnswer,
     uploadUrl,
     fileUrl,
     fetchFile,
@@ -23,12 +25,13 @@
     replaying: boolean;
     onResend: (text: string) => void;
     onQuote: (quoted: string) => void;
+    onAnswer: (askId: AskId, answer: AskAnswer) => Promise<void>;
     uploadUrl: (uploadId: UploadId) => string;
     fileUrl: (fileId: string) => string;
     fetchFile: (fileId: string, onProgress: (bytes: number) => void) => Promise<Blob>;
   } = $props();
 
-  const GLYPH: Readonly<Record<Block["kind"], string>> = { prompt: "❯", thinking: "∴", text: "·", activity: "$", end: "", file: "↓", note: "" };
+  const GLYPH: Readonly<Record<Block["kind"], string>> = { prompt: "❯", thinking: "∴", text: "·", activity: "$", end: "", file: "↓", ask: "?", note: "" };
 
   /**
    * A block animates only if the log was already on screen, and live, before the render that
@@ -85,6 +88,8 @@
             <ActivityBlock {block} />
           {:else if block.kind === "end"}
             <EndLine outcome={block.outcome} error={block.error} />
+          {:else if block.kind === "ask"}
+            <AskCard ask={block.ask} live={block.live} onAnswer={(answer) => onAnswer(block.ask.askId, answer)} />
           {:else if block.kind === "file"}
             <FileCard file={block.file} url={fileUrl(block.file.fileId)} fetch={(onProgress) => fetchFile(block.file.fileId, onProgress)} />
           {:else}

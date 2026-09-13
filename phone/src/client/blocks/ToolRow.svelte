@@ -4,14 +4,14 @@
   import { toolDiff } from "../transcript";
   import Diff from "./Diff.svelte";
 
-  let { tool }: { tool: ToolItem } = $props();
+  let { tool, denied = false }: { tool: ToolItem; denied?: boolean } = $props();
 
   const OUTPUT_LINES = 200;
 
   let open = $state(false);
   let showAll = $state(false);
 
-  const mark = $derived(tool.isError === null ? { cls: "running", glyph: "◆", word: "running" } : tool.isError ? { cls: "error", glyph: "▲", word: "failed" } : { cls: "done", glyph: "✓", word: "done" });
+  const mark = $derived(denied ? { cls: "denied", glyph: "⊘", word: "denied" } : tool.isError === null ? { cls: "running", glyph: "◆", word: "running" } : tool.isError ? { cls: "error", glyph: "▲", word: "failed" } : { cls: "done", glyph: "✓", word: "done" });
   const summary = $derived(toolSummary(tool.name, tool.input));
   const diff = $derived(toolDiff(tool));
   const input = $derived(typeof tool.input === "string" ? tool.input : JSON.stringify(tool.input, null, 1));

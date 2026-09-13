@@ -39,6 +39,6 @@
     </div>
   {/if}
   {#if open}
-    {#each block.tools as tool (tool.toolUseId)}<ToolRow {tool} />{/each}
+    {#each block.tools as tool (tool.toolUseId)}<ToolRow {tool} denied={block.denied.has(tool.toolUseId)} />{/each}
   {/if}
 </div>
