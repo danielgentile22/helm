@@ -295,6 +295,8 @@ a { color: var(--accent); }
 @media (min-width: 900px) {
   .sheet { align-items: center; justify-content: center; }
   .sheet .panel { width: min(560px, 92vw); border-radius: var(--r-lg); padding-bottom: var(--s-6); }
+  /* The grab handle promises a drag-to-dismiss a centred dialog does not have. */
+  .sheet .grab { display: none; }
   .pane-main .topbar [aria-label="Back"] { display: none; }
 }
 
