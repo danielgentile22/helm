@@ -17,6 +17,7 @@ import type {
   SendRequest,
   SendResponse,
   SettingsPatch,
+  SlashCommand,
   StagedUpload,
   SyncFrame,
   ThreadConfig,
@@ -24,6 +25,7 @@ import type {
   ThreadEvent,
   ThreadId,
   ThreadSummary,
+  UploadId,
 } from "../shared/protocol";
 
 export interface AttachHandlers {
@@ -129,6 +131,22 @@ export class HelmClient {
   }
   interrupt(threadId: ThreadId): Promise<void> {
     return this.call("POST", `/api/threads/${threadId}/interrupt`);
+  }
+
+  /** 503 while the agent is unreachable, which the composer treats as an empty list. */
+  async listCommands(threadId: ThreadId): Promise<readonly SlashCommand[]> {
+    const { commands } = await this.call<{ commands: readonly SlashCommand[] }>("GET", `/api/threads/${threadId}/commands`);
+    return commands;
+  }
+
+  async reloadCommands(threadId: ThreadId): Promise<readonly SlashCommand[]> {
+    const { commands } = await this.call<{ commands: readonly SlashCommand[] }>("POST", `/api/threads/${threadId}/commands/reload`);
+    return commands;
+  }
+
+  /** Where staged bytes are served: the composer thumbnail and the sent prompt line share it. */
+  uploadUrl(threadId: ThreadId, uploadId: UploadId): string {
+    return `${this.opts.baseUrl}/api/threads/${threadId}/uploads/${uploadId}`;
   }
 
   async upload(threadId: ThreadId, files: readonly File[]): Promise<readonly StagedUpload[]> {
