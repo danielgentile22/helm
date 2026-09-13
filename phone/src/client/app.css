@@ -83,6 +83,7 @@ a { color: var(--accent); }
 .statusbar { display: flex; align-items: center; gap: var(--s-3); padding: 5px var(--s-6); font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: .03em; color: var(--accent); background: var(--accent-soft); border-bottom: 1px solid var(--hair); animation: dropin var(--d-base) var(--e-out) both; }
 @keyframes dropin { from { transform: translateY(-100%); opacity: 0; } }
 .statusbar.cool { color: var(--cool); background: var(--cool-soft); }
+.statusbar.wait { color: var(--ink); background: var(--accent-soft); font-weight: 600; }
 .statusbar.mute { color: var(--ink-2); background: var(--sunken); }
 .statusbar .bar { flex: 1; height: 3px; border-radius: var(--r-pill); background: color-mix(in srgb, currentColor 22%, transparent); overflow: hidden; }
 .statusbar .bar i { display: block; height: 100%; background: currentColor; border-radius: var(--r-pill); transition: width var(--d-base) linear; }
@@ -223,6 +224,10 @@ a { color: var(--accent); }
 .askcard .aans { font-family: var(--mono); font-size: var(--t-mono-xs); color: var(--ink-2); }
 .blk-ask::before { color: var(--accent); }
 .state.denied { color: var(--ink-2); }
+.state.waiting { color: var(--ink); font-weight: 600; }
+.ghead .live.wait { color: var(--ink); }
+.row.is-waiting { background: var(--accent-soft); }
+.row .waitbar { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 2px; background: var(--accent-solid); }
 
 .endline { display: flex; align-items: center; gap: var(--s-3); font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: .03em; color: var(--ink-3); }
 .endline.bad { color: var(--alert); }

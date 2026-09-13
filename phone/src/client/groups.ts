@@ -2,7 +2,7 @@
 
 import type { ThreadSummary, TurnOutcome } from "../shared/protocol";
 
-export type RowState = "running" | "done" | "error" | "orphaned" | "idle" | "archived";
+export type RowState = "waiting" | "running" | "done" | "error" | "orphaned" | "idle" | "archived";
 
 export interface ThreadRow {
   summary: ThreadSummary;
@@ -13,6 +13,7 @@ export interface ThreadRow {
 export interface ThreadGroup {
   cwd: string;
   running: number;
+  waiting: number;
   lastActivity: string;
   rows: ThreadRow[];
 }
@@ -22,6 +23,7 @@ const OUTCOME_STATE: Record<TurnOutcome, RowState> = { ok: "done", error: "error
 
 export function rowState(s: ThreadSummary): RowState {
   if (s.config.archivedAt !== null) return "archived";
+  if (s.waiting) return "waiting";
   if (s.session === "running" || s.session === "warming") return "running";
   return s.lastOutcome === null ? "idle" : OUTCOME_STATE[s.lastOutcome];
 }
@@ -29,6 +31,9 @@ export function rowState(s: ThreadSummary): RowState {
 const rowOf = (summary: ThreadSummary): ThreadRow => ({ summary, state: rowState(summary), when: summary.lastTurnEndedAt ?? summary.config.createdAt });
 
 const desc = (a: string, b: string): number => (a < b ? 1 : a > b ? -1 : 0);
+
+/** A thread blocked on the user sorts above a busy one: it is the row that needs a tap. */
+const rank = (state: RowState): number => (state === "waiting" ? 0 : state === "running" ? 1 : 2);
 
 export function groupThreads(threads: readonly ThreadSummary[], showArchived: boolean): ThreadGroup[] {
   const byCwd = new Map<string, ThreadRow[]>();
@@ -42,10 +47,11 @@ export function groupThreads(threads: readonly ThreadSummary[], showArchived: bo
 
   const groups: ThreadGroup[] = [];
   for (const [cwd, rows] of byCwd) {
-    rows.sort((a, b) => (a.state === b.state ? 0 : a.state === "running" ? -1 : b.state === "running" ? 1 : 0) || desc(a.when, b.when));
+    rows.sort((a, b) => rank(a.state) - rank(b.state) || desc(a.when, b.when));
     groups.push({
       cwd,
       running: rows.filter((r) => r.state === "running").length,
+      waiting: rows.filter((r) => r.state === "waiting").length,
       lastActivity: rows.reduce((max, r) => (r.when > max ? r.when : max), rows[0]!.when),
       rows,
     });
