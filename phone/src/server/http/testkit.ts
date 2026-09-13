@@ -63,6 +63,7 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
       version: "0.0.0-test",
       idleParkMs: 60_000,
       heartbeatMs: 60_000,
+      askGraceMs: 10,
     },
     { agents, pushSend: async (_sub, payload) => void pushed.push(payload) },
   );

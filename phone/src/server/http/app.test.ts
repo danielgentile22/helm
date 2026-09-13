@@ -740,3 +740,43 @@ test("parsers: answer", () => {
   assert.equal(parseAnswer({ askId: "a", answer: { kind: "answers", answers: Array(5).fill({ kind: "text", text: "x" }) } }).ok, false);
   assert.equal(parseAnswer({ askId: "a", answer: { kind: "answers", answers: [{ kind: "options", labels: ["A"] }, { kind: "text", text: "t" }] } }).ok, true);
 });
+
+test("push fires for an ask left pending with no viewer attached, and not for a rule denial or while a viewer watches", async () => {
+  let openGate = (): void => {};
+  const gate = new Promise<void>((r) => (openGate = r));
+  const s = await buildStack(async (t) => {
+    t.emit({ kind: "ask.opened", turnId: t.input.turnId, askId: "rule:tu-0" as never, ask: bashAsk });
+    t.emit({ kind: "ask.answered", turnId: t.input.turnId, askId: "rule:tu-0" as never, answer: { kind: "deny", reason: "rule" }, by: { by: "system", reason: "rule" } });
+    await gate;
+    await t.ask(bashAsk);
+    await t.interrupted;
+  });
+  await s.api("POST", "/api/push/subscribe", { subscription: { endpoint: "https://push/phone", keys: { p256dh: "p", auth: "a" } } });
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  const log = await s.logs.get(THREAD as ThreadId);
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "go" });
+  await until(async () => log.getHead().recentAskIds.size, (n) => n === 1);
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(s.pushed.length, 0, "an auto-denial is not a question for the phone");
+
+  openGate();
+  await until(async () => s.pushed.length, (n) => n === 1);
+  assert.equal(s.pushed[0]!.kind, "ask");
+  assert.equal(s.pushed[0]!.body, "Claude wants to run git push");
+  assert.equal(s.pushed[0]!.threadId, THREAD);
+
+  const askId = log.getHead().pendingAsks[0]!.askId;
+  await s.api("POST", `/api/threads/${THREAD}/answer`, { askId, answer: { kind: "deny", reason: null } });
+  await s.api("POST", `/api/threads/${THREAD}/interrupt`);
+  await untilIdle(s, THREAD);
+  await until(async () => s.pushed.length, (n) => n === 2);
+  assert.equal(s.pushed[1]!.kind, "interrupted");
+
+  const live = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${log.getHead().lastSeq}`), (f) => events(f).some((e) => e.kind === "ask.opened" && !e.askId.startsWith("rule:")));
+  await until(async () => log.viewerCount(), (n) => n === 1);
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(2), text: "again" });
+  await live;
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(s.pushed.length, 2, "no push for the ask while a viewer had the thread open");
+  await s.cleanup();
+});
