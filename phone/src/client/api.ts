@@ -21,6 +21,7 @@ import type {
   DirEntry,
   HelmSettings,
   ModelChoice,
+  SearchHit,
   SendRequest,
   SendResponse,
   SettingsPatch,
@@ -119,6 +120,12 @@ export class HelmClient {
   }
   listThreads(includeArchived = false): Promise<readonly ThreadSummary[]> {
     return this.call("GET", includeArchived ? "/api/threads?archived=1" : "/api/threads");
+  }
+  /** Server-side search over prompts and replies; rows come back newest first. */
+  searchThreads(query: string, includeArchived = false, limit = 20): Promise<readonly SearchHit[]> {
+    const q = new URLSearchParams({ q: query, limit: String(limit) });
+    if (includeArchived) q.set("archived", "1");
+    return this.call("GET", `/api/threads/search?${q}`);
   }
   getThread(threadId: ThreadId): Promise<ThreadSummary> {
     return this.call("GET", `/api/threads/${threadId}`);

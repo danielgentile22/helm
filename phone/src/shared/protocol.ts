@@ -429,6 +429,17 @@ export interface ThreadSummary {
   readonly waiting: boolean;
 }
 
+/** Where a search term matched inside a snippet: `[start, end)` offsets, so the client draws the highlight and the server sends no markup. */
+export type MatchRange = readonly [start: number, end: number];
+
+/** One thread in a search result. `seq` is the turn boundary of the best matching turn, or null when only the title matched. */
+export interface SearchHit {
+  readonly summary: ThreadSummary;
+  readonly seq: Seq | null;
+  readonly snippet: string;
+  readonly ranges: readonly MatchRange[];
+}
+
 export interface DirEntry {
   readonly name: string;
   readonly path: string;
