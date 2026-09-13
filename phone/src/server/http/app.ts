@@ -100,7 +100,6 @@ export interface AppDeps {
   readonly staticDir: string;
   readonly browseRoots: readonly string[];
   readonly defaultCwd: string;
-  readonly sessionTtlMs: number;
   /** Public origin, for the enrollment link. */
   readonly publicOrigin: string;
   readonly heartbeatMs?: number;

@@ -33,6 +33,12 @@ const PREVIEW_CHARS = 120;
 /** Status codes that mean the subscription is gone for good, not failing transiently. */
 const DEAD_CODES = new Set([404, 410]);
 
+export interface VapidKeys {
+  readonly publicKey: string;
+  readonly privateKey: string;
+  readonly subject: string;
+}
+
 /** One attempt to reach one endpoint. Injected in tests; web-push in production. */
 export type Send = (sub: PushSubscriptionRecord, payload: PushPayload) => Promise<unknown>;
 
@@ -52,7 +58,7 @@ export class PushService {
 
   constructor(
     private readonly file: string,
-    private readonly vapid: { publicKey: string; privateKey: string; subject: string },
+    private readonly vapid: VapidKeys,
     private readonly threads: ThreadStore,
     deps?: { send?: Send },
   ) {
@@ -88,6 +94,11 @@ export class PushService {
 
   publicKey(): string {
     return this.vapid.publicKey;
+  }
+
+  async list(): Promise<readonly PushSubscriptionRecord[]> {
+    await this.loaded;
+    return [...this.records.values()];
   }
 
   /** Apply a change to the map and persist the whole map. Serialized. */
