@@ -1364,7 +1364,7 @@ test("save guidance lands as the prompt's last line and is capped", async () => 
   const s = await buildStack();
   await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
 
-  await s.api("POST", `/api/threads/${THREAD}/save`, { guidance: "  focus on the backup decision  " });
+  await s.api("POST", `/api/threads/${THREAD}/save`, { guidance: "  focus on the\nbackup decision  " });
   const log = await s.logs.get(THREAD as ThreadId);
   const queued = await until(
     async () => {
@@ -1375,7 +1375,7 @@ test("save guidance lands as the prompt's last line and is capped", async () => 
     (e) => e !== undefined,
   );
   assert.ok(queued && queued.kind === "input.queued");
-  assert.equal(guidanceOf(queued.text), "focus on the backup decision", "trimmed, and readable back out by the phone");
+  assert.equal(guidanceOf(queued.text), "focus on the backup decision", "trimmed and on one line, so the phone reads it back out");
 
   const tooLong = await s.api("POST", `/api/threads/${THREAD}/save`, { guidance: "x".repeat(LIMITS.ANSWER_CHARS + 1) });
   assert.equal(tooLong.status, 413);

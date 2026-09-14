@@ -557,13 +557,13 @@ export function parseSend(body: unknown): Parsed<SendRequest & { clientMsgId: Cl
   return { ok: true, value: { clientMsgId, text: body.text, uploadIds, label: label(body.label) } };
 }
 
-/** The one line of steering a save takes. Blank is the same as none: the prompt simply has no guidance line. */
+/** The one line of steering a save takes. Newlines collapse to spaces, since the phone reads it back as the prompt's last line. Blank is the same as none. */
 export function parseSave(body: unknown): Parsed<{ guidance: string | null }> {
   if (!isRecord(body)) return { ok: false, status: 400, error: "body must be a JSON object" };
   if (body.guidance !== undefined && typeof body.guidance !== "string") return { ok: false, status: 400, error: "guidance must be a string" };
   const raw = typeof body.guidance === "string" ? body.guidance : "";
   if (raw.length > LIMITS.ANSWER_CHARS) return { ok: false, status: 413, error: `guidance longer than ${LIMITS.ANSWER_CHARS} chars` };
-  const guidance = raw.trim();
+  const guidance = raw.replace(/\s+/gu, " ").trim();
   return { ok: true, value: { guidance: guidance === "" ? null : guidance } };
 }
 
