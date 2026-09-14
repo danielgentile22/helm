@@ -7,7 +7,7 @@ import { initialState, ThreadSession, type ThreadState } from "./thread";
 
 const threadId = "t-1" as ThreadId;
 const config = { threadId, cwd: "/v", model: "m" as never, effort: "high", permissionMode: "ask", title: null, createdAt: "", archivedAt: null } as const;
-const summary: ThreadSummary = { config, headSeq: 4 as Seq, session: "idle", lastTurnEndedAt: null, lastOutcome: null, contextTokens: null, preview: null, doing: null, usageTotal: null, contextWindow: null, waiting: false };
+const summary: ThreadSummary = { config, headSeq: 4 as Seq, session: "idle", lastTurnEndedAt: null, lastOutcome: null, contextTokens: null, preview: null, doing: null, usageTotal: null, contextWindow: null, waiting: false, recorded: false };
 const origin = { via: "pwa", label: "iphone" } as const;
 const ev = (seq: number, body: object): ThreadEvent => ({ seq: seq as Seq, ts: "", ...body }) as ThreadEvent;
 const usage = { inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 0, costUsd: null, contextTokens: 4, contextWindow: 200_000, durationMs: 5 };

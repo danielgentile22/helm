@@ -41,7 +41,7 @@ test("fold builds prompt, thinking, text blocks, merged tool rows, and the turn 
   const t = view.turns[0]!;
   assert.equal(t.prompt && `prompt:${t.prompt.state}:${t.prompt.label}:${t.prompt.text}`, "prompt:started:iphone:hi");
   assert.deepEqual(
-    t.items.map((l) => (l.kind === "text" ? `text${l.blockIx}:${l.text}` : l.kind === "thinking" ? `think:${l.text}` : l.kind === "tool" ? `tool:${l.name}:${l.output}:${l.isError}` : l.kind === "file" ? `file:${l.name}` : l.kind === "note" ? `note:${l.text}` : l.kind === "fork" ? `fork:${l.from}` : l.kind === "forkOut" ? `forkOut:${l.to}` : `ask:${l.askId}`)),
+    t.items.map((l) => (l.kind === "text" ? `text${l.blockIx}:${l.text}` : l.kind === "thinking" ? `think:${l.text}` : l.kind === "tool" ? `tool:${l.name}:${l.output}:${l.isError}` : l.kind === "file" ? `file:${l.name}` : l.kind === "note" ? `note:${l.text}` : l.kind === "fork" ? `fork:${l.from}` : l.kind === "forkOut" ? `forkOut:${l.to}` : l.kind === "recorded" ? `recorded:${l.rel}` : `ask:${l.askId}`)),
     ["think:hmm", "text0:Hello", "tool:Read:data:false", "text1:Done"],
   );
   assert.equal(t.end?.outcome, "ok");

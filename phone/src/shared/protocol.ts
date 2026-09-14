@@ -268,6 +268,19 @@ export interface OfferedFile {
   readonly note: string | null;
 }
 
+/** The origin label the server stamps on a "Save to vault" turn. The client renders that prompt as a compact row. */
+export const VAULT_LABEL = "vault";
+
+/** A vault note the model created or changed during a save, as reported through the `record_note` tool. Served to the phone like an offered file. */
+export interface RecordedNote {
+  /** Validated exactly like an offer; note is null; mime text/markdown. */
+  readonly file: OfferedFile;
+  /** Path relative to the vault root, e.g. `Atlas/Decisions/2026-09-13-backups.md`. What the card and the wikilink show. */
+  readonly rel: string;
+  /** The model's one-line summary of what changed, e.g. "added 2026-09-13 bullet on backups". */
+  readonly summary: string;
+}
+
 export type TurnOutcome =
   | "ok"
   | "interrupted"
@@ -401,6 +414,8 @@ export type ThreadEventBody =
   | { kind: "upload.staged"; upload: StagedUpload; origin: Origin }
   /** Appended by the tool handler, not the agent stream, so it is not tied to a turn. */
   | { kind: "file.offered"; file: OfferedFile; origin: Origin }
+  /** Appended by the `record_note` tool handler, not the agent stream, so it is not tied to a turn. The thread counts as recorded once one exists. */
+  | { kind: "note.recorded"; note: RecordedNote; origin: Origin }
   /** Claude Code paused on the user. Pending until an `ask.answered` with the same askId; the turn's end implies one. */
   | { kind: "ask.opened"; turnId: TurnId; askId: AskId; ask: AskPayload }
   | { kind: "ask.answered"; turnId: TurnId; askId: AskId; answer: AskAnswer; by: AskAnsweredBy };
@@ -480,6 +495,13 @@ export interface ThreadSummary {
   readonly contextWindow: number | null;
   /** A turn is open and blocked on an unanswered ask. Distinct from running: the process is waiting, not working. */
   readonly waiting: boolean;
+  /** A `note.recorded` exists in the log: the thread has been promoted to the vault. */
+  readonly recorded: boolean;
+}
+
+/** POST /api/threads/:id/save. The server owns the prompt; the body only steers it. */
+export interface SaveRequest {
+  readonly guidance?: string;
 }
 
 /** Where a search term matched inside a snippet: `[start, end)` offsets, so the client draws the highlight and the server sends no markup. */
