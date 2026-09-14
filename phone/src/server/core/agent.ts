@@ -51,6 +51,7 @@ import type {
   MessageUuid,
   ModelChoice,
   OfferedFile,
+  RecordedNote,
   PermissionMode,
   SlashCommand,
   StagedUpload,
@@ -80,6 +81,8 @@ export interface SpawnOptions {
    * Throws with a sentence the model can relay when the path is refused.
    */
   readonly sendToPhone: (path: string, note: string | null) => Promise<OfferedFile>;
+  /** Backs the `record_note` tool: report one vault note a save wrote. Throws the same way sendToPhone does. */
+  readonly recordNote: (path: string, summary: string) => Promise<RecordedNote>;
 }
 
 /** What the supervisor hands the adapter for one turn. */
@@ -445,11 +448,11 @@ export const PHONE_APPENDIX =
   "rather than printing the path; it appears on the phone as a tappable card. One file per call. If the tool refuses, tell the user why.";
 
 /**
- * The one MCP server Helm adds: in-process, one tool. The handler runs inside
- * the Helm process, so the offer is logged directly rather than parsed back
- * out of the model's text.
+ * The one MCP server Helm adds: in-process, two tools. The handlers run inside
+ * the Helm process, so what the model hands over is logged directly rather
+ * than parsed back out of its text.
  */
-export function helmToolServer(sendToPhone: SpawnOptions["sendToPhone"]) {
+export function helmToolServer(sendToPhone: SpawnOptions["sendToPhone"], recordNote: SpawnOptions["recordNote"]) {
   return createSdkMcpServer({
     name: "helm",
     version: "1.0.0",
@@ -463,6 +466,19 @@ export function helmToolServer(sendToPhone: SpawnOptions["sendToPhone"]) {
           try {
             const f = await sendToPhone(path, note ?? null);
             return { content: [{ type: "text", text: `Sent ${f.name} (${f.mime}, ${f.bytes} bytes) to the phone.` }] };
+          } catch (err) {
+            return { content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }], isError: true };
+          }
+        },
+      ),
+      tool(
+        "record_note",
+        "Report one vault note you created or changed while saving this conversation to the vault. Call it once per note, after the note is written. Only used during a Save to vault turn.",
+        { path: z.string().describe("Absolute path of the note inside the vault"), summary: z.string().describe("One line on what changed in this note") },
+        async ({ path, summary }) => {
+          try {
+            const n = await recordNote(path, summary);
+            return { content: [{ type: "text", text: `Recorded ${n.rel}: ${n.summary}` }] };
           } catch (err) {
             return { content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }], isError: true };
           }
@@ -554,7 +570,7 @@ class SdkSession implements AgentSession {
       canUseTool: (toolName, input, o) => this.ask(toolName, input, o),
       settingSources: ["user", "project", "local"],
       additionalDirectories: [...opts.additionalDirectories],
-      mcpServers: { helm: helmToolServer(opts.sendToPhone) },
+      mcpServers: { helm: helmToolServer(opts.sendToPhone, opts.recordNote) },
       systemPrompt: { type: "preset", preset: "claude_code", append: opts.appendSystemPrompt },
       includePartialMessages: true,
       abortController: this.abort,

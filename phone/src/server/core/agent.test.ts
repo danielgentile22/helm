@@ -18,7 +18,7 @@ const result = (extra: Record<string, unknown> = {}): SDKMessage =>
   sdkFrame({ type: "result", subtype: "success", is_error: false, session_id: "s1", duration_ms: 1234, total_cost_usd: 0.5, usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 4000, cache_creation_input_tokens: 300 }, result: "done", ...extra });
 const textDelta = (text: string, index = 0): SDKMessage => sdkFrame({ type: "stream_event", parent_tool_use_id: null, event: { type: "content_block_delta", index, delta: { type: "text_delta", text } } });
 
-const spawnOpts: SpawnOptions = { cwd: "/tmp", model: "claude-opus-5" as ModelId, effort: "low", permissionMode: "ask", resume: null, forkAt: null, additionalDirectories: [], appendSystemPrompt: PHONE_APPENDIX, sendToPhone: () => Promise.reject(new Error("not in this test")) };
+const spawnOpts: SpawnOptions = { cwd: "/tmp", model: "claude-opus-5" as ModelId, effort: "low", permissionMode: "ask", resume: null, forkAt: null, additionalDirectories: [], appendSystemPrompt: PHONE_APPENDIX, sendToPhone: () => Promise.reject(new Error("not in this test")), recordNote: () => Promise.reject(new Error("not in this test")) };
 
 /** Poll until `pred` holds, with a real timeout, so the tests wait on a condition rather than a fixed number of ticks. */
 async function until(pred: () => boolean, what: string): Promise<void> {
@@ -478,7 +478,7 @@ test("real SDK: spawn, one short turn, interrupt a long one, kill-tree", { skip:
   assert.ok(catalog.length > 0, "catalog is empty");
   const model = catalog.find((c) => /sonnet/.test(c.id))?.id ?? catalog[0]!.id;
 
-  const session = await factory.spawn({ cwd: process.cwd(), model, effort: "low", permissionMode: "bypass", resume: null, forkAt: null, additionalDirectories: [], appendSystemPrompt: PHONE_APPENDIX, sendToPhone: () => Promise.reject(new Error("not in this test")) });
+  const session = await factory.spawn({ cwd: process.cwd(), model, effort: "low", permissionMode: "bypass", resume: null, forkAt: null, additionalDirectories: [], appendSystemPrompt: PHONE_APPENDIX, sendToPhone: () => Promise.reject(new Error("not in this test")), recordNote: () => Promise.reject(new Error("not in this test")) });
   const seen: string[] = [];
   const reader = (async () => {
     for await (const ev of session.events()) {
