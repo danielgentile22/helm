@@ -21,6 +21,7 @@ const config: ThreadConfig = {
 };
 
 const head = (over: Partial<ThreadHead>): ThreadHead => ({
+  recorded: false,
   lastSeq: 0,
   generation: FIRST_GENERATION,
   collapsible: 0,

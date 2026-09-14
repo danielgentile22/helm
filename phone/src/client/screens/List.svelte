@@ -214,6 +214,7 @@
               </span>
               <span class="r2">
                 <span class="state {st}"><span class="glyph" aria-hidden="true">{STATE_GLYPH[st]}</span>{st}</span>
+                {#if hit.summary.recorded}<span class="recorded"><span class="glyph" aria-hidden="true">▣</span>recorded</span>{/if}
               </span>
               {#if hit.snippet}
                 <span class="snip">{#each segments(hit.snippet, hit.ranges) as seg}{#if seg.hit}<mark>{seg.text}</mark>{:else}{seg.text}{/if}{/each}</span>
@@ -257,6 +258,7 @@
                 </span>
                 <span class="r2">
                   <span class="state {r.state}"><span class="glyph" aria-hidden="true">{STATE_GLYPH[r.state]}</span>{r.state}</span>
+                  {#if r.summary.recorded}<span class="recorded"><span class="glyph" aria-hidden="true">▣</span>recorded</span>{/if}
                   {#if doing}
                     {#if doing.kind === "tool"}
                       <span class="doing">{doing.name} <em>{doing.arg}</em></span>

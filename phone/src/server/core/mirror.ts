@@ -19,12 +19,18 @@
  * Best effort: a write that fails is logged and swallowed. The log is canon;
  * a missing mirror block is repaired by the next resume().
  *
- * Frontmatter (seeded once):
- *   thread, type: chat, created, cwd, model, title, forked_from, tags: [chat]
+ * Frontmatter (seeded once, except `recorded`):
+ *   thread, type: chat, created, cwd, model, title, forked_from, recorded, tags: [chat]
+ *
+ * `recorded` is the exception because a thread is promoted to the vault long
+ * after its note was seeded: the first append that carries a recorded item
+ * rewrites the existing frontmatter to add it.
  *
  * This module is the one thing in the server that writes into the vault, and
  * it writes nothing but these notes (user story 62). prune() deletes notes
- * whose mtime is past the 30 day window and touches nothing else.
+ * whose mtime is past the 30 day window and touches nothing else. A recorded
+ * note is kept however old it is, because the Atlas notes a save produced
+ * link back to it.
  */
 
 import { mkdir, readdir, readFile, stat, unlink, appendFile, writeFile } from "node:fs/promises";
@@ -40,6 +46,9 @@ const RETENTION_MS = 30 * 24 * 60 * 60_000;
 const MARKER = /<!--\s*helm:seq=(\d+)(?:\s+gen=(\d+))?\s*-->/g;
 /** Mirror notes are named after a thread id, so prune never considers anything else. */
 const NOTE_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.md$/i;
+/** The leading frontmatter block of a note, captured without its fences. */
+const FRONTMATTER = /^---\n([\s\S]*?)\n---(\n|$)/;
+const RECORDED_FIELD = "recorded: true";
 
 export class Mirror {
   /** One serial write queue per thread: resume() and watch() share it, so appends never interleave. */
@@ -82,6 +91,10 @@ export class Mirror {
       const file = join(dir, name);
       const s = await stat(file).catch(() => null);
       if (!s || !s.isFile() || s.mtimeMs >= cutoff) continue;
+      if (isRecorded(await readFile(file, "utf8").catch(() => ""))) {
+        console.log(`[mirror] kept ${name}: recorded`);
+        continue;
+      }
       await unlink(file);
       console.log(`[mirror] pruned ${name}`);
     }
@@ -116,7 +129,8 @@ export class Mirror {
       if (err.code === "ENOENT") return "";
       throw err;
     });
-    const generation = log.getHead().generation;
+    const head = log.getHead();
+    const generation = head.generation;
     const marker = lastMarker(existing);
     const rebuild = marker.seq > 0 && marker.generation !== generation;
     const after = rebuild ? 0 : marker.seq;
@@ -126,14 +140,19 @@ export class Mirror {
       events = await collect(log.read(0));
       turns = completedAfter(events, after);
     }
-    if (turns.length === 0 && !rebuild) return;
+    const seeding = rebuild || existing.trim() === "";
+    // The head never forgets a note.recorded, while the window read here starts at the marker and can miss one.
+    const flip = !seeding && head.recorded && !isRecorded(existing);
+    if (turns.length === 0 && !rebuild && !flip) return;
 
     let out = "";
-    if (rebuild || existing.trim() === "") out += frontmatter(log.threadId, (await this.threads.get(log.threadId).catch(() => null)) ?? configFromLog(events), forkOrigin(events));
+    if (seeding) out += frontmatter(log.threadId, (await this.threads.get(log.threadId).catch(() => null)) ?? configFromLog(events), forkOrigin(events), head.recorded);
     for (const turn of turns) out += "\n" + renderTurn(turn, generation) + "\n";
 
     await mkdir(dirname(file), { recursive: true });
-    if (rebuild) await writeFile(file, out);
+    // A thread promoted to the vault after its note was seeded needs the field added, which an append cannot do.
+    if (flip) await writeFile(file, markRecorded(existing) + out);
+    else if (rebuild) await writeFile(file, out);
     else await appendFile(file, out);
   }
 }
@@ -186,7 +205,21 @@ function yaml(value: string): string {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
-function frontmatter(threadId: ThreadId, config: ThreadConfig | null, fork: ForkOrigin | null): string {
+/** Pure. Insert `recorded: true` as the last field of the leading frontmatter block. Idempotent; a note without frontmatter is returned unchanged. */
+export function markRecorded(markdown: string): string {
+  if (isRecorded(markdown)) return markdown;
+  const m = FRONTMATTER.exec(markdown);
+  if (!m) return markdown;
+  return markdown.slice(0, m.index) + `---\n${m[1]}\n${RECORDED_FIELD}\n---${m[2]}` + markdown.slice(m.index + m[0].length);
+}
+
+/** Pure. Whether the leading frontmatter says this thread was promoted to the vault. A `recorded:` line in the body does not count. */
+export function isRecorded(markdown: string): boolean {
+  const m = FRONTMATTER.exec(markdown);
+  return m !== null && m[1]!.split("\n").some((line) => line.trim() === RECORDED_FIELD);
+}
+
+function frontmatter(threadId: ThreadId, config: ThreadConfig | null, fork: ForkOrigin | null, recorded: boolean): string {
   const lines = [
     "---",
     `thread: ${threadId}`,
@@ -199,6 +232,7 @@ function frontmatter(threadId: ThreadId, config: ThreadConfig | null, fork: Fork
     if (config.title) lines.push(`title: ${yaml(config.title)}`);
   }
   if (fork) lines.push(`forked_from: ${yaml(fork.from)}`);
+  if (recorded) lines.push(RECORDED_FIELD);
   lines.push("tags: [chat]", "---", "", `# ${config?.title ?? threadId}`, "");
   if (fork) lines.push(forkLine(fork), "");
   return lines.join("\n");
@@ -265,6 +299,7 @@ export function renderTurn(turn: CompletedTurn, generation: Generation): string 
   const texts: string[] = [];
   const tools: string[] = [];
   const sent: string[] = [];
+  const notes: string[] = [];
   for (const item of turn.items) {
     if (item.kind === "text") {
       const text = item.text.trim();
@@ -275,6 +310,9 @@ export function renderTurn(turn: CompletedTurn, generation: Generation): string 
       tools.push(`${label}${arg ? ` ${arg}` : ""}${mark}`);
     } else if (item.kind === "file") {
       sent.push(`sent to phone: ${item.name} (${fmtBytes(item.bytes)})${item.note ? `: ${item.note}` : ""}`);
+    } else if (item.kind === "recorded") {
+      const target = item.rel.replace(/\.md$/i, "");
+      notes.push(`- [[${target}|${target.split("/").at(-1)}]]: ${item.summary}`);
     } else if (item.kind === "ask") {
       tools.push(`asked: ${askSummary(item.ask)}`, `answered: ${answerVerb(item)}`);
     } else if (item.kind === "forkOut") {
@@ -295,6 +333,7 @@ export function renderTurn(turn: CompletedTurn, generation: Generation): string 
   out.push(...texts);
   if (tools.length > 0) out.push(tools.map((t) => `> ${t}`).join("\n"));
   if (sent.length > 0) out.push(sent.map((t) => `> ${t}`).join("\n"));
+  if (notes.length > 0) out.push("Recorded to:", notes.join("\n"));
 
   out.push(footer(ended));
   out.push(`<!-- helm:seq=${ended.seq} gen=${generation} -->`);

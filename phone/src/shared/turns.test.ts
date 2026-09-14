@@ -192,3 +192,29 @@ test("a permission mode change reads as a note beside the model changes", () => 
   const turns = groupTurns([ev({ kind: "thread.config", patch: { permissionMode: "ask" }, origin })]);
   assert.equal(turns[0]?.items[0]?.kind === "note" && turns[0].items[0].text, "[iphone] permissions set to ask");
 });
+
+test("a recorded note joins the running turn the way an offered file does", () => {
+  seq = 0;
+  const note = {
+    file: { fileId: "n1", path: "/v/Atlas/Decisions/backups.md", name: "backups.md", mime: "text/markdown", bytes: 40, note: null },
+    rel: "Atlas/Decisions/backups.md",
+    summary: "added the 2026-09-13 bullet",
+  };
+  const turns = groupTurns([
+    ev({ kind: "input.queued", clientMsgId: "c1" as never, text: "save it", uploads: [], origin }),
+    ev({ kind: "turn.started", turnId: T1, clientMsgId: "c1" as never, model: "m" as never, effort: "high", spawned: true }),
+    ev({ kind: "note.recorded", note, origin: { via: "key", label: "model" } }),
+    ev({ kind: "turn.ended", turnId: T1, outcome: "ok", sessionId: "s" as never, usage: null, error: null }),
+    ev({ kind: "note.recorded", note: { ...note, file: { ...note.file, fileId: "n2" } }, origin: { via: "key", label: "model" } }),
+  ]);
+  assert.deepEqual(
+    turns.map((t) => [t.key, t.items.map((i) => i.kind)]),
+    [
+      ["p:c1", ["recorded"]],
+      ["n:5", ["recorded"]],
+    ],
+  );
+  const item = turns[0]?.items[0];
+  assert.ok(item?.kind === "recorded");
+  assert.deepEqual([item.fileId, item.rel, item.summary], ["n1", "Atlas/Decisions/backups.md", "added the 2026-09-13 bullet"]);
+});

@@ -49,6 +49,7 @@
     <div class="irow"><span class="k">Working directory</span><span class="v">{shortPath(view.config.cwd)}</span></div>
     <div class="irow"><span class="k">Created</span><span class="v">{fmtTime(view.config.createdAt)}</span></div>
     <div class="irow"><span class="k">Session</span><span class="v">{view.sessionId ?? "not bound yet"}</span></div>
+    <div class="irow"><span class="k">Recorded</span><span class="v">{view.recorded ? "yes" : "no"}</span></div>
     <div class="irow">
       <span class="k">Model</span>
       <span class="v">{#each history as h, i (i)}<span class="hline">{h}</span>{/each}</span>

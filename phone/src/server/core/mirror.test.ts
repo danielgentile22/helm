@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, stat, utimes, writeFile } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ThreadLog } from "./log";
-import { Mirror, lastMarker, mirrorPath, renderTurn } from "./mirror";
+import { Mirror, isRecorded, lastMarker, markRecorded, mirrorPath, renderTurn } from "./mirror";
 import { FIRST_GENERATION } from "../../shared/protocol";
 import { ThreadStore } from "./thread-store";
 import { groupTurns, isCompleted } from "../../shared/turns";
@@ -415,5 +415,79 @@ test("a note in generation 0 against a log in generation 1 is rebuilt once, whol
   assert.equal(appended.match(/^## /gm)?.length, 4);
   assert.deepEqual(lastMarker(appended), { seq: fourthEnd, generation: 1 });
 
+  await rm(h.vault, { recursive: true });
+});
+
+const recorded = (rel: string, summary: string, fileId = "n1") => ({
+  file: { fileId: fileId as never, path: `/v/${rel}`, name: rel.split("/").at(-1)!, mime: "text/markdown", bytes: 20, note: null },
+  rel,
+  summary,
+});
+
+test("renderTurn lists the notes a save wrote as wikilinks with what changed in each", () => {
+  const md = render([
+    ev(1, { kind: "input.queued", clientMsgId: "s1" as ClientMsgId, text: "Record this conversation", uploads: [], origin: { via: "pwa", label: "vault" } }),
+    ev(2, { kind: "turn.started", turnId: "t:2" as TurnId, clientMsgId: "s1" as ClientMsgId, model, effort: "high", spawned: false }),
+    ev(3, { kind: "note.recorded", note: recorded("Atlas/Decisions/2026-09-13-backups.md", "added 2026-09-13 bullet on backups"), origin: { via: "key", label: "model" } }),
+    ev(4, { kind: "note.recorded", note: recorded("Atlas/Areas/Health.md", "noted the new routine", "n2"), origin: { via: "key", label: "model" } }),
+    ev(5, { kind: "turn.ended", turnId: "t:2" as TurnId, outcome: "ok", sessionId, usage: null, error: null }),
+  ]);
+  assert.match(md, /^Recorded to:$/m);
+  assert.match(md, /^- \[\[Atlas\/Decisions\/2026-09-13-backups\|2026-09-13-backups\]\]: added 2026-09-13 bullet on backups$/m, "the wikilink drops the extension, the alias is the note's own name");
+  assert.match(md, /^- \[\[Atlas\/Areas\/Health\|Health\]\]: noted the new routine$/m);
+  assert.ok(md.indexOf("Recorded to:") < md.indexOf("_ok_"), "the block sits above the footer");
+});
+
+test("markRecorded adds the frontmatter field once, and isRecorded reads only the leading block", () => {
+  const note = "---\nthread: abc\ntags: [chat]\n---\n\n# Title\n";
+  const marked = markRecorded(note);
+  assert.equal(marked, "---\nthread: abc\ntags: [chat]\nrecorded: true\n---\n\n# Title\n");
+  assert.equal(markRecorded(marked), marked, "idempotent: a note already marked is returned unchanged");
+  assert.equal(markRecorded("# no frontmatter\n"), "# no frontmatter\n");
+
+  assert.equal(isRecorded(marked), true);
+  assert.equal(isRecorded(note), false);
+  assert.equal(isRecorded("# no frontmatter\nrecorded: true\n"), false, "a line in the body is not frontmatter");
+  assert.equal(isRecorded("---\nthread: abc\n---\n\nbody\n\n---\nrecorded: true\n---\n"), false, "only the leading block counts");
+});
+
+test("catchUp flips an existing note's frontmatter to recorded, and prune then keeps it past the retention window", async () => {
+  const h = await harness();
+  const mirror = new Mirror(h.vault, h.store);
+  const detach = mirror.watch(h.log);
+
+  await appendTurn(h.log, "m1", "ordinary work", "done");
+  await mirror.idle();
+  assert.equal(isRecorded(await readFile(h.note, "utf8")), false, "frontmatter is seeded once, without the field");
+
+  await h.log.append({ kind: "note.recorded", note: recorded("Atlas/Decisions/backups.md", "added the bullet"), origin: { via: "key", label: "model" } });
+  await appendTurn(h.log, "m2", "save it", "recorded one note");
+  await mirror.idle();
+  detach();
+
+  const text = await readFile(h.note, "utf8");
+  assert.equal(isRecorded(text), true, "the existing note is rewritten rather than appended to");
+  assert.match(text, /^# Vault triage$/m, "and keeps everything it already had");
+  assert.match(text, /ordinary work/);
+  assert.equal(text.match(/^---$/gm)?.length, 2, "exactly one frontmatter block");
+
+  const stale = new Date(Date.now() - 40 * 24 * 60 * 60_000);
+  const plain = join(h.vault, "inbox", "chats", `${otherThreadId}.md`);
+  await writeFile(plain, "---\nthread: other\n---\n\n# other\n");
+  await utimes(plain, stale, stale);
+  await utimes(h.note, stale, stale);
+
+  await mirror.prune();
+  assert.deepEqual(await readdir(join(h.vault, "inbox", "chats")), [`${threadId}.md`], "a recorded note is kept so its provenance links do not go dead");
+  await rm(h.vault, { recursive: true });
+});
+
+test("a rebuilt note carries the recorded field from the events themselves", async () => {
+  const h = await harness();
+  const mirror = new Mirror(h.vault, h.store);
+  await h.log.append({ kind: "note.recorded", note: recorded("Atlas/Decisions/backups.md", "added the bullet"), origin: { via: "key", label: "model" } });
+  await appendTurn(h.log, "m1", "save it", "recorded one note");
+  await mirror.resume(h.log);
+  assert.equal(isRecorded(await readFile(h.note, "utf8")), true);
   await rm(h.vault, { recursive: true });
 });

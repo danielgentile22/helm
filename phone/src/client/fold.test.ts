@@ -41,7 +41,7 @@ test("fold builds prompt, thinking, text blocks, merged tool rows, and the turn 
   const t = view.turns[0]!;
   assert.equal(t.prompt && `prompt:${t.prompt.state}:${t.prompt.label}:${t.prompt.text}`, "prompt:started:iphone:hi");
   assert.deepEqual(
-    t.items.map((l) => (l.kind === "text" ? `text${l.blockIx}:${l.text}` : l.kind === "thinking" ? `think:${l.text}` : l.kind === "tool" ? `tool:${l.name}:${l.output}:${l.isError}` : l.kind === "file" ? `file:${l.name}` : l.kind === "note" ? `note:${l.text}` : l.kind === "fork" ? `fork:${l.from}` : l.kind === "forkOut" ? `forkOut:${l.to}` : `ask:${l.askId}`)),
+    t.items.map((l) => (l.kind === "text" ? `text${l.blockIx}:${l.text}` : l.kind === "thinking" ? `think:${l.text}` : l.kind === "tool" ? `tool:${l.name}:${l.output}:${l.isError}` : l.kind === "file" ? `file:${l.name}` : l.kind === "note" ? `note:${l.text}` : l.kind === "fork" ? `fork:${l.from}` : l.kind === "forkOut" ? `forkOut:${l.to}` : l.kind === "recorded" ? `recorded:${l.rel}` : `ask:${l.askId}`)),
     ["think:hmm", "text0:Hello", "tool:Read:data:false", "text1:Done"],
   );
   assert.equal(t.end?.outcome, "ok");
@@ -194,4 +194,24 @@ test("a turn that ends while an ask is open clears the pending set, and a closed
   const ended = fold(view, ev({ kind: "turn.ended", turnId: t, outcome: "interrupted", sessionId: null, usage: null, error: null }));
   assert.deepEqual(ended.pendingAsks, []);
   assert.equal(isWaiting(ended), false);
+});
+
+test("a recorded note becomes a card in the running turn and marks the thread as recorded", () => {
+  seq = 0;
+  const recorded = {
+    file: { fileId: "n1", path: "/v/Atlas/Decisions/backups.md", name: "backups.md", mime: "text/markdown", bytes: 20, note: null },
+    rel: "Atlas/Decisions/backups.md",
+    summary: "added the 2026-09-13 bullet",
+  };
+  const t = "t:2" as TurnId;
+  const view = foldAll(emptyView(config), [
+    ev({ kind: "input.queued", clientMsgId: "c1" as never, text: "Record this conversation", uploads: [], origin: { via: "pwa", label: "vault" } }),
+    ev({ kind: "turn.started", turnId: t, clientMsgId: "c1" as never, model: "m" as never, effort: "high", spawned: false }),
+    ev({ kind: "note.recorded", note: recorded, origin: { via: "key", label: "model" } }),
+  ]);
+  assert.equal(view.recorded, true);
+  const item = view.turns[0]?.items[0];
+  assert.ok(item?.kind === "recorded");
+  assert.deepEqual([item.fileId, item.rel, item.summary], ["n1", "Atlas/Decisions/backups.md", "added the 2026-09-13 bullet"]);
+  assert.equal(emptyView(config).recorded, false);
 });

@@ -11,6 +11,7 @@ interface Fixture {
   archivedAt?: string | null;
   createdAt?: string;
   waiting?: boolean;
+  recorded?: boolean;
 }
 
 const summary = (f: Fixture = {}): ThreadSummary => ({
@@ -34,6 +35,7 @@ const summary = (f: Fixture = {}): ThreadSummary => ({
   usageTotal: null,
   contextWindow: null,
   waiting: f.waiting ?? false,
+  recorded: f.recorded ?? false,
 });
 
 test("rowState puts archived first, then a live session, then the outcome table", () => {

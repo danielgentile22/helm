@@ -24,6 +24,7 @@
  *   PATCH  /api/threads/:id                                      -> reconfigure (model/effort/title/permissionMode)
  *   DELETE /api/threads/:id                                      -> archive
  *   POST   /api/threads/:id/send                                 -> SendResponse
+ *   POST   /api/threads/:id/save   {guidance?}                    -> SendResponse; runs the server's "Save to vault" prompt as a turn
  *   POST   /api/threads/:id/fork   {turnId}                      -> 201 the fork's ThreadSummary; 404 no thread or turn; 409 the turn is still running
  *   POST   /api/threads/:id/interrupt                            -> 204 always
  *   POST   /api/threads/:id/compact                              -> 204 compacted or nothing to compact; 409 a viewer is attached or a turn is running
@@ -338,6 +339,16 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     return c.json(res, res.accepted ? 200 : 409);
   });
 
+  app.post("/api/threads/:id/save", async (c) => {
+    const t = await thread(c);
+    if (t instanceof Response) return t;
+    if (bodyTooLarge(c.req.raw.headers, LIMITS.SEND_BODY_BYTES)) return fail(c, 413, "body too large");
+    const parsed = parseSave(await json(c));
+    if (!parsed.ok) return fail(c, parsed.status, parsed.error);
+    const res = await deps.supervisor.save(t.threadId, parsed.value.guidance, c.get("origin").via);
+    return c.json(res, res.accepted ? 200 : 409);
+  });
+
   app.post("/api/threads/:id/fork", async (c) => {
     const t = await thread(c);
     if (t instanceof Response) return t;
@@ -544,6 +555,16 @@ export function parseSend(body: unknown): Parsed<SendRequest & { clientMsgId: Cl
   if (uploadIds === null) return { ok: false, status: 400, error: "uploadIds must be an array of strings" };
   if (body.text.trim() === "" && !uploadIds?.length) return { ok: false, status: 400, error: "empty message" };
   return { ok: true, value: { clientMsgId, text: body.text, uploadIds, label: label(body.label) } };
+}
+
+/** The one line of steering a save takes. Newlines collapse to spaces, since the phone reads it back as the prompt's last line. Blank is the same as none. */
+export function parseSave(body: unknown): Parsed<{ guidance: string | null }> {
+  if (!isRecord(body)) return { ok: false, status: 400, error: "body must be a JSON object" };
+  if (body.guidance !== undefined && typeof body.guidance !== "string") return { ok: false, status: 400, error: "guidance must be a string" };
+  const raw = typeof body.guidance === "string" ? body.guidance : "";
+  if (raw.length > LIMITS.ANSWER_CHARS) return { ok: false, status: 413, error: `guidance longer than ${LIMITS.ANSWER_CHARS} chars` };
+  const guidance = raw.replace(/\s+/gu, " ").trim();
+  return { ok: true, value: { guidance: guidance === "" ? null : guidance } };
 }
 
 /**

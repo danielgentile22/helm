@@ -298,3 +298,27 @@ test("a section is ended only once its turn has, which is what gates forking fro
   clock = 0;
   assert.deepEqual(toSections(build([ev({ kind: "thread.archived" })], null)).map((s) => [s.turnId, s.ended]), [[null, false]], "a loose note has no turn to fork");
 });
+
+test("a recorded note is its own block and does not merge the activity around it", () => {
+  const recorded = {
+    file: { fileId: "n1", path: "/v/Atlas/Decisions/backups.md", name: "backups.md", mime: "text/markdown", bytes: 20, note: null },
+    rel: "Atlas/Decisions/backups.md",
+    summary: "added the 2026-09-13 bullet",
+  };
+  const sections = toSections(
+    build([
+      ...started(),
+      ev({ kind: "tool.started", turnId: T, toolUseId: "tu1" as never, name: "Write", input: { file_path: "/v/Atlas/Decisions/backups.md" } }),
+      ev({ kind: "tool.finished", turnId: T, toolUseId: "tu1" as never, output: "ok", isError: false }),
+      ev({ kind: "note.recorded", note: recorded, origin: { via: "key", label: "model" } }),
+      ev({ kind: "tool.started", turnId: T, toolUseId: "tu2" as never, name: "Bash", input: { command: "git commit" } }),
+      ev({ kind: "tool.finished", turnId: T, toolUseId: "tu2" as never, output: "ok", isError: false }),
+    ], null),
+  );
+  const blocks = sections[0]!.blocks;
+  assert.deepEqual(blocks.map((b) => b.kind), ["prompt", "activity", "recorded", "activity"], "the card breaks the run of tool calls, the way a file card does");
+  const card = blocks.find((b) => b.kind === "recorded");
+  assert.ok(card && card.kind === "recorded");
+  assert.equal(card.key, "recorded:n1", "keyed by the file id, so the card keeps its identity across renders");
+  assert.equal(card.note.rel, "Atlas/Decisions/backups.md");
+});

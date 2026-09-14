@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile, readdir, rm, truncate, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, readdir, rm, truncate, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { LIMITS } from "../../shared/protocol";
 import type { AskPayload, HelmSettings, SearchHit, SlashCommand, ThreadConfig, ThreadEvent, ThreadId, ThreadSummary } from "../../shared/protocol";
 import { groupTurns } from "../../shared/turns";
-import { parseAnswer, parseCreateThread, parsePatch, parseSend, passkeyRows } from "./app";
+import { guidanceOf } from "../../shared/vault";
+import { parseAnswer, parseCreateThread, parsePatch, parseSave, parseSend, passkeyRows } from "./app";
 import { API_KEY, buildStack, eventSeqs, events, readSse, type Frame, type Stack } from "./testkit";
 
 const THREAD = "0f0f0f0f-0000-4000-8000-0000000000aa";
@@ -1230,5 +1231,155 @@ test("compaction: park compacts a chatty thread behind a new generation; the tra
   const last = transcript(events(await replay(0, 2))) as unknown[];
   assert.equal(last.length, 3, "three turns after two compactions");
   assert.deepEqual(last[0], (transcript(before) as unknown[])[0], "the first turn reads the same two generations later");
+  await s.cleanup();
+});
+
+test("save to vault: the server's prompt runs as a vault-labelled turn, the note is logged, served and reported as recorded", async () => {
+  let stack!: Stack;
+  const s = await buildStack(async (t) => {
+    const path = join(stack.home, "work", "Atlas", "Decisions", "backups.md");
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, "# Backups\n\n- 2026-09-13 nightly to the NAS\n");
+    await stack.offers.record(THREAD as ThreadId, path, "added the 2026-09-13 bullet on backups", { via: "key", label: "model" });
+    t.text("Recorded one decision note.");
+    t.end();
+  });
+  stack = s;
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+
+  const res = await s.api("POST", `/api/threads/${THREAD}/save`, {});
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { accepted: boolean; state: string };
+  assert.deepEqual([body.accepted, body.state], [true, "running"]);
+
+  const log = await s.logs.get(THREAD as ThreadId);
+  const evs = await until(
+    async () => {
+      const out: ThreadEvent[] = [];
+      for await (const e of log.read(0)) out.push(e);
+      return out;
+    },
+    (list) => list.some((e) => e.kind === "note.recorded") && list.some((e) => e.kind === "turn.ended"),
+  );
+
+  const queued = evs.find((e) => e.kind === "input.queued");
+  assert.ok(queued && queued.kind === "input.queued");
+  assert.equal(queued.origin.label, "vault", "the origin label is what tells the phone to draw the compact row");
+  assert.match(queued.text, new RegExp(join(s.home, "work")), "the prompt names the vault root");
+  assert.match(queued.text, /record_note/, "and the tool that reports what it wrote");
+
+  const rec = evs.find((e) => e.kind === "note.recorded");
+  assert.ok(rec && rec.kind === "note.recorded");
+  assert.equal(rec.note.rel, "Atlas/Decisions/backups.md", "the path the card and the wikilink show, relative to the vault");
+  assert.equal(rec.note.summary, "added the 2026-09-13 bullet on backups");
+  assert.equal(rec.note.file.mime, "text/markdown");
+
+  const got = await s.api("GET", `/api/threads/${THREAD}/files/${rec.note.file.fileId}`);
+  assert.equal(got.status, 200, "a recorded note is served by the same file route an offer is");
+  assert.equal(got.headers.get("content-type"), "text/markdown");
+  assert.match(await got.text(), /nightly to the NAS/);
+
+  const summary = (await (await s.api("GET", `/api/threads/${THREAD}`)).json()) as ThreadSummary;
+  assert.equal(summary.recorded, true, "the thread reads as promoted to the vault");
+
+  await s.mirrorIdle();
+  const mirrored = await readFile(join(s.home, "work", "inbox", "chats", `${THREAD}.md`), "utf8");
+  assert.match(mirrored, /^recorded: true$/m, "the chat mirror is marked so prune keeps it");
+  assert.match(mirrored, /^- \[\[Atlas\/Decisions\/backups\|backups\]\]: added the 2026-09-13 bullet on backups$/m, "and links to the note the save wrote");
+  await s.cleanup();
+});
+
+test("a save while a turn is running queues behind it, and a second save leaves the first save's events intact", async () => {
+  let release = (): void => {};
+  const held = new Promise<void>((r) => (release = r));
+  let stack!: Stack;
+  let saves = 0;
+  const s = await buildStack(async (t) => {
+    if (t.input.text.includes("record_note")) {
+      saves += 1;
+      const path = join(stack.home, "work", `note-${saves}.md`);
+      await writeFile(path, `# note ${saves}\n`);
+      await stack.offers.record(THREAD as ThreadId, path, `wrote note ${saves}`, { via: "key", label: "model" });
+      t.end();
+      return;
+    }
+    await held;
+    t.end();
+  });
+  stack = s;
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "work on it" });
+  const queuedSave = (await (await s.api("POST", `/api/threads/${THREAD}/save`, {})).json()) as { state: string };
+  assert.equal(queuedSave.state, "queued", "a save is never refused; it waits its turn");
+  release();
+
+  const log = await s.logs.get(THREAD as ThreadId);
+  const read = async (): Promise<ThreadEvent[]> => {
+    const out: ThreadEvent[] = [];
+    for await (const e of log.read(0)) out.push(e);
+    return out;
+  };
+  const first = await until(read, (l) => l.filter((e) => e.kind === "note.recorded").length === 1);
+  const firstRec = first.find((e) => e.kind === "note.recorded");
+
+  await s.api("POST", `/api/threads/${THREAD}/save`, { guidance: "focus on the backup decision" });
+  const both = await until(read, (l) => l.filter((e) => e.kind === "note.recorded").length === 2);
+  assert.deepEqual(
+    both.filter((e) => e.kind === "note.recorded").map((e) => (e.kind === "note.recorded" ? e.note.rel : "")),
+    ["note-1.md", "note-2.md"],
+    "the second save appends; the first save's event is untouched",
+  );
+  assert.deepEqual(both.find((e) => e.seq === firstRec!.seq), firstRec);
+  await s.cleanup();
+});
+
+test("recording a note refuses a path outside the vault, a non-markdown file, a missing file and an empty summary, each with a reason", async () => {
+  const s = await buildStack();
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  const origin = { via: "key", label: "model" } as const;
+  const t = THREAD as ThreadId;
+
+  const outside = join(s.home, "elsewhere.md");
+  await writeFile(outside, "# not in the vault\n");
+  await assert.rejects(s.offers.record(t, outside, "nope", origin), /not inside the vault/);
+
+  const notMd = join(s.home, "work", "notes.txt");
+  await writeFile(notMd, "plain");
+  await assert.rejects(s.offers.record(t, notMd, "nope", origin), /not a markdown file/);
+
+  await assert.rejects(s.offers.record(t, join(s.home, "work", "gone.md"), "nope", origin), /no such file/);
+  await assert.rejects(s.offers.record(t, "work/rel.md", "nope", origin), /absolute/);
+
+  const real = join(s.home, "work", "real.md");
+  await writeFile(real, "# real\n");
+  await assert.rejects(s.offers.record(t, real, "   ", origin), /summary must say what changed/);
+
+  const evs = events(await readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => f.some((x) => x.kind === "sync")));
+  assert.ok(!evs.some((e) => e.kind === "note.recorded"), "a refused record leaves no event");
+  await s.cleanup();
+});
+
+test("save guidance lands as the prompt's last line and is capped", async () => {
+  const s = await buildStack();
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+
+  await s.api("POST", `/api/threads/${THREAD}/save`, { guidance: "  focus on the\nbackup decision  " });
+  const log = await s.logs.get(THREAD as ThreadId);
+  const queued = await until(
+    async () => {
+      const out: ThreadEvent[] = [];
+      for await (const e of log.read(0)) out.push(e);
+      return out.find((e) => e.kind === "input.queued");
+    },
+    (e) => e !== undefined,
+  );
+  assert.ok(queued && queued.kind === "input.queued");
+  assert.equal(guidanceOf(queued.text), "focus on the backup decision", "trimmed and on one line, so the phone reads it back out");
+
+  const tooLong = await s.api("POST", `/api/threads/${THREAD}/save`, { guidance: "x".repeat(LIMITS.ANSWER_CHARS + 1) });
+  assert.equal(tooLong.status, 413);
+  assert.deepEqual(parseSave({ guidance: "   " }), { ok: true, value: { guidance: null } }, "blank guidance is no guidance");
+  assert.equal(parseSave({ guidance: 7 }).ok, false);
   await s.cleanup();
 });

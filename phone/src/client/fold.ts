@@ -30,6 +30,8 @@ export interface ThreadView {
   readonly contextTokens: number | null;
   readonly contextWindow: number | null;
   readonly usageTotal: UsageTotal | null;
+  /** A `note.recorded` has been folded: the thread has been promoted to the vault. Seeded from the summary when the view starts from one. */
+  readonly recorded: boolean;
   /** Opened and not yet answered inside the open turn, in the order asked. Both turn boundaries clear it: a turn's end answers everything it left pending. */
   readonly pendingAsks: readonly AskItem[];
   readonly replaying: boolean;
@@ -39,7 +41,7 @@ export interface ThreadView {
 export const isWaiting = (view: ThreadView): boolean => view.openTurn !== null && view.pendingAsks.length > 0;
 
 export function emptyView(config: ThreadConfig, logHead: Cursor = 0): ThreadView {
-  return { config, headSeq: 0, logHead, turns: [], openTurn: null, session: "cold", sessionId: null, contextTokens: null, contextWindow: null, usageTotal: null, pendingAsks: [], replaying: true };
+  return { config, headSeq: 0, logHead, turns: [], openTurn: null, session: "cold", sessionId: null, contextTokens: null, contextWindow: null, usageTotal: null, recorded: false, pendingAsks: [], replaying: true };
 }
 
 /** Pure. Folds the event into the turns and the config and session state around them. */
@@ -53,6 +55,8 @@ export function fold(view: ThreadView, ev: ThreadEvent): ThreadView {
       return { ...base, config: { ...view.config, ...ev.patch } };
     case "session.bound":
       return { ...base, sessionId: ev.sessionId };
+    case "note.recorded":
+      return { ...base, recorded: true };
     case "turn.started":
       return { ...base, openTurn: ev.turnId, session: "running", pendingAsks: [] };
     case "ask.opened":

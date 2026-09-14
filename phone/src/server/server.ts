@@ -91,8 +91,8 @@ export async function buildServer(cfg: ServerConfig, deps: ServerDeps): Promise<
   const threadsRoot = join(cfg.home, "threads");
   const logs = new LogRegistry(threadsRoot);
   const threads = new ThreadStore(threadsRoot);
-  const offers = new Offers(threads, logs);
-  const supervisor = new Supervisor(logs, threads, deps.agents, { additionalDirectories: cfg.additionalDirectories, idleParkMs: cfg.idleParkMs ?? LIMITS.IDLE_PARK_MS, offers });
+  const offers = new Offers(threads, logs, cfg.vaultRoot);
+  const supervisor = new Supervisor(logs, threads, deps.agents, { additionalDirectories: cfg.additionalDirectories, idleParkMs: cfg.idleParkMs ?? LIMITS.IDLE_PARK_MS, offers, vaultRoot: cfg.vaultRoot });
   const forks = new Forks(cfg.home, threads, logs);
   const uploads = new Uploads(threads, logs);
   const settings = new SettingsStore(join(cfg.home, "settings.json"), { defaultCwd: cfg.vaultRoot });

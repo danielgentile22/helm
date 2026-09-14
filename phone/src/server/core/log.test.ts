@@ -13,6 +13,7 @@ import type {
   AskId,
   ClaudeSessionId,
   ClientMsgId,
+  FileId,
   Cursor,
   Generation,
   ModelId,
@@ -653,4 +654,19 @@ test("collapsible counts consecutive same-key deltas, resets on any other event,
   assert.equal((await log.compact()).ok, true);
   assert.equal(log.getHead().collapsible, 0);
   await rm(dir, { recursive: true });
+});
+
+test("head.recorded flips on note.recorded and survives compaction, so a promoted thread stays promoted", async () => {
+  const note = {
+    file: { fileId: "n1" as FileId, path: "/v/Atlas/Decisions/backups.md", name: "backups.md", mime: "text/markdown", bytes: 9, note: null },
+    rel: "Atlas/Decisions/backups.md",
+    summary: "added the 2026-09-13 bullet",
+  };
+  const before = renumber([...busyLog().map(({ seq: _seq, ...b }) => b), { kind: "note.recorded" as const, note, origin, ts: at(99) }]);
+  assert.equal((await headOf(busyLog())).recorded, false, "a log with no note is not recorded");
+  assert.equal((await headOf(before)).recorded, true);
+
+  const compacted = compactEvents(before, 1 as Generation, at(100)).events;
+  assert.ok(compacted.some((e) => e.kind === "note.recorded"), "compaction keeps the event, since only deltas merge");
+  assert.equal((await headOf(compacted)).recorded, true);
 });

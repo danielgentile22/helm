@@ -35,7 +35,7 @@ async function harness() {
   const home = await mkdtemp(join(tmpdir(), "helm2-sse-"));
   const logs = new LogRegistry(join(home, "threads"));
   const threads = new ThreadStore(join(home, "threads"));
-  const sup = new Supervisor(logs, threads, new FakeAgentFactory(), { additionalDirectories: [], idleParkMs: 60_000, offers: new Offers(threads, logs) });
+  const sup = new Supervisor(logs, threads, new FakeAgentFactory(), { additionalDirectories: [], idleParkMs: 60_000, offers: new Offers(threads, logs, home), vaultRoot: home });
   const log = await logs.get(threadId);
   const queued = (i: number) => ({ kind: "input.queued" as const, clientMsgId: `m${i}` as ClientMsgId, text: `msg ${i}`, uploads: [], origin });
   return { home, logs, threads, sup, log, queued, cleanup: () => rm(home, { recursive: true }) };

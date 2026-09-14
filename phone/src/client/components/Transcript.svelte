@@ -6,6 +6,7 @@
   import FileCard from "../blocks/FileCard.svelte";
   import ForkDivider from "../blocks/ForkDivider.svelte";
   import ForkLink from "../blocks/ForkLink.svelte";
+  import NoteCard from "../blocks/NoteCard.svelte";
   import PromptBlock from "../blocks/PromptBlock.svelte";
   import TextBlock from "../blocks/TextBlock.svelte";
   import ThinkingBlock from "../blocks/ThinkingBlock.svelte";
@@ -35,7 +36,7 @@
     fetchFile: (fileId: string, onProgress: (bytes: number) => void) => Promise<Blob>;
   } = $props();
 
-  const GLYPH: Readonly<Record<Block["kind"], string>> = { prompt: "❯", thinking: "∴", text: "·", activity: "$", end: "", file: "↓", ask: "?", fork: "", forkOut: "↳", note: "" };
+  const GLYPH: Readonly<Record<Block["kind"], string>> = { prompt: "❯", thinking: "∴", text: "·", activity: "$", end: "", file: "↓", recorded: "▣", ask: "?", fork: "", forkOut: "↳", note: "" };
 
   /**
    * A block animates only if the log was already on screen, and live, before the render that
@@ -97,6 +98,8 @@
             <AskCard ask={block.ask} live={block.live} onAnswer={(answer) => onAnswer(block.ask.askId, answer)} />
           {:else if block.kind === "file"}
             <FileCard file={block.file} url={fileUrl(block.file.fileId)} fetch={(onProgress) => fetchFile(block.file.fileId, onProgress)} />
+          {:else if block.kind === "recorded"}
+            <NoteCard note={block.note} url={fileUrl(block.note.fileId)} />
           {:else if block.kind === "fork"}
             <ForkDivider from={block.from} fromTitle={block.fromTitle} memory={block.memory} atSeq={block.atSeq} />
           {:else if block.kind === "forkOut"}

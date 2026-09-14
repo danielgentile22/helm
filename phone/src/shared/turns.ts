@@ -44,6 +44,8 @@ export type Item =
   | { kind: "tool"; toolUseId: ToolUseId; name: string; input: unknown; output: string | null; isError: boolean | null; startedAt: string; endedAt: string | null }
   /** A file the model offered to the phone; the card fetches it by id. */
   | { kind: "file"; fileId: FileId; name: string; mime: string; bytes: number; note: string | null; ts: string }
+  /** A vault note the save wrote; the card opens it by id. */
+  | { kind: "recorded"; fileId: FileId; rel: string; summary: string; ts: string }
   /** Claude Code paused on the user. `answer` is null while the card still waits; the turn's end never fills it, a sealing `ask.answered` does. */
   | { kind: "ask"; askId: AskId; ask: AskPayload; openedAt: string; answer: { answer: AskAnswer; by: AskAnsweredBy; ts: string } | null }
   /** The divider of a forked thread: the turns above were copied from `from`. `memory` says whether Claude remembers them. */
@@ -54,6 +56,7 @@ export type Item =
 
 export type ToolItem = Extract<Item, { kind: "tool" }>;
 export type FileItem = Extract<Item, { kind: "file" }>;
+export type RecordedItem = Extract<Item, { kind: "recorded" }>;
 export type AskItem = Extract<Item, { kind: "ask" }>;
 
 export interface TurnEnd {
@@ -136,6 +139,8 @@ export function foldTurn(turns: readonly Turn[], ev: ThreadEvent): readonly Turn
       return withTurn(turns, ev.turnId, (t) => ({ ...t, end: { outcome: ev.outcome, usage: ev.usage, error: ev.error, seq: ev.seq, ts: ev.ts } }));
     case "file.offered":
       return loose(turns, ev.seq, { kind: "file", fileId: ev.file.fileId, name: ev.file.name, mime: ev.file.mime, bytes: ev.file.bytes, note: ev.file.note, ts: ev.ts });
+    case "note.recorded":
+      return loose(turns, ev.seq, { kind: "recorded", fileId: ev.note.file.fileId, rel: ev.note.rel, summary: ev.note.summary, ts: ev.ts });
     case "ask.opened":
       return withTurn(turns, ev.turnId, (t) => ({ ...t, items: [...t.items, { kind: "ask", askId: ev.askId, ask: ev.ask, openedAt: ev.ts, answer: null }] }));
     case "ask.answered":

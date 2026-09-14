@@ -24,6 +24,7 @@ export function threadSummary(head: ThreadHead, config: ThreadConfig, session: S
     usageTotal: head.usageTotal,
     contextWindow: head.contextWindow,
     waiting: session === "running" && head.pendingAsks.length > 0,
+    recorded: head.recorded,
   };
 }
 

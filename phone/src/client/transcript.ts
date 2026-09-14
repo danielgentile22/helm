@@ -12,7 +12,7 @@
 
 import { answerPhrase, seqOfTurnId, toolSummary } from "../shared/protocol";
 import type { Seq, ThreadId, ToolUseId, TurnId, Usage } from "../shared/protocol";
-import type { AskItem, FileItem, Item, Prompt, ToolItem, Turn } from "../shared/turns";
+import type { AskItem, FileItem, Item, Prompt, RecordedItem, ToolItem, Turn } from "../shared/turns";
 import { fmtTime } from "./format";
 import type { ThreadView } from "./fold";
 
@@ -41,6 +41,8 @@ export type Block =
     }
   | { kind: "end"; key: string; outcome: "interrupted" | "error" | "orphaned"; error: string | null }
   | { kind: "file"; key: string; file: FileItem }
+  /** A vault note a save wrote. Its own block, like a file: it never merges into the activity around it. */
+  | { kind: "recorded"; key: string; note: RecordedItem }
   /** `live` while the turn is open and nobody has answered: the only state that draws buttons. */
   | { kind: "ask"; key: string; ask: AskItem; live: boolean }
   /** The divider of a forked thread. `atSeq` is where the source turn sits in the source's log, which is what the link back lands on. */
@@ -92,6 +94,9 @@ function turnBlocks(turn: Turn, open: boolean): Block[] {
         break;
       case "file":
         blocks.push({ kind: "file", key: `file:${item.fileId}`, file: item });
+        break;
+      case "recorded":
+        blocks.push({ kind: "recorded", key: `recorded:${item.fileId}`, note: item });
         break;
       case "ask":
         // A decision Claude Code made alone is already on the tool row as "denied"; a card would ask the reader to answer something settled.

@@ -104,6 +104,8 @@ export interface ThreadHead {
   readonly pendingAsks: readonly PendingAsk[];
   /** The last 64 ask ids ever opened, so an answer to a settled ask reads as a conflict rather than as unknown. */
   readonly recentAskIds: ReadonlySet<AskId>;
+  /** A `note.recorded` has been appended. Never cleared: a thread stays promoted once it has been. */
+  readonly recorded: boolean;
 }
 
 export type Unsubscribe = () => void;
@@ -121,11 +123,11 @@ const FILE = "events.jsonl";
 /** Where a compaction is written before the rename; a leftover is a crash before it. */
 const COMPACTING = `${FILE}.compacting`;
 
-const emptyHead: ThreadHead = { lastSeq: 0, generation: FIRST_GENERATION, collapsible: 0, lastDeltaKey: null, sessionId: null, fork: null, openTurn: null, queued: [], recentClientMsgIds: new Map(), lastTurnEndedAt: null, lastOutcome: null, contextTokens: null, activeTool: null, lastText: null, usageTotal: null, contextWindow: null, pendingAsks: [], recentAskIds: new Set() };
+const emptyHead: ThreadHead = { lastSeq: 0, generation: FIRST_GENERATION, collapsible: 0, lastDeltaKey: null, sessionId: null, fork: null, openTurn: null, queued: [], recentClientMsgIds: new Map(), lastTurnEndedAt: null, lastOutcome: null, contextTokens: null, activeTool: null, lastText: null, usageTotal: null, contextWindow: null, pendingAsks: [], recentAskIds: new Set(), recorded: false };
 
 /** Pure: the head after one more event. */
 function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
-  let { generation, collapsible, sessionId, fork, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds } = h;
+  let { generation, collapsible, sessionId, fork, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds, recorded } = h;
   const key = ev.kind === "assistant.text" || ev.kind === "assistant.thinking" ? deltaKey(ev) : null;
   if (key !== null && key === h.lastDeltaKey) collapsible += 1;
   switch (ev.kind) {
@@ -190,11 +192,14 @@ function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
         if (ev.usage.contextWindow !== undefined) contextWindow = ev.usage.contextWindow;
       }
       break;
+    case "note.recorded":
+      recorded = true;
+      break;
     case "thread.archived":
       queued = [];
       break;
   }
-  return { lastSeq: ev.seq, generation, collapsible, lastDeltaKey: key, sessionId, fork, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds };
+  return { lastSeq: ev.seq, generation, collapsible, lastDeltaKey: key, sessionId, fork, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds, recorded };
 }
 
 type DeltaBody = Extract<ThreadEventBody, { kind: "assistant.text" | "assistant.thinking" }>;

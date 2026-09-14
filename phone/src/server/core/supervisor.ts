@@ -51,9 +51,11 @@ import type {
   ThreadId,
   TurnId,
 } from "../../shared/protocol";
+import { randomUUID } from "node:crypto";
 import type { AgentEvent, AgentFactory, AgentSession } from "./agent";
 import { PHONE_APPENDIX } from "./agent";
-import { answerFits, LIMITS, turnIdFor } from "../../shared/protocol";
+import { answerFits, LIMITS, turnIdFor, VAULT_LABEL } from "../../shared/protocol";
+import { savePrompt } from "./vault-save";
 import { MODEL_ORIGIN, type Offers } from "./offers";
 import type { LogRegistry, ThreadLog } from "./log";
 import type { ThreadStore } from "./thread-store";
@@ -104,7 +106,7 @@ export class Supervisor {
     private readonly logs: LogRegistry,
     private readonly threads: ThreadStore,
     private readonly agents: AgentFactory,
-    private readonly opts: { additionalDirectories: readonly string[]; idleParkMs: number; offers: Offers },
+    private readonly opts: { additionalDirectories: readonly string[]; idleParkMs: number; offers: Offers; vaultRoot: string },
   ) {}
 
   private state(threadId: ThreadId): SessionState {
@@ -128,6 +130,15 @@ export class Supervisor {
     if (tag === "cold" || tag === "parked") this.states.set(threadId, { tag: "warming" });
     void this.drain(threadId);
     return { accepted: true, state: behind ? "queued" : "running", seq: ev.seq };
+  }
+
+  /**
+   * Enqueue a "Save to vault" turn: the server's prompt as an input with the
+   * vault origin. Queues behind a running turn like any send.
+   */
+  async save(threadId: ThreadId, guidance: string | null, via: Origin["via"]): Promise<SendResponse> {
+    const clientMsgId = randomUUID() as ClientMsgId;
+    return this.send(threadId, { clientMsgId, text: savePrompt(this.opts.vaultRoot, threadId, guidance), uploads: [], origin: { via, label: VAULT_LABEL } });
   }
 
   /** S5, S6. Pending asks are sealed first so the SDK callback returns before the interrupt lands; the agent's own turn.ended {interrupted} then flows through the normal event path. */
@@ -375,6 +386,7 @@ export class Supervisor {
         additionalDirectories: this.opts.additionalDirectories,
         appendSystemPrompt: PHONE_APPENDIX,
         sendToPhone: (path, note) => this.opts.offers.offer(threadId, path, note, MODEL_ORIGIN),
+        recordNote: (path, summary) => this.opts.offers.record(threadId, path, summary, MODEL_ORIGIN),
       });
       if (this.stopped) {
         await agent.kill();
