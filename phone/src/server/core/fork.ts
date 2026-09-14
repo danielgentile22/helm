@@ -27,8 +27,8 @@ import type { LogRegistry } from "./log";
 import { stampEvents, writeLogFile } from "./log";
 import type { ThreadStore } from "./thread-store";
 
-/** Never copied into the fork: the source's own identity, its archive, and its outbound fork links. */
-const SKIPPED: ReadonlySet<ThreadEvent["kind"]> = new Set(["thread.created", "thread.archived", "thread.forked.out"]);
+/** Never copied into the fork: the source's own identity, its generation, its archive, and its outbound fork links. */
+const SKIPPED: ReadonlySet<ThreadEvent["kind"]> = new Set(["thread.created", "log.generation", "thread.archived", "thread.forked.out"]);
 
 export type ForkResult = { ok: true; config: ThreadConfig } | { ok: false; reason: "no-thread" | "no-turn" | "turn-open" };
 

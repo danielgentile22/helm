@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { FIRST_GENERATION } from "./protocol";
 import type { Seq, ThreadEvent, TurnId } from "./protocol";
 import { foldTurn, groupTurns, isCompleted, pendingPrompt, type Turn } from "./turns";
 import { applySync, emptyView, foldAll } from "../client/fold";
@@ -143,7 +144,7 @@ test("the mirror and the phone agree on turn count, prompts, tool joins and text
     ev({ kind: "turn.ended", turnId: T2, outcome: "ok", sessionId: "s" as never, usage: null, error: null }),
   ];
   const view = foldAll(emptyView({ threadId: "x" as never, cwd: "/v", model: "m" as never, effort: "high", permissionMode: "ask", title: null, createdAt: "", archivedAt: null }), events);
-  const sections = toBlocks(applySync(view, { headSeq: view.headSeq, session: "idle", openTurn: null, queuedCount: 0 }));
+  const sections = toBlocks(applySync(view, { headSeq: view.headSeq, generation: FIRST_GENERATION, session: "idle", openTurn: null, queuedCount: 0 }));
   const notes = groupTurns(events).filter(isCompleted).map(renderTurn);
 
   assert.equal(sections.length, 2);

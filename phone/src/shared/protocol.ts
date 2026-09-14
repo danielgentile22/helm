@@ -19,6 +19,14 @@ type Brand<T, Name extends string> = T & { readonly [brand]: Name };
 export type Seq = Brand<number, "Seq">;
 /** Position after which a client wants events. 0 means "from the beginning". */
 export type Cursor = Seq | 0;
+/**
+ * Which numbering of a thread's log a Seq belongs to. Compaction rewrites the
+ * log and moves it to the next generation; a cursor is only meaningful
+ * together with the generation it was read in. A log that was never compacted
+ * is generation 0.
+ */
+export type Generation = Brand<number, "Generation">;
+export const FIRST_GENERATION = 0 as Generation;
 /** UUID-like (8 to 40 hex chars or dashes). The client may mint it; a malformed one is replaced, not rejected. */
 export type ThreadId = Brand<string, "ThreadId">;
 /** Minted at the `turn.started` append; equals `t:<seq of that append>`. */
@@ -319,6 +327,8 @@ export interface ForkResume {
  */
 export type ThreadEventBody =
   | { kind: "thread.created"; config: ThreadConfig }
+  /** Seq 1 of every compacted log and nowhere else: the only durable record of the log's generation. */
+  | { kind: "log.generation"; generation: Generation }
   | { kind: "thread.config"; patch: ThreadConfigPatch; origin: Origin }
   | { kind: "thread.archived" }
   /** The SDK reported its session id. Repeated on every spawn; last one wins. */
@@ -416,6 +426,8 @@ export type EventOf<K extends EventKind> = Extract<ThreadEvent, { kind: K }>;
  */
 export interface SyncFrame {
   readonly headSeq: Cursor;
+  /** The generation `headSeq` counts in. A client holding a cursor from another generation discards its fold and replays from zero. */
+  readonly generation: Generation;
   readonly session: "cold" | "warming" | "idle" | "running" | "parked";
   readonly openTurn: TurnId | null;
   readonly queuedCount: number;
@@ -527,6 +539,8 @@ export const LIMITS = {
   ANSWER_CHARS: 2_000,
   SSE_HEARTBEAT_MS: 15_000,
   IDLE_PARK_MS: 30 * 60_000,
+  /** Park compacts the log only when at least this many delta lines would go away. */
+  COMPACT_MIN_LINES: 200,
 } as const;
 
 /** "2.4 MB", "512 KB", "17 B". Decimal units, as the Files app on iOS shows them. Shared so the card and the vault note agree. */

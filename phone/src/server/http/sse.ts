@@ -55,7 +55,7 @@ export function threadStream(log: ThreadLog, supervisor: Supervisor, after: Curs
       buffer.length = 0;
       live = true;
       const head = log.getHead();
-      out.push(formatControl("sync", { headSeq: head.lastSeq, ...supervisor.status(log.threadId), queuedCount: head.queued.length }));
+      out.push(formatControl("sync", { headSeq: head.lastSeq, generation: head.generation, ...supervisor.status(log.threadId), queuedCount: head.queued.length }));
     } catch (err) {
       console.error(`[sse ${log.threadId}] stream failed`, err);
       out.end();

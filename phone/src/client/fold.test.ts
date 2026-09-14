@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { FIRST_GENERATION } from "../shared/protocol";
 import type { Seq, ThreadEvent, ThreadId, TurnId } from "../shared/protocol";
 import { addPendingPrompt, applySync, emptyView, fold, foldAll, isWaiting } from "./fold";
 
@@ -118,7 +119,7 @@ test("config changes, archive, and orphaned ends render as notes and ends", () =
 
 test("applySync marks live and copies the session state and the server's head", () => {
   const view = foldAll(emptyView(config), turn());
-  const live = applySync(view, { headSeq: 12 as Seq, session: "idle", openTurn: null, queuedCount: 0 });
+  const live = applySync(view, { headSeq: 12 as Seq, generation: FIRST_GENERATION, session: "idle", openTurn: null, queuedCount: 0 });
   assert.equal(live.replaying, false);
   assert.equal(live.session, "idle");
   assert.equal(live.logHead, 12);

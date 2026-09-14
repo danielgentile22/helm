@@ -96,6 +96,7 @@ export function foldTurn(turns: readonly Turn[], ev: ThreadEvent): readonly Turn
     case "thread.created":
     case "upload.staged":
     case "session.bound":
+    case "log.generation":
       return turns;
     case "input.queued": {
       const prompt: Prompt = { clientMsgId: ev.clientMsgId, text: ev.text, uploads: ev.uploads.map((u) => ({ uploadId: u.uploadId, name: u.name, mime: u.mime })), label: ev.origin.label, state: "queued", ts: ev.ts };

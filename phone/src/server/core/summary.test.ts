@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FIRST_GENERATION } from "../../shared/protocol";
 import type { ClientMsgId, ModelId, ThreadConfig, ThreadEventBody, ThreadId, ToolUseId, TurnId } from "../../shared/protocol";
 import { threadSummary } from "./summary";
 import { ThreadLog } from "./log";
@@ -21,6 +22,9 @@ const config: ThreadConfig = {
 
 const head = (over: Partial<ThreadHead>): ThreadHead => ({
   lastSeq: 0,
+  generation: FIRST_GENERATION,
+  collapsible: 0,
+  lastDeltaKey: null,
   sessionId: null,
   fork: null,
   openTurn: null,

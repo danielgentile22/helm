@@ -30,13 +30,14 @@
 import { createReadStream } from "node:fs";
 import { appendFile, mkdir, open as fsOpen, readdir, readFile, stat, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { addUsage, LIMITS } from "../../shared/protocol";
+import { addUsage, FIRST_GENERATION, LIMITS } from "../../shared/protocol";
 import type {
   AskId,
   ClaudeSessionId,
   ClientMsgId,
   Cursor,
   ForkResume,
+  Generation,
   PendingAsk,
   Seq,
   ThreadEvent,
@@ -51,6 +52,16 @@ import type {
 /** Derived from the tail of the log by open(); never stored. */
 export interface ThreadHead {
   readonly lastSeq: Cursor;
+  /** Which numbering `lastSeq` counts in (I6). */
+  readonly generation: Generation;
+  /**
+   * Delta events whose immediately preceding event is a delta with the same
+   * key (turn and block for text, turn for thinking): the number of lines
+   * compaction would remove.
+   */
+  readonly collapsible: number;
+  /** The key of the last event when it was a delta, else null; what `collapsible` counts against. */
+  readonly lastDeltaKey: string | null;
   readonly sessionId: ClaudeSessionId | null;
   /**
    * The fork's first spawn resumes this session at this message uuid. Set by
@@ -98,12 +109,17 @@ export type SubscriberKind = "viewer" | "projection";
 const RECENT_IDS = 64;
 const FILE = "events.jsonl";
 
-const emptyHead: ThreadHead = { lastSeq: 0, sessionId: null, fork: null, openTurn: null, queued: [], recentClientMsgIds: new Map(), lastTurnEndedAt: null, lastOutcome: null, contextTokens: null, activeTool: null, lastText: null, usageTotal: null, contextWindow: null, pendingAsks: [], recentAskIds: new Set() };
+const emptyHead: ThreadHead = { lastSeq: 0, generation: FIRST_GENERATION, collapsible: 0, lastDeltaKey: null, sessionId: null, fork: null, openTurn: null, queued: [], recentClientMsgIds: new Map(), lastTurnEndedAt: null, lastOutcome: null, contextTokens: null, activeTool: null, lastText: null, usageTotal: null, contextWindow: null, pendingAsks: [], recentAskIds: new Set() };
 
 /** Pure: the head after one more event. */
 function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
-  let { sessionId, fork, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds } = h;
+  let { generation, collapsible, sessionId, fork, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds } = h;
+  const key = ev.kind === "assistant.text" || ev.kind === "assistant.thinking" ? deltaKey(ev) : null;
+  if (key !== null && key === h.lastDeltaKey) collapsible += 1;
   switch (ev.kind) {
+    case "log.generation":
+      generation = ev.generation;
+      break;
     case "session.bound":
       sessionId = ev.sessionId;
       fork = null;
@@ -166,7 +182,7 @@ function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
       queued = [];
       break;
   }
-  return { lastSeq: ev.seq, sessionId, fork, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds };
+  return { lastSeq: ev.seq, generation, collapsible, lastDeltaKey: key, sessionId, fork, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds };
 }
 
 type DeltaBody = Extract<ThreadEventBody, { kind: "assistant.text" | "assistant.thinking" }>;
@@ -175,6 +191,7 @@ function isDelta(body: ThreadEventBody | ((seq: Seq) => ThreadEventBody)): boole
   return typeof body !== "function" && (body.kind === "assistant.text" || body.kind === "assistant.thinking");
 }
 
+/** Two consecutive deltas with the same key fold into one block, so they are one line after compaction. */
 function deltaKey(b: DeltaBody): string {
   return b.kind === "assistant.text" ? `${b.turnId}:${b.blockIx}` : `${b.turnId}:thinking`;
 }
