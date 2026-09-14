@@ -2,7 +2,7 @@
   import { renderMarkdown } from "../markdown";
   import TextActions from "../sheets/TextActions.svelte";
 
-  let { text, streaming, onQuote }: { text: string; streaming: boolean; onQuote: (quoted: string) => void } = $props();
+  let { text, streaming, onQuote, onFork = null }: { text: string; streaming: boolean; onQuote: (quoted: string) => void; onFork?: (() => void) | null } = $props();
 
   const html = $derived(renderMarkdown(text));
 
@@ -55,5 +55,5 @@
 >{@html html}</div>
 
 {#if sheetOpen}
-  <TextActions markdown={text} plain={el?.innerText ?? text} {onQuote} onClose={() => (sheetOpen = false)} />
+  <TextActions markdown={text} plain={el?.innerText ?? text} {onQuote} {onFork} onClose={() => (sheetOpen = false)} />
 {/if}

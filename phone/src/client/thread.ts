@@ -15,7 +15,8 @@ import { HttpError, type ConnState, type HelmClient } from "./api";
 import { addPendingPrompt, applySync, emptyView, fold, type PromptUpload, type ThreadView } from "./fold";
 import { uuid } from "./format";
 
-const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+/** The wording every "X failed" line in the thread shares. */
+export const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 export interface ThreadState {
   readonly view: ThreadView;

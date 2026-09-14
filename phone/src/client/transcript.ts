@@ -10,8 +10,8 @@
  * screen.
  */
 
-import { answerPhrase, toolSummary } from "../shared/protocol";
-import type { ToolUseId, TurnId, Usage } from "../shared/protocol";
+import { answerPhrase, seqOfTurnId, toolSummary } from "../shared/protocol";
+import type { Seq, ThreadId, ToolUseId, TurnId, Usage } from "../shared/protocol";
 import type { AskItem, FileItem, Item, Prompt, ToolItem, Turn } from "../shared/turns";
 import { fmtTime } from "./format";
 import type { ThreadView } from "./fold";
@@ -43,16 +43,21 @@ export type Block =
   | { kind: "file"; key: string; file: FileItem }
   /** `live` while the turn is open and nobody has answered: the only state that draws buttons. */
   | { kind: "ask"; key: string; ask: AskItem; live: boolean }
+  /** The divider of a forked thread. `atSeq` is where the source turn sits in the source's log, which is what the link back lands on. */
+  | { kind: "fork"; key: string; from: ThreadId; fromTitle: string | null; memory: "session" | "fresh"; atSeq: Seq | null }
+  | { kind: "forkOut"; key: string; to: ThreadId; toTitle: string }
   | { kind: "note"; key: string; text: string };
 
 export interface Section {
   readonly key: string;
   readonly turnId: TurnId | null;
+  /** The turn has ended, so it can be forked from. */
+  readonly ended: boolean;
   readonly blocks: readonly Block[];
 }
 
 export function toBlocks(view: ThreadView): readonly Section[] {
-  return view.turns.map((turn) => ({ key: turn.key, turnId: turn.turnId, blocks: turnBlocks(turn, turn.turnId !== null && turn.turnId === view.openTurn) }));
+  return view.turns.map((turn) => ({ key: turn.key, turnId: turn.turnId, ended: turn.end !== null, blocks: turnBlocks(turn, turn.turnId !== null && turn.turnId === view.openTurn) }));
 }
 
 /**
@@ -92,6 +97,12 @@ function turnBlocks(turn: Turn, open: boolean): Block[] {
         // A decision Claude Code made alone is already on the tool row as "denied"; a card would ask the reader to answer something settled.
         if (item.answer?.by.by === "system" && item.answer.by.reason === "rule") break;
         blocks.push({ kind: "ask", key: `ask:${item.askId}`, ask: item, live: open && item.answer === null });
+        break;
+      case "fork":
+        blocks.push({ kind: "fork", key: `fork:${turn.key}`, from: item.from, fromTitle: item.fromTitle, memory: item.memory, atSeq: seqOfTurnId(item.atTurn) });
+        break;
+      case "forkOut":
+        blocks.push({ kind: "forkOut", key: `forkOut:${item.to}`, to: item.to, toTitle: item.toTitle });
         break;
       case "note":
         blocks.push({ kind: "note", key: `${turn.key}:note:${ix}`, text: item.text });
