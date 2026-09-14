@@ -361,7 +361,25 @@ export type ThreadEventBody =
       usage: Usage | null;
       /** Human-readable, already scrubbed of paths and stack traces. */
       error: string | null;
+      /**
+       * The SDK uuid of the turn's last message, where a fork of this thread
+       * resumes (the SDK forks at the kept turn's last chain entry). Absent on
+       * turns logged before forking existed and on turns that produced no
+       * message; a fork from such a turn starts Claude fresh.
+       */
+      forkPoint?: string;
     }
+  /**
+   * This thread began as a copy of another, up to and including `atTurn`
+   * there. Everything before this event in the log is that copy, re-stamped
+   * with this log's seqs and the original timestamps. `resume` names the
+   * source session and the message the fork's first turn resumes at; null
+   * when the source turn recorded no fork point, so Claude starts here with
+   * no memory of the copied turns.
+   */
+  | { kind: "thread.forked"; from: ThreadId; fromTitle: string | null; atTurn: TurnId; resume: { sessionId: ClaudeSessionId; at: string } | null }
+  /** Someone forked this thread at `atTurn`; the copy lives in `to`. Never copied into a further fork. */
+  | { kind: "thread.forked.out"; to: ThreadId; toTitle: string; atTurn: TurnId }
   | { kind: "upload.staged"; upload: StagedUpload; origin: Origin }
   /** Appended by the tool handler, not the agent stream, so it is not tied to a turn. */
   | { kind: "file.offered"; file: OfferedFile; origin: Origin }
@@ -407,6 +425,11 @@ export interface CreateThreadRequest {
   readonly title?: string | null;
   /** Absent: bypass in the vault root, else the server's default. */
   readonly permissionMode?: PermissionMode;
+}
+
+/** POST /api/threads/:id/fork. The turn must have ended; the reply is the new thread's summary. Two calls make two forks. */
+export interface ForkRequest {
+  readonly turnId: string;
 }
 
 export interface SendRequest {

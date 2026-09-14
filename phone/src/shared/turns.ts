@@ -16,7 +16,7 @@
  * identity of every other turn across an event.
  */
 
-import type { AskAnswer, AskAnsweredBy, AskId, AskPayload, ClientMsgId, FileId, Seq, ThreadEvent, ToolUseId, TurnId, TurnOutcome, UploadId, Usage } from "./protocol";
+import type { AskAnswer, AskAnsweredBy, AskId, AskPayload, ClientMsgId, FileId, Seq, ThreadEvent, ThreadId, ToolUseId, TurnId, TurnOutcome, UploadId, Usage } from "./protocol";
 
 /** What a prompt remembers about a file sent with it: enough to name it or fetch its bytes. */
 export interface PromptUpload {
@@ -46,6 +46,10 @@ export type Item =
   | { kind: "file"; fileId: FileId; name: string; mime: string; bytes: number; note: string | null; ts: string }
   /** Claude Code paused on the user. `answer` is null while the card still waits; the turn's end never fills it, a sealing `ask.answered` does. */
   | { kind: "ask"; askId: AskId; ask: AskPayload; openedAt: string; answer: { answer: AskAnswer; by: AskAnsweredBy; ts: string } | null }
+  /** The divider of a forked thread: the turns above were copied from `from`. `memory` says whether Claude remembers them. */
+  | { kind: "fork"; from: ThreadId; fromTitle: string | null; atTurn: TurnId; memory: "session" | "fresh" }
+  /** Under the turn someone forked from: a link to the copy. */
+  | { kind: "forkOut"; to: ThreadId; toTitle: string }
   | { kind: "note"; text: string };
 
 export type ToolItem = Extract<Item, { kind: "tool" }>;
@@ -149,6 +153,10 @@ export function foldTurn(turns: readonly Turn[], ev: ThreadEvent): readonly Turn
     }
     case "thread.archived":
       return loose(turns, ev.seq, { kind: "note", text: "thread archived" });
+    case "thread.forked":
+      return loose(turns, ev.seq, { kind: "fork", from: ev.from, fromTitle: ev.fromTitle, atTurn: ev.atTurn, memory: ev.resume ? "session" : "fresh" });
+    case "thread.forked.out":
+      return withTurn(turns, ev.atTurn, (t) => ({ ...t, items: [...t.items, { kind: "forkOut", to: ev.to, toTitle: ev.toTitle }] }));
   }
 }
 
