@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { forkedEvents, forkTitle } from "./fork";
-import type { ClaudeSessionId, ClientMsgId, ModelId, Seq, ThreadConfig, ThreadEvent, ThreadEventBody, ThreadId, ToolUseId, TurnId } from "../../shared/protocol";
+import type { ClaudeSessionId, ClientMsgId, MessageUuid, ModelId, Seq, ThreadConfig, ThreadEvent, ThreadEventBody, ThreadId, ToolUseId, TurnId } from "../../shared/protocol";
 
 const sourceId = "0f0f0f0f-0000-4000-8000-000000000001" as ThreadId;
 const forkId = "0f0f0f0f-0000-4000-8000-000000000002" as ThreadId;
@@ -32,7 +32,7 @@ function source(): ThreadEvent[] {
     ev(3, { kind: "session.bound", sessionId: "sess-1" as ClaudeSessionId }),
     ev(4, { kind: "turn.started", turnId: "t:4" as TurnId, clientMsgId: "m1" as ClientMsgId, model, effort: "high", spawned: true }),
     ev(5, { kind: "assistant.text", turnId: "t:4" as TurnId, blockIx: 0, delta: "Hello" }),
-    ev(6, { kind: "turn.ended", turnId: "t:4" as TurnId, outcome: "ok", sessionId: "sess-1" as ClaudeSessionId, usage: null, error: null, forkPoint: "msg-1" }),
+    ev(6, { kind: "turn.ended", turnId: "t:4" as TurnId, outcome: "ok", sessionId: "sess-1" as ClaudeSessionId, usage: null, error: null, forkPoint: "msg-1" as MessageUuid }),
     ev(7, { kind: "thread.forked.out", to: otherId, toTitle: "Source (fork)", atTurn: "t:4" as TurnId }),
     ev(8, { kind: "thread.archived" }),
     ev(9, { kind: "thread.config", patch: { title: "Renamed" }, origin }),
@@ -42,7 +42,7 @@ function source(): ThreadEvent[] {
     ev(13, { kind: "upload.staged", upload: { uploadId: "u1" as never, path: "/w/.helm2-uploads/u1-a.png", name: "a.png", mime: "image/png", bytes: 9 }, origin }),
     ev(14, { kind: "tool.started", turnId: "t:12" as TurnId, toolUseId: "tu1" as ToolUseId, name: "Read", input: { file_path: "/x" } }),
     ev(15, { kind: "tool.finished", turnId: "t:12" as TurnId, toolUseId: "tu1" as ToolUseId, output: "ok", isError: false }),
-    ev(16, { kind: "turn.ended", turnId: "t:12" as TurnId, outcome: "ok", sessionId: "sess-2" as ClaudeSessionId, usage: null, error: null, forkPoint: "msg-2" }),
+    ev(16, { kind: "turn.ended", turnId: "t:12" as TurnId, outcome: "ok", sessionId: "sess-2" as ClaudeSessionId, usage: null, error: null, forkPoint: "msg-2" as MessageUuid }),
     ev(17, { kind: "turn.started", turnId: "t:17" as TurnId, clientMsgId: "m3" as ClientMsgId, model, effort: "high", spawned: false }),
   ];
 }

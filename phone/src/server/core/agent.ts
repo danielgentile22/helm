@@ -48,6 +48,7 @@ import type {
   ClaudeSessionId,
   Effort,
   ModelId,
+  MessageUuid,
   ModelChoice,
   OfferedFile,
   PermissionMode,
@@ -69,7 +70,7 @@ export interface SpawnOptions {
   /** Present when we have a session to resume; absent on a brand-new thread. */
   readonly resume: ClaudeSessionId | null;
   /** With `resume`: fork the resumed session at this message uuid into a new session instead of continuing it. */
-  readonly forkAt: string | null;
+  readonly forkAt: MessageUuid | null;
   /** `--add-dir` equivalents; from config, default ~/Projects ~/Desktop ~/Documents. */
   readonly additionalDirectories: readonly string[];
   /** Short phone-context appendix; never the vault. */
@@ -178,7 +179,7 @@ interface MapContext {
    * this thread resumes. The SDK forks at the kept turn's LAST chain entry
    * (sdk.d.ts resumeDropsTurn), not at the prompt or the first reply.
    */
-  readonly lastUuid: string | null;
+  readonly lastUuid: MessageUuid | null;
 }
 
 /** Truncate a JSON-able value to at most `max` bytes of its JSON text. */
@@ -528,7 +529,7 @@ class SdkSession implements AgentSession {
   private terminalCommands: ReadonlySet<string> = new Set();
   private prevCostUsd = 0;
   /** The last main-thread message uuid of the turn in flight; the fork point turn.ended carries. */
-  private lastUuid: string | null = null;
+  private lastUuid: MessageUuid | null = null;
   private dead = false;
   private killing: Promise<void> | null = null;
 
@@ -590,7 +591,7 @@ class SdkSession implements AgentSession {
     if (msg.type === "system" && msg.subtype === "init" && Array.isArray(msg.terminal_slash_commands)) {
       this.terminalCommands = new Set(msg.terminal_slash_commands);
     }
-    if ((msg.type === "assistant" || msg.type === "user") && msg.parent_tool_use_id === null && typeof msg.uuid === "string") this.lastUuid = msg.uuid;
+    if ((msg.type === "assistant" || msg.type === "user") && msg.parent_tool_use_id === null && typeof msg.uuid === "string") this.lastUuid = msg.uuid as MessageUuid;
     const turnId = this.turn?.turnId ?? ("t:0" as TurnId);
     const events = agentMessageToEvents(turnId, msg, { interrupted: this.turn?.interrupted ?? false, prevCostUsd: this.prevCostUsd, lastUuid: this.lastUuid });
     if (msg.type === "result") this.prevCostUsd = msg.total_cost_usd;

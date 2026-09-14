@@ -4,7 +4,7 @@ import { setImmediate as tick } from "node:timers/promises";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { CanUseTool, ModelInfo, Options, PermissionResult, SDKMessage, SDKUserMessage, SlashCommand as SdkSlashCommand } from "@anthropic-ai/claude-agent-sdk";
 import { LIMITS } from "../../shared/protocol";
-import type { AskId, ModelId, TurnId, UploadId } from "../../shared/protocol";
+import type { AskId, MessageUuid, ModelId, TurnId, UploadId } from "../../shared/protocol";
 import { killTree } from "../util/killTree";
 import { Pushable } from "../util/pushable";
 import { buildUserMessage, modelCatalog, parseModelId, toSlashCommands, SdkAgentFactory, PHONE_APPENDIX } from "./agent";
@@ -562,7 +562,7 @@ test("turn.ended carries the uuid of the turn's last main-thread message, which 
 
 test("spawning with forkAt asks the SDK to fork the resumed session; a plain resume continues it", async () => {
   const forked = recorded();
-  await new SdkAgentFactory(forked.deps).spawn({ ...spawnOpts, resume: "sess-1" as never, forkAt: "u-3" });
+  await new SdkAgentFactory(forked.deps).spawn({ ...spawnOpts, resume: "sess-1" as never, forkAt: "u-3" as MessageUuid });
   assert.equal(forked.spawned.options?.resume, "sess-1");
   assert.equal(forked.spawned.options?.forkSession, true);
   assert.equal(forked.spawned.options?.resumeSessionAt, "u-3");

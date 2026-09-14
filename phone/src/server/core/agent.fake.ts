@@ -6,7 +6,7 @@
  * whatever sequence of events the test needs, with whatever timing.
  */
 
-import type { AskAnswer, AskId, AskPayload, ClaudeSessionId, Effort, ModelId, PermissionMode, SlashCommand, ToolUseId, TurnId, Usage } from "../../shared/protocol";
+import type { AskAnswer, AskId, AskPayload, ClaudeSessionId, Effort, MessageUuid, ModelId, PermissionMode, SlashCommand, ToolUseId, TurnId, Usage } from "../../shared/protocol";
 import { Pushable } from "../util/pushable";
 import type { AgentEvent, AgentFactory, AgentSession, RawModel, SpawnOptions, TurnInput } from "./agent";
 
@@ -124,7 +124,7 @@ export class FakeSession implements AgentSession {
       },
       tool: (name, inp, output, isError = false) => turn.toolEnd(turn.toolStart(name, inp), output, isError),
       end: (outcome = "ok", error = null, usage = defaultUsage) =>
-        turn.emit({ kind: "turn.ended", turnId: input.turnId, outcome, sessionId: this.sessionId, usage, error, forkPoint: `msg-${input.turnId}` }),
+        turn.emit({ kind: "turn.ended", turnId: input.turnId, outcome, sessionId: this.sessionId, usage, error, forkPoint: `msg-${input.turnId}` as MessageUuid }),
       crash: () => {
         this.dead = true;
         this.out.end();

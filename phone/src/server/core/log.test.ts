@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { turnIdFor } from "../../shared/protocol";
 import { LogRegistry, stampEvents, ThreadLog, writeLogFile } from "./log";
 import type {
+  MessageUuid,
   AskId,
   ClaudeSessionId,
   ClientMsgId,
@@ -362,11 +363,11 @@ test("hardening: a non-delta append flushes pending deltas first, so the log kee
 
 test("thread.forked drops the source session from the head and parks the fork point, which the next spawn boundary clears", async () => {
   const dir = await freshDir();
-  const forked: ThreadEventBody = { kind: "thread.forked", from: threadId, fromTitle: "Source", atTurn: "t:4" as TurnId, resume: { sessionId, at: "msg-1" } };
+  const forked: ThreadEventBody = { kind: "thread.forked", from: threadId, fromTitle: "Source", atTurn: "t:4" as TurnId, resume: { sessionId, at: "msg-1" as MessageUuid } };
   const log = await writeLog(dir, [...completeTurn, forked]);
 
   assert.equal(log.getHead().sessionId, null, "a fork must never resume the source's session plainly, which would mutate the source's session file");
-  assert.deepEqual(log.getHead().fork, { sessionId, at: "msg-1" });
+  assert.deepEqual(log.getHead().fork, { sessionId, at: "msg-1" as MessageUuid });
 
   await log.append({ kind: "session.bound", sessionId: "sess-fork" as ClaudeSessionId });
   assert.equal(log.getHead().sessionId, "sess-fork");
@@ -375,7 +376,7 @@ test("thread.forked drops the source session from the head and parks the fork po
 
 test("a turn.ended clears the fork point too, so a resume the SDK refused is retried fresh rather than forever", async () => {
   const dir = await freshDir();
-  const forked: ThreadEventBody = { kind: "thread.forked", from: threadId, fromTitle: null, atTurn: "t:4" as TurnId, resume: { sessionId, at: "msg-1" } };
+  const forked: ThreadEventBody = { kind: "thread.forked", from: threadId, fromTitle: null, atTurn: "t:4" as TurnId, resume: { sessionId, at: "msg-1" as MessageUuid } };
   const log = await writeLog(dir, [...completeTurn, forked, queued("m2"), started("t:11", "m2")]);
   await log.append(ended("t:11"));
   assert.equal(log.getHead().fork, null);

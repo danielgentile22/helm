@@ -84,7 +84,7 @@
       {#each section.blocks as block (block.key)}
         <div class="blk blk-{block.kind}" data-glyph={GLYPH[block.kind]} use:enters>
           {#if block.kind === "prompt"}
-            <PromptBlock prompt={block.prompt} {onResend} {uploadUrl} />
+            <PromptBlock prompt={block.prompt} {onResend} {onQuote} {uploadUrl} onFork={forkable === null ? null : () => onFork(forkable)} />
           {:else if block.kind === "thinking"}
             <ThinkingBlock text={block.text} collapsed={block.collapsed} streaming={block.streaming} />
           {:else if block.kind === "text"}

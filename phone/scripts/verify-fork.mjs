@@ -93,6 +93,13 @@ check("a completed turn offers Fork from here", Array.isArray(items) && items.in
 check("Fork from here sits after Quote into the composer", (items ?? []).indexOf("Fork from here") === (items ?? []).indexOf("Quote into the composer") + 1, (items ?? []).join(" | "));
 await shot("04-fork-from-here-sheet");
 await evaluate(`[...document.querySelectorAll('.btn')].find((b)=>b.textContent.trim()==='Cancel').click()`);
+await sleep(300);
+const promptOpened = await evaluate(`(()=>{const e=document.querySelector('.blk-prompt .prompt-text');if(!e)return 'no prompt block';e.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));return 'ok'})()`);
+await sleep(400);
+const promptItems = await evaluate(`[...document.querySelectorAll('.mitem')].map((b)=>b.textContent.trim())`);
+check("the prompt of a completed turn offers Fork from here too", promptOpened === "ok" && Array.isArray(promptItems) && promptItems.includes("Fork from here"), `${promptOpened}: ${(promptItems ?? []).join(" | ")}`);
+await evaluate(`[...document.querySelectorAll('.btn')].find((b)=>b.textContent.trim()==='Cancel').click()`);
+await sleep(300);
 
 await api(`/api/threads/${source.threadId}/send`, { method: "POST", body: JSON.stringify({ clientMsgId: crypto.randomUUID(), text: "stream a long reply", label: "verify" }) });
 await sleep(2500);

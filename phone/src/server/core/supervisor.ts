@@ -24,6 +24,9 @@
  *       what reaches the process: answer() appends first and forwards only
  *       when the append won; interrupt, archive, and a dead process seal
  *       every pending ask with a system denial before the turn ends.
+ *   S7. A spawn resumes the thread's own session, except the first spawn of
+ *       a fork, which resumes the source's session at the head's fork point
+ *       and lets the SDK mint the fork its own id (log head `fork`).
  */
 
 import type {

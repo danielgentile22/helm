@@ -21,7 +21,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { turnIdFor } from "../../shared/protocol";
-import type { ClaudeSessionId, ClientMsgId, Seq, ThreadConfig, ThreadEvent, ThreadEventBody, ThreadId, TurnId } from "../../shared/protocol";
+import type { ClaudeSessionId, ClientMsgId, ForkResume, Seq, ThreadConfig, ThreadEvent, ThreadEventBody, ThreadId, TurnId } from "../../shared/protocol";
 import { atomicWrite } from "../util/atomicWrite";
 import type { LogRegistry } from "./log";
 import { stampEvents, writeLogFile } from "./log";
@@ -59,7 +59,9 @@ export function forkedEvents(source: readonly ThreadEvent[], atTurn: TurnId, con
       turnIds.set(body.turnId, turnId);
       bodies.push({ ...body, turnId });
     } else if ("turnId" in body) {
-      bodies.push({ ...body, turnId: turnIds.get(body.turnId) ?? body.turnId });
+      const turnId = turnIds.get(body.turnId);
+      if (!turnId) throw new Error(`fork: ${body.kind} at seq ${ev.seq} names ${body.turnId}, which has no turn.started in the copied range`);
+      bodies.push({ ...body, turnId });
     } else {
       bodies.push(body);
     }
@@ -89,7 +91,7 @@ function titleOf(range: readonly ThreadEvent[], initial: string | null): string 
  * message. Null when either is missing, which is a turn logged before forking
  * existed or one that produced no message; Claude then starts fresh there.
  */
-function resumeFrom(range: readonly ThreadEvent[], end: Extract<ThreadEvent, { kind: "turn.ended" }>): { sessionId: ClaudeSessionId; at: string } | null {
+function resumeFrom(range: readonly ThreadEvent[], end: Extract<ThreadEvent, { kind: "turn.ended" }>): ForkResume | null {
   let sessionId: ClaudeSessionId | null = null;
   for (const ev of range) {
     if (ev.kind === "session.bound") sessionId = ev.sessionId;

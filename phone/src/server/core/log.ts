@@ -8,7 +8,9 @@
  * Invariants
  *   I1. seq is contiguous from 1. append() assigns lastSeq + 1 under a
  *       per-instance serial queue; there is exactly one ThreadLog instance
- *       per thread per process (LogRegistry enforces it).
+ *       per thread per process (LogRegistry enforces it). The one other
+ *       minter is stampEvents, for a log written whole (a fork) before any
+ *       instance or subscriber exists.
  *   I2. An event is emitted to subscribers only after its line has been
  *       fully written to the file. So anything a subscriber has seen is on
  *       disk, and anything on disk with seq > cursor is returned by read().
@@ -34,6 +36,7 @@ import type {
   ClaudeSessionId,
   ClientMsgId,
   Cursor,
+  ForkResume,
   PendingAsk,
   Seq,
   ThreadEvent,
@@ -54,7 +57,7 @@ export interface ThreadHead {
    * `thread.forked`, cleared by the next `session.bound` or `turn.ended`, so a
    * spawn the SDK refused is retried fresh rather than forever.
    */
-  readonly fork: { sessionId: ClaudeSessionId; at: string } | null;
+  readonly fork: ForkResume | null;
   /** turnId of a `turn.started` without a matching `turn.ended`. Always null after open(). */
   readonly openTurn: TurnId | null;
   /** `input.queued` events not yet consumed by a `turn.started`, in order. */

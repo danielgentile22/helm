@@ -8,6 +8,7 @@ import { Mirror, lastMirroredSeq, mirrorPath, renderTurn } from "./mirror";
 import { ThreadStore } from "./thread-store";
 import { groupTurns, isCompleted } from "../../shared/turns";
 import type {
+  MessageUuid,
   ClaudeSessionId,
   ClientMsgId,
   ModelId,
@@ -341,7 +342,7 @@ test("a fork's note opens by naming where it came from, so it does not read as a
   const mirror = new Mirror(h.vault, h.store);
   const end = await appendTurn(h.log, "m1", "copied prompt", "copied reply");
   const forkPoint = (await readEvents(h.log)).find((e) => e.seq === end)!.ts;
-  await h.log.append({ kind: "thread.forked", from: otherThreadId, fromTitle: "Vault triage", atTurn: "t:9" as TurnId, resume: { sessionId, at: "msg-1" } });
+  await h.log.append({ kind: "thread.forked", from: otherThreadId, fromTitle: "Vault triage", atTurn: "t:9" as TurnId, resume: { sessionId, at: "msg-1" as MessageUuid } });
   await mirror.resume(h.log);
 
   const md = await readFile(h.note, "utf8");

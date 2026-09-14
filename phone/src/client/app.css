@@ -241,9 +241,10 @@ a { color: var(--accent); }
 .note { font-family: var(--mono); font-size: var(--t-xs); color: var(--ink-3); }
 .forkline { display: flex; align-items: center; gap: var(--s-4); font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: .03em; }
 .forkline .hair { flex: 1 1 12px; min-width: 8px; height: 1px; background: var(--rail); }
-.forkline a { flex: 0 1 auto; min-width: 0; padding: var(--s-3) 0; color: var(--cool); text-underline-offset: 3px; overflow-wrap: anywhere; }
+.forkline a { flex: 0 1 auto; min-width: 0; }
 .forknote { margin: var(--s-3) 0 0; font-family: var(--mono); font-size: var(--t-xs); line-height: 1.5; color: var(--ink-3); }
-.forkto { display: inline-block; padding: var(--s-3) 0; font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: .03em; color: var(--cool); text-underline-offset: 3px; overflow-wrap: anywhere; }
+.forkto { display: inline-block; font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: .03em; }
+.forkline a, .forkto { padding: var(--s-3) 0; color: var(--cool); text-underline-offset: 3px; overflow-wrap: anywhere; }
 
 .dock { position: sticky; bottom: 0; z-index: 3; background: var(--bg); }
 .jump { position: absolute; left: 50%; bottom: calc(100% + var(--s-4)); transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: var(--t-xs); font-weight: 600; color: var(--bg); background: var(--ink); border: 0; border-radius: var(--r-pill); box-shadow: var(--shadow); }
