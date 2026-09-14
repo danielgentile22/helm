@@ -29,7 +29,7 @@ export class FakeES implements EventSourceLike {
     this.onmessage?.({ data: JSON.stringify(ev), lastEventId: String(ev.seq) });
   }
   sync(frame: Partial<SyncFrame>): void {
-    for (const l of this.listeners.get("sync") ?? []) l({ data: JSON.stringify({ headSeq: 0, session: "idle", openTurn: null, queuedCount: 0, ...frame }) });
+    for (const l of this.listeners.get("sync") ?? []) l({ data: JSON.stringify({ headSeq: 0, generation: 0, session: "idle", openTurn: null, queuedCount: 0, ...frame }) });
   }
   fail(): void {
     this.onerror?.({});

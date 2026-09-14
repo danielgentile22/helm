@@ -4,7 +4,8 @@ import { mkdtemp, mkdir, readFile, readdir, rm, stat, utimes, writeFile } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ThreadLog } from "./log";
-import { Mirror, lastMirroredSeq, mirrorPath, renderTurn } from "./mirror";
+import { Mirror, lastMarker, mirrorPath, renderTurn } from "./mirror";
+import { FIRST_GENERATION } from "../../shared/protocol";
 import { ThreadStore } from "./thread-store";
 import { groupTurns, isCompleted } from "../../shared/turns";
 import type {
@@ -51,6 +52,7 @@ const usage: Usage = {
 };
 
 const turnOf = (events: ThreadEvent[]) => groupTurns(events).filter(isCompleted)[0]!;
+const render = (events: ThreadEvent[]): string => renderTurn(turnOf(events), FIRST_GENERATION);
 
 async function readEvents(log: ThreadLog): Promise<ThreadEvent[]> {
   const out: ThreadEvent[] = [];
@@ -74,7 +76,7 @@ function fixtureTurn(): ThreadEvent[] {
 }
 
 test("renderTurn renders the prompt, text blocks, tool lines, footer, and marker", () => {
-  const md = renderTurn(turnOf(fixtureTurn()));
+  const md = render(fixtureTurn());
 
   assert.match(md, /^## 2026-09-11T00:00:02\.000Z .*iphone/m, "heading carries the timestamp and the origin label");
   assert.match(md, /^> hello$/m, "prompt is a blockquote, line by line");
@@ -91,28 +93,29 @@ test("renderTurn renders the prompt, text blocks, tool lines, footer, and marker
   assert.match(md, /120/, "input tokens are in the footer");
   assert.match(md, /45/, "output tokens are in the footer");
   assert.match(md, /\$0\.0031/, "cost is in the footer");
-  assert.match(md, /<!-- helm:seq=11 -->\s*$/, "the marker is last and names the turn.ended seq");
+  assert.match(md, /<!-- helm:seq=11 gen=0 -->\s*$/, "the marker is last and names the turn.ended seq and its generation");
   assert.ok(!md.includes("—") && !md.includes("–"), "no em or en dashes");
 });
 
 test("renderTurn on a clean ok turn with no usage omits the usage half of the footer", () => {
-  const md = renderTurn(turnOf([
+  const md = render([
     ev(1, { kind: "input.queued", clientMsgId: "m9" as ClientMsgId, text: "hi", uploads: [], origin }),
     ev(2, { kind: "turn.started", turnId: "t:2" as TurnId, clientMsgId: "m9" as ClientMsgId, model, effort: "low", spawned: false }),
     ev(3, { kind: "assistant.text", turnId: "t:2" as TurnId, blockIx: 0, delta: "yes" }),
     ev(4, { kind: "turn.ended", turnId: "t:2" as TurnId, outcome: "ok", sessionId, usage: null, error: null }),
-  ]));
+  ]);
   assert.match(md, /^> hi$/m);
   assert.match(md, /^yes$/m);
   assert.ok(!md.includes("tokens"), "no usage line when the turn carried none");
-  assert.match(md, /<!-- helm:seq=4 -->\s*$/);
+  assert.match(md, /<!-- helm:seq=4 gen=0 -->\s*$/);
 });
 
-test("lastMirroredSeq reads the highest marker, 0 when there is none", () => {
-  assert.equal(lastMirroredSeq(""), 0);
-  assert.equal(lastMirroredSeq("# A note\n\nno markers here\n"), 0);
-  assert.equal(lastMirroredSeq("block\n<!-- helm:seq=7 -->\n"), 7);
-  assert.equal(lastMirroredSeq("a\n<!-- helm:seq=7 -->\nb\n<!-- helm:seq=19 -->\nc\n<!-- helm:seq=12 -->\n"), 19);
+test("lastMarker reads the highest marker with its generation, an old marker as generation 0, and nothing as seq 0", () => {
+  assert.deepEqual(lastMarker(""), { seq: 0, generation: 0 });
+  assert.deepEqual(lastMarker("# A note\n\nno markers here\n"), { seq: 0, generation: 0 });
+  assert.deepEqual(lastMarker("block\n<!-- helm:seq=7 -->\n"), { seq: 7, generation: 0 });
+  assert.deepEqual(lastMarker("block\n<!-- helm:seq=7 gen=3 -->\n"), { seq: 7, generation: 3 });
+  assert.deepEqual(lastMarker("a\n<!-- helm:seq=7 -->\nb\n<!-- helm:seq=19 gen=1 -->\nc\n<!-- helm:seq=12 gen=2 -->\n"), { seq: 19, generation: 1 });
 });
 
 test("mirrorPath is one note per thread under inbox/chats", () => {
@@ -178,10 +181,10 @@ test("watch appends one block per completed turn, seeds frontmatter once", async
   assert.match(md, /^tags: \[chat\]$/m);
   assert.match(md, /^# Vault triage$/m, "heading is the title when one is known");
   assert.equal(md.match(/^## /gm)?.length, 2, "two turn blocks");
-  assert.equal(md.match(/<!-- helm:seq=\d+ -->/g)?.length, 2, "two markers");
+  assert.equal(md.match(/<!-- helm:seq=\d+ gen=\d+ -->/g)?.length, 2, "two markers");
   assert.match(md, /first prompt/);
   assert.match(md, /second reply/);
-  assert.equal(lastMirroredSeq(md), secondEnd, "the last marker is the last turn.ended seq");
+  assert.equal(lastMarker(md).seq, secondEnd, "the last marker is the last turn.ended seq");
 
   await rm(h.vault, { recursive: true });
 });
@@ -198,15 +201,15 @@ test("resume catches up a turn the mirror missed, and a second resume is byte id
   // Crash between log and mirror: a third turn lands with nobody watching.
   detach();
   const thirdEnd = await appendTurn(h.log, "m3", "third prompt", "third reply");
-  assert.equal(lastMirroredSeq(before) < thirdEnd, true);
+  assert.equal(lastMarker(before).seq < thirdEnd, true);
 
   const fresh = new Mirror(h.vault, h.store);
   await fresh.resume(h.log);
   const after = await readFile(h.note, "utf8");
   assert.equal(after.match(/^## /gm)?.length, 3, "exactly one new block");
-  assert.equal(after.match(/<!-- helm:seq=\d+ -->/g)?.length, 3);
+  assert.equal(after.match(/<!-- helm:seq=\d+ gen=\d+ -->/g)?.length, 3);
   assert.equal(after.startsWith(before), true, "the existing note is appended to, never rewritten");
-  assert.equal(lastMirroredSeq(after), thirdEnd);
+  assert.equal(lastMarker(after).seq, thirdEnd);
 
   await fresh.resume(h.log);
   assert.equal(await readFile(h.note, "utf8"), after, "a second resume appends nothing");
@@ -284,13 +287,13 @@ test("prune is a no-op when the vault has no chats directory, and creates nothin
 });
 
 test("renderTurn lists a file sent to the phone with its size and note, never its path", () => {
-  const md = renderTurn(turnOf([
+  const md = render([
     ev(1, { kind: "input.queued", clientMsgId: "m9" as ClientMsgId, text: "send me the report", uploads: [], origin }),
     ev(2, { kind: "turn.started", turnId: "t:2" as TurnId, clientMsgId: "m9" as ClientMsgId, model, effort: "low", spawned: false }),
     ev(3, { kind: "file.offered", file: { fileId: "f1" as never, path: "/Users/d/Desktop/report.pdf", name: "report.pdf", mime: "application/pdf", bytes: 2_400_000, note: "the Q3 one" }, origin: { via: "key", label: "model" } }),
     ev(4, { kind: "assistant.text", turnId: "t:2" as TurnId, blockIx: 0, delta: "Sent." }),
     ev(5, { kind: "turn.ended", turnId: "t:2" as TurnId, outcome: "ok", sessionId, usage: null, error: null }),
-  ]));
+  ]);
   assert.match(md, /^> sent to phone: report\.pdf \(2\.4 MB\): the Q3 one$/m);
   assert.ok(!md.includes("/Users/d"), "the path stays out of the vault note");
   assert.match(md, /^Sent\.$/m);
@@ -300,7 +303,7 @@ test("renderTurn writes an ask as what was asked and how it was answered, with e
   const ask = (n: number, askId: string, payload: unknown) => ev(n, { kind: "ask.opened", turnId: "t:2" as TurnId, askId: askId as never, ask: payload as never });
   const answered = (n: number, askId: string, answer: unknown, by: unknown) => ev(n, { kind: "ask.answered", turnId: "t:2" as TurnId, askId: askId as never, answer: answer as never, by: by as never });
   const bash = (command: string) => ({ kind: "tool", toolName: "Bash", input: { command }, toolUseId: "tu" as never, title: null, description: null });
-  const md = renderTurn(turnOf([
+  const md = render([
     ev(1, { kind: "input.queued", clientMsgId: "m9" as ClientMsgId, text: "ship it", uploads: [], origin }),
     ev(2, { kind: "turn.started", turnId: "t:2" as TurnId, clientMsgId: "m9" as ClientMsgId, model, effort: "low", spawned: false }),
     ask(3, "a1", bash("git push")),
@@ -317,7 +320,7 @@ test("renderTurn writes an ask as what was asked and how it was answered, with e
     answered(14, "a6", { kind: "deny", reason: null }, { by: "system", reason: "interrupted" }),
     ask(15, "a7", bash("never answered")),
     ev(16, { kind: "turn.ended", turnId: "t:2" as TurnId, outcome: "interrupted", sessionId, usage: null, error: null }),
-  ]));
+  ]);
   const lines = md.split("\n").filter((l) => l.startsWith("> a"));
   assert.deepEqual(lines, [
     "> asked: Bash git push",
@@ -373,6 +376,44 @@ test("a fork with no session to resume says so, rather than implying Claude reme
 
 test("renderTurn marks the turn someone forked from with a line naming the copy", () => {
   const events = [...fixtureTurn(), ev(12, { kind: "thread.forked.out", to: otherThreadId, toTitle: "Vault triage (fork)", atTurn: "t:4" as TurnId })];
-  const md = renderTurn(turnOf(events));
+  const md = render(events);
   assert.match(md, /^> forked to: Vault triage \(fork\)$/m);
+});
+
+test("a note in generation 0 against a log in generation 1 is rebuilt once, whole, and then appended to", async () => {
+  const h = await harness();
+  const mirror = new Mirror(h.vault, h.store);
+  mirror.watch(h.log);
+  await appendTurn(h.log, "m1", "first prompt", "first reply");
+  await h.log.append({ kind: "input.queued", clientMsgId: "m2" as ClientMsgId, text: "second prompt", uploads: [], origin });
+  const second = await h.log.append((seq) => ({ kind: "turn.started" as const, turnId: `t:${seq}` as TurnId, clientMsgId: "m2" as ClientMsgId, model, effort: "high" as const, spawned: false }));
+  for (const word of ["second ", "re", "ply"]) await h.log.append({ kind: "assistant.text", turnId: second.turnId, blockIx: 0, delta: word });
+  await h.log.append({ kind: "turn.ended", turnId: second.turnId, outcome: "ok", sessionId, usage, error: null });
+  await mirror.idle();
+  const old = await readFile(h.note, "utf8");
+  assert.deepEqual(lastMarker(old).generation, 0);
+
+  assert.equal((await h.log.compact()).ok, true);
+  assert.equal(h.log.getHead().generation, 1);
+  const thirdEnd = await appendTurn(h.log, "m3", "third prompt", "third reply");
+  await mirror.idle();
+
+  const rebuilt = await readFile(h.note, "utf8");
+  assert.equal(rebuilt.match(/^---$/gm)?.length, 2, "frontmatter once");
+  assert.equal(rebuilt.match(/^## /gm)?.length, 3, "every turn exactly once");
+  assert.equal(rebuilt.match(/first reply/g)?.length, 1);
+  assert.equal(rebuilt.match(/second reply/g)?.length, 1);
+  assert.equal(rebuilt.match(/third reply/g)?.length, 1);
+  assert.deepEqual(rebuilt.match(/gen=\d+/g), ["gen=1", "gen=1", "gen=1"], "every marker names the generation the note was written from");
+  assert.deepEqual(lastMarker(rebuilt), { seq: thirdEnd, generation: 1 });
+  assert.equal(rebuilt.startsWith(old), false, "the old note was replaced, not appended to");
+
+  const fourthEnd = await appendTurn(h.log, "m4", "fourth prompt", "fourth reply");
+  await mirror.idle();
+  const appended = await readFile(h.note, "utf8");
+  assert.equal(appended.startsWith(rebuilt), true, "within a generation the note is appended to");
+  assert.equal(appended.match(/^## /gm)?.length, 4);
+  assert.deepEqual(lastMarker(appended), { seq: fourthEnd, generation: 1 });
+
+  await rm(h.vault, { recursive: true });
 });

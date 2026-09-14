@@ -14,6 +14,9 @@
  * disk, and the corpus is held for the life of the process.
  *
  * Invariants
+ *   S0. A corpus counts seqs in one log generation. When the log has moved
+ *       on (compaction), the corpus is folded again from nothing rather
+ *       than extended: its seqs name positions that no longer exist.
  *   S1. `done` holds one TurnText per ended turn, in end order, and never
  *       changes again. `live` holds only turns that can still gain text,
  *       so the next extend folds onto the smallest possible prefix. An
@@ -26,8 +29,8 @@
  *       in-flight promise, so an event is never folded twice.
  */
 
-import { mergeRanges, seqOfTurnId } from "../../shared/protocol";
-import type { ClientMsgId, Cursor, MatchRange, Seq, ThreadConfig, ThreadId, TurnId } from "../../shared/protocol";
+import { FIRST_GENERATION, mergeRanges, seqOfTurnId } from "../../shared/protocol";
+import type { ClientMsgId, Cursor, Generation, MatchRange, Seq, ThreadConfig, ThreadId, TurnId } from "../../shared/protocol";
 import { foldTurn, type Turn } from "../../shared/turns";
 import type { LogRegistry, ThreadLog } from "./log";
 
@@ -38,6 +41,8 @@ export interface TurnText {
 }
 
 export interface Corpus {
+  /** The log generation `headSeq` and every seq below count in (S0). */
+  readonly generation: Generation;
   readonly headSeq: Cursor;
   readonly done: readonly TurnText[];
   readonly live: readonly Turn[];
@@ -66,7 +71,7 @@ const SNIPPET_CHARS = 160;
 const WORD_START = "(?<![\\p{L}\\p{N}_])";
 const TOKEN = /"([^"]*)"|(\S+)/g;
 
-const emptyCorpus: Corpus = { headSeq: 0, done: [], live: [], promptSeq: new Map(), doneIds: new Set() };
+const emptyCorpus: Corpus = { generation: FIRST_GENERATION, headSeq: 0, done: [], live: [], promptSeq: new Map(), doneIds: new Set() };
 
 /** A double-quoted span is one term, whatever whitespace it holds. */
 export function parseQuery(q: string): readonly string[] {
@@ -196,9 +201,12 @@ export class ThreadSearch {
 
   private async fold(threadId: ThreadId): Promise<Corpus> {
     const log = await this.logs.get(threadId);
-    const have = this.cached.get(threadId);
-    if (have && log.getHead().lastSeq <= have.headSeq) return have;
-    const next = await extend(have ?? emptyCorpus, log);
+    // One read of the head: a compaction landing between two reads would label an old-generation prefix with the new number.
+    const { generation, lastSeq } = log.getHead();
+    const cached = this.cached.get(threadId);
+    const have = cached && cached.generation === generation ? cached : undefined;
+    if (have && lastSeq <= have.headSeq) return have;
+    const next = await extend(have ?? { ...emptyCorpus, generation }, log);
     this.cached.set(threadId, next);
     return next;
   }
@@ -229,5 +237,5 @@ async function extend(base: Corpus, log: ThreadLog): Promise<Corpus> {
     if (turn.turnId) doneIds.add(turn.turnId);
     if (turn.prompt) promptSeq.delete(turn.prompt.clientMsgId);
   }
-  return { headSeq, done, live: open, promptSeq, doneIds };
+  return { generation: base.generation, headSeq, done, live: open, promptSeq, doneIds };
 }

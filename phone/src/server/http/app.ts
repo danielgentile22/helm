@@ -26,13 +26,14 @@
  *   POST   /api/threads/:id/send                                 -> SendResponse
  *   POST   /api/threads/:id/fork   {turnId}                      -> 201 the fork's ThreadSummary; 404 no thread or turn; 409 the turn is still running
  *   POST   /api/threads/:id/interrupt                            -> 204 always
+ *   POST   /api/threads/:id/compact                              -> 204 compacted or nothing to compact; 409 a viewer is attached or a turn is running
  *   POST   /api/threads/:id/answer                               -> 204; 409 already answered or expired; 404 unknown ask; 400 wrong shape
  *   GET    /api/threads/:id/commands                             -> { commands: SlashCommand[] }
  *   POST   /api/threads/:id/commands/reload                      -> { commands: SlashCommand[] } (rediscovers skills)
  *   POST   /api/threads/:id/uploads   (raw body, one file, Content-Length capped) -> StagedUpload[]
  *   GET    /api/threads/:id/uploads/:uploadId                    -> the staged bytes, inline
  *   GET    /api/threads/:id/files/:fileId                        -> bytes of a file the model offered, inline
- *   GET    /api/threads/:id/events?after=N   (SSE, cookie or key) -> ThreadEvent stream
+ *   GET    /api/threads/:id/events?after=N&gen=G (SSE, cookie or key) -> ThreadEvent stream; X-Helm-Generation header; a stale gen gets one sync and ends
  *   GET    /api/events                        (SSE)              -> global fan-in
  *   GET    /api/dirs?path=...                                    -> DirEntry[] (within browseRoots)
  *   GET    /api/push/key                                         -> VAPID public key
@@ -355,6 +356,15 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     return c.body(null, 204);
   });
 
+  app.post("/api/threads/:id/compact", async (c) => {
+    const t = await thread(c);
+    if (t instanceof Response) return t;
+    const r = await deps.supervisor.compact(t.threadId);
+    if (r === "viewer") return fail(c, 409, "a viewer is attached");
+    if (r === "running") return fail(c, 409, "a turn is running");
+    return c.body(null, 204);
+  });
+
   /** The route's origin, with the same optional label override /send takes. */
   const originFor = (c: Context<Env>, label: string | undefined): Origin => {
     const base = c.get("origin");
@@ -439,7 +449,7 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     if (t instanceof Response) return t;
     const cur = cursorFrom(new URL(c.req.url), c.req.header("last-event-id") ?? null);
     if (!cur.ok) return fail(c, 400, "bad cursor");
-    return respondThread(c, t.log, deps.supervisor, cur.after, deps.heartbeatMs);
+    return respondThread(c, t.log, deps.supervisor, cur.after, cur.generation, deps.heartbeatMs);
   });
 
   app.get("/api/events", (c) => respondGlobal(c, deps.logs, deps.heartbeatMs));

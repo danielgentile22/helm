@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { FIRST_GENERATION } from "../shared/protocol";
 import type { Seq, ThreadEvent, ThreadId, TurnId } from "../shared/protocol";
 import { applySync, emptyView, foldAll, type ThreadView } from "./fold";
 import { answerLine, diffLines, jumpCount, summarize, toBlocks as toSections, toolDiff, type Block, type Section } from "./transcript";
@@ -40,7 +41,7 @@ const ended = (outcome = "ok", durationMs = 42_000, error: string | null = null)
 /** Fold the events, then mark the stream live with the turn left open or closed. */
 function build(events: ThreadEvent[], openTurn: TurnId | null): ThreadView {
   const view = foldAll(emptyView({ threadId: threadId, cwd: "/v", model: "m" as never, effort: "high", permissionMode: "ask", title: null, createdAt: "", archivedAt: null }), events);
-  return applySync(view, { headSeq: view.headSeq, session: openTurn ? "running" : "idle", openTurn, queuedCount: 0 });
+  return applySync(view, { headSeq: view.headSeq, generation: FIRST_GENERATION, session: openTurn ? "running" : "idle", openTurn, queuedCount: 0 });
 }
 
 const toBlocks = (view: ThreadView): readonly Block[] => toSections(view).flatMap((s) => s.blocks);

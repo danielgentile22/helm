@@ -6,14 +6,15 @@
  * File: ~/.helm2/threads/<threadId>/events.jsonl, one ThreadEvent per line.
  *
  * Invariants
- *   I1. seq is contiguous from 1. append() assigns lastSeq + 1 under a
- *       per-instance serial queue; there is exactly one ThreadLog instance
- *       per thread per process (LogRegistry enforces it). The one other
- *       minter is stampEvents, for a log written whole (a fork) before any
- *       instance or subscriber exists.
- *   I2. An event is emitted to subscribers only after its line has been
- *       fully written to the file. So anything a subscriber has seen is on
- *       disk, and anything on disk with seq > cursor is returned by read().
+ *   I1. Within a generation, seq is contiguous from 1. append() assigns
+ *       lastSeq + 1 under a per-instance serial queue; there is exactly one
+ *       ThreadLog instance per thread per process (LogRegistry enforces it).
+ *       The one other minter is renumber, for a log written whole (a fork,
+ *       a compaction) before any subscriber can see it.
+ *   I2. Within a generation, an event is emitted to subscribers only after
+ *       its line has been fully written to the file. So anything a
+ *       subscriber has seen is on disk, and anything on disk with
+ *       seq > cursor is returned by read().
  *   I3. The file's last line may be torn (crash mid-write). open() truncates
  *       to the last complete line. This is the only place the log is ever
  *       shortened, and it can only drop an event nobody was told about (I2).
@@ -25,18 +26,27 @@
  *       the second time.
  *   I5. The pending ask set is a fold: `ask.opened` minus `ask.answered`,
  *       cleared by `turn.ended`. There is no other record of it.
+ *   I6. The generation is the log's first line when that line is
+ *       log.generation, else 0. Compaction is the only thing that changes
+ *       it, and it rewrites the whole file through a temp file and one
+ *       rename, so a log is always in exactly one generation. Seqs are
+ *       contiguous from 1 within a generation. A cursor without its
+ *       generation is only meaningful at 0. compact() refuses while a
+ *       viewer is attached; the supervisor adds the no-open-turn half (S8),
+ *       since only it knows whether a process is warming.
  */
 
 import { createReadStream } from "node:fs";
-import { appendFile, mkdir, open as fsOpen, readdir, readFile, stat, truncate, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, open as fsOpen, readdir, readFile, rename, rm, stat, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { addUsage, LIMITS } from "../../shared/protocol";
+import { addUsage, FIRST_GENERATION, LIMITS, turnIdFor } from "../../shared/protocol";
 import type {
   AskId,
   ClaudeSessionId,
   ClientMsgId,
   Cursor,
   ForkResume,
+  Generation,
   PendingAsk,
   Seq,
   ThreadEvent,
@@ -51,6 +61,17 @@ import type {
 /** Derived from the tail of the log by open(); never stored. */
 export interface ThreadHead {
   readonly lastSeq: Cursor;
+  /** Which numbering `lastSeq` counts in (I6). */
+  readonly generation: Generation;
+  /**
+   * Delta events whose immediately preceding event is a delta with the same
+   * key (turn and block for text, turn for thinking). The open turn's runs
+   * count too, so this is the number of lines compaction would remove once
+   * the turn ends, which is the only time it runs.
+   */
+  readonly collapsible: number;
+  /** The key of the last event when it was a delta, else null; what `collapsible` counts against. */
+  readonly lastDeltaKey: string | null;
   readonly sessionId: ClaudeSessionId | null;
   /**
    * The fork's first spawn resumes this session at this message uuid. Set by
@@ -97,13 +118,20 @@ export type SubscriberKind = "viewer" | "projection";
 
 const RECENT_IDS = 64;
 const FILE = "events.jsonl";
+/** Where a compaction is written before the rename; a leftover is a crash before it. */
+const COMPACTING = `${FILE}.compacting`;
 
-const emptyHead: ThreadHead = { lastSeq: 0, sessionId: null, fork: null, openTurn: null, queued: [], recentClientMsgIds: new Map(), lastTurnEndedAt: null, lastOutcome: null, contextTokens: null, activeTool: null, lastText: null, usageTotal: null, contextWindow: null, pendingAsks: [], recentAskIds: new Set() };
+const emptyHead: ThreadHead = { lastSeq: 0, generation: FIRST_GENERATION, collapsible: 0, lastDeltaKey: null, sessionId: null, fork: null, openTurn: null, queued: [], recentClientMsgIds: new Map(), lastTurnEndedAt: null, lastOutcome: null, contextTokens: null, activeTool: null, lastText: null, usageTotal: null, contextWindow: null, pendingAsks: [], recentAskIds: new Set() };
 
 /** Pure: the head after one more event. */
 function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
-  let { sessionId, fork, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds } = h;
+  let { generation, collapsible, sessionId, fork, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds } = h;
+  const key = ev.kind === "assistant.text" || ev.kind === "assistant.thinking" ? deltaKey(ev) : null;
+  if (key !== null && key === h.lastDeltaKey) collapsible += 1;
   switch (ev.kind) {
+    case "log.generation":
+      generation = ev.generation;
+      break;
     case "session.bound":
       sessionId = ev.sessionId;
       fork = null;
@@ -166,28 +194,91 @@ function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
       queued = [];
       break;
   }
-  return { lastSeq: ev.seq, sessionId, fork, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds };
+  return { lastSeq: ev.seq, generation, collapsible, lastDeltaKey: key, sessionId, fork, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds };
 }
 
 type DeltaBody = Extract<ThreadEventBody, { kind: "assistant.text" | "assistant.thinking" }>;
 
-function isDelta(body: ThreadEventBody | ((seq: Seq) => ThreadEventBody)): boolean {
+function isDelta(body: ThreadEventBody | ((seq: Seq) => ThreadEventBody)): body is DeltaBody {
   return typeof body !== "function" && (body.kind === "assistant.text" || body.kind === "assistant.thinking");
 }
 
+/** Two consecutive deltas with the same key fold into one block, so they are one line after compaction. */
 function deltaKey(b: DeltaBody): string {
   return b.kind === "assistant.text" ? `${b.turnId}:${b.blockIx}` : `${b.turnId}:thinking`;
 }
 
 /**
  * Stamp a run of bodies as a whole log, seqs 1..n. The only way to mint seqs
- * outside append(), and it exists so a forked log is written in one go rather
- * than appended event by event into a thread nobody can see yet. Timestamps
- * come in with the bodies: a copied event keeps the ts it happened at.
+ * outside append(), for a log written in one go (a fork, a compaction) rather
+ * than appended event by event. Timestamps come in with the bodies: a copied
+ * event keeps the ts it happened at. A TurnId is `t:<seq of its turn.started>`,
+ * so every turn.started takes the id of its new seq and every event naming a
+ * turn of this log follows it; `thread.forked.atTurn` names a turn of the
+ * source thread and is left alone. An id with no turn.started here is kept.
  */
-export function stampEvents(bodies: readonly (ThreadEventBody & { ts: string })[]): ThreadEvent[] {
-  return bodies.map(({ ts, ...body }, i) => ({ seq: (i + 1) as Seq, ts, ...body }) as ThreadEvent);
+export function renumber(bodies: readonly (ThreadEventBody & { ts: string })[]): ThreadEvent[] {
+  const turnIds = new Map<TurnId, TurnId>();
+  const mapped = (id: TurnId): TurnId => turnIds.get(id) ?? id;
+  return bodies.map(({ ts, ...body }, i) => {
+    const seq = (i + 1) as Seq;
+    let b: ThreadEventBody = body;
+    if (b.kind === "turn.started") {
+      const turnId = turnIdFor(seq);
+      turnIds.set(b.turnId, turnId);
+      b = { ...b, turnId };
+    } else if (b.kind === "thread.forked.out") {
+      b = { ...b, atTurn: mapped(b.atTurn) };
+    } else if ("turnId" in b) {
+      b = { ...b, turnId: mapped(b.turnId) };
+    }
+    return { seq, ts, ...b } as ThreadEvent;
+  });
 }
+
+export interface Compacted {
+  readonly events: ThreadEvent[];
+  /** Old seq to new seq for every kept event; a delta absorbed into an earlier one has no entry. */
+  readonly seqMap: ReadonlyMap<Seq, Seq>;
+  /** Delta lines merged away. 0 means the input came back untouched. */
+  readonly removed: number;
+}
+
+/**
+ * Pure. The same log one generation on: every completed turn's runs of
+ * consecutive same-key deltas become one delta each, everything else is kept
+ * in order, and the whole is renumbered behind a `log.generation` at seq 1.
+ * Everything after the last turn.ended is copied as is (renumbered only).
+ * Only strictly consecutive deltas merge, which is exactly the merge the turn
+ * fold makes, so the fold of the output is the fold of the input.
+ */
+export function compactEvents(events: readonly ThreadEvent[], generation: Generation, now: string): Compacted {
+  const lastEnd = events.findLastIndex((ev) => ev.kind === "turn.ended");
+  const out: { body: ThreadEventBody & { ts: string }; firstSeq: Seq | null; lastIx: number }[] = [{ body: { kind: "log.generation", generation, ts: now }, firstSeq: null, lastIx: -1 }];
+  let removed = 0;
+  events.forEach((ev, ix) => {
+    const { seq, ...body } = ev;
+    if (body.kind === "log.generation") return;
+    const prev = out[out.length - 1]!;
+    const { ts: _ts, ...prevBody } = prev.body;
+    if (ix <= lastEnd && isDelta(body) && prev.lastIx === ix - 1 && isDelta(prevBody) && deltaKey(prevBody) === deltaKey(body)) {
+      prev.body = { ...prevBody, delta: prevBody.delta + body.delta, ts: prev.body.ts };
+      prev.lastIx = ix;
+      removed += 1;
+      return;
+    }
+    out.push({ body, firstSeq: seq, lastIx: ix });
+  });
+  if (removed === 0) return { events: [...events], seqMap: new Map(events.map((ev) => [ev.seq, ev.seq])), removed };
+  const renumbered = renumber(out.map((o) => o.body));
+  const seqMap = new Map<Seq, Seq>();
+  out.forEach((o, i) => {
+    if (o.firstSeq !== null) seqMap.set(o.firstSeq, renumbered[i]!.seq);
+  });
+  return { events: renumbered, seqMap, removed };
+}
+
+export type CompactResult = { ok: true; removed: number; generation: Generation } | { ok: false; reason: "viewer" | "nothing" };
 
 /** Write a whole events.jsonl in the shape append() writes it, one event per line. */
 export async function writeLogFile(dir: string, events: readonly ThreadEvent[]): Promise<void> {
@@ -216,6 +307,7 @@ export class ThreadLog {
   static async open(threadId: ThreadId, dir: string): Promise<ThreadLog> {
     await mkdir(dir, { recursive: true });
     const path = join(dir, FILE);
+    await rm(join(dir, COMPACTING), { force: true });
     const fh = await fsOpen(path, "a");
     await fh.close();
 
@@ -322,6 +414,44 @@ export class ThreadLog {
     clearTimeout(p.timer);
     this.pendingDelta = null;
     this.append(p.body).catch((err) => console.error(`[log] ${this.threadId}: delta append failed`, err));
+  }
+
+  /**
+   * Move the log to its next generation with every completed turn's delta
+   * runs merged (I6). Runs on the serial queue so no append interleaves, and
+   * refuses while a viewer is attached: a viewer's cursor would die with the
+   * generation. Nothing is emitted; projections are generation-aware and
+   * rebuild when they notice the head's generation moved. Not atomicWrite:
+   * the temp file is fsynced before the rename, and its name is fixed so
+   * open() can delete a leftover.
+   */
+  compact(): Promise<CompactResult> {
+    this.kickDelta();
+    const run = this.queue.then(async (): Promise<CompactResult> => {
+      if (this.viewerCount() > 0) return { ok: false, reason: "viewer" };
+      const { events } = scan(await readFile(this.path));
+      const generation = (this.head.generation + 1) as Generation;
+      const compacted = compactEvents(events, generation, new Date().toISOString());
+      if (compacted.removed === 0) return { ok: false, reason: "nothing" };
+      const text = compacted.events.map((ev) => JSON.stringify(ev) + "\n").join("");
+      const tmp = join(this.path, "..", COMPACTING);
+      const fh = await fsOpen(tmp, "w");
+      try {
+        await fh.writeFile(text);
+        await fh.sync();
+      } finally {
+        await fh.close();
+      }
+      await rename(tmp, this.path);
+      let head = emptyHead;
+      for (const ev of compacted.events) head = advance(head, ev);
+      this.head = head;
+      this.bytes = Buffer.byteLength(text);
+      console.log(`[log] ${this.threadId}: compacted to generation ${generation}, removed ${compacted.removed} lines`);
+      return { ok: true, removed: compacted.removed, generation };
+    });
+    this.queue = run.catch(() => undefined);
+    return run;
   }
 
   /**

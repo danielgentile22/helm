@@ -13,22 +13,22 @@
  *       events.jsonl are both complete on disk.
  *   F2. Copied events keep their original `ts` and take fresh contiguous seqs
  *       from 2. Because a TurnId is `t:<seq of its turn.started>`, every
- *       copied turn id is remapped to its new seq, so no id dangles.
+ *       copied turn id is remapped to its new seq (log renumber), so no id
+ *       dangles.
  *   F3. Forking is not idempotent by design: two calls make two forks.
  */
 
 import { randomUUID } from "node:crypto";
 import { mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
-import { turnIdFor } from "../../shared/protocol";
-import type { ClaudeSessionId, ClientMsgId, ForkResume, Seq, ThreadConfig, ThreadEvent, ThreadEventBody, ThreadId, TurnId } from "../../shared/protocol";
+import type { ClaudeSessionId, ClientMsgId, ForkResume, ThreadConfig, ThreadEvent, ThreadEventBody, ThreadId, TurnId } from "../../shared/protocol";
 import { atomicWrite } from "../util/atomicWrite";
 import type { LogRegistry } from "./log";
-import { stampEvents, writeLogFile } from "./log";
+import { renumber, writeLogFile } from "./log";
 import type { ThreadStore } from "./thread-store";
 
-/** Never copied into the fork: the source's own identity, its archive, and its outbound fork links. */
-const SKIPPED: ReadonlySet<ThreadEvent["kind"]> = new Set(["thread.created", "thread.archived", "thread.forked.out"]);
+/** Never copied into the fork: the source's own identity, its generation, its archive, and its outbound fork links. */
+const SKIPPED: ReadonlySet<ThreadEvent["kind"]> = new Set(["thread.created", "log.generation", "thread.archived", "thread.forked.out"]);
 
 export type ForkResult = { ok: true; config: ThreadConfig } | { ok: false; reason: "no-thread" | "no-turn" | "turn-open" };
 
@@ -49,22 +49,11 @@ export function forkedEvents(source: readonly ThreadEvent[], atTurn: TurnId, con
   for (const ev of range) if (ev.kind === "turn.started") started.add(ev.clientMsgId);
 
   const bodies: (ThreadEventBody & { ts: string })[] = [{ kind: "thread.created", config, ts: now }];
-  const turnIds = new Map<TurnId, TurnId>();
   for (const ev of range) {
     if (SKIPPED.has(ev.kind)) continue;
     if (ev.kind === "input.queued" && !started.has(ev.clientMsgId)) continue;
     const { seq: _seq, ...body } = ev;
-    if (body.kind === "turn.started") {
-      const turnId = turnIdFor((bodies.length + 1) as Seq);
-      turnIds.set(body.turnId, turnId);
-      bodies.push({ ...body, turnId });
-    } else if ("turnId" in body) {
-      const turnId = turnIds.get(body.turnId);
-      if (!turnId) throw new Error(`fork: ${body.kind} at seq ${ev.seq} names ${body.turnId}, which has no turn.started in the copied range`);
-      bodies.push({ ...body, turnId });
-    } else {
-      bodies.push(body);
-    }
+    bodies.push(body);
   }
 
   bodies.push({
@@ -75,7 +64,7 @@ export function forkedEvents(source: readonly ThreadEvent[], atTurn: TurnId, con
     resume: resumeFrom(range, source[endIx] as Extract<ThreadEvent, { kind: "turn.ended" }>),
     ts: now,
   });
-  return stampEvents(bodies);
+  return renumber(bodies);
 }
 
 /** The source's title as it stood at the fork point, which is what the divider should name. */
