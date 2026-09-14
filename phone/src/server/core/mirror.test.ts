@@ -51,6 +51,12 @@ const usage: Usage = {
 
 const turnOf = (events: ThreadEvent[]) => groupTurns(events).filter(isCompleted)[0]!;
 
+async function readEvents(log: ThreadLog): Promise<ThreadEvent[]> {
+  const out: ThreadEvent[] = [];
+  for await (const e of log.read(0)) out.push(e);
+  return out;
+}
+
 /** A fixture turn: two text blocks, a thinking delta, one failed tool call, an error outcome. */
 function fixtureTurn(): ThreadEvent[] {
   return [
@@ -328,4 +334,44 @@ test("renderTurn writes an ask as what was asked and how it was answered, with e
     "> asked: Bash never answered",
     "> answered: (none)",
   ]);
+});
+
+test("a fork's note opens by naming where it came from, so it does not read as a duplicated conversation", async () => {
+  const h = await harness();
+  const mirror = new Mirror(h.vault, h.store);
+  const end = await appendTurn(h.log, "m1", "copied prompt", "copied reply");
+  const forkPoint = (await readEvents(h.log)).find((e) => e.seq === end)!.ts;
+  await h.log.append({ kind: "thread.forked", from: otherThreadId, fromTitle: "Vault triage", atTurn: "t:9" as TurnId, resume: { sessionId, at: "msg-1" } });
+  await mirror.resume(h.log);
+
+  const md = await readFile(h.note, "utf8");
+  assert.match(md, new RegExp(`^forked_from: "${otherThreadId}"$`, "m"), "the frontmatter names the source thread");
+  const body = md.split("\n# ")[1]!;
+  assert.match(body, new RegExp(`copied from \\[\\[${otherThreadId}\\|Vault triage\\]\\]`), "the source is an Obsidian wikilink to its own note");
+  assert.match(body, new RegExp(`forked at ${forkPoint}`), "the fork point is the stamp of the last copied turn.ended");
+  assert.match(body, /remembers the turns above/, "a fork with a session to resume says Claude carries the copied turns");
+  assert.ok(body.indexOf("copied from") < body.indexOf("## "), "the sentence is the first body line, above the copied turns");
+
+  await rm(h.vault, { recursive: true });
+});
+
+test("a fork with no session to resume says so, rather than implying Claude remembers the copied turns", async () => {
+  const h = await harness();
+  const mirror = new Mirror(h.vault, h.store);
+  await appendTurn(h.log, "m1", "copied prompt", "copied reply");
+  await h.log.append({ kind: "thread.forked", from: otherThreadId, fromTitle: null, atTurn: "t:9" as TurnId, resume: null });
+  await mirror.resume(h.log);
+
+  const md = await readFile(h.note, "utf8");
+  assert.match(md, new RegExp(`\\[\\[${otherThreadId}\\|${otherThreadId}\\]\\]`), "an untitled source is linked by its id");
+  assert.match(md, /does not remember the turns above/);
+  assert.ok(!md.includes("—") && !md.includes("–"), "no dashes as sentence punctuation in vault prose");
+
+  await rm(h.vault, { recursive: true });
+});
+
+test("renderTurn marks the turn someone forked from with a line naming the copy", () => {
+  const events = [...fixtureTurn(), ev(12, { kind: "thread.forked.out", to: otherThreadId, toTitle: "Vault triage (fork)", atTurn: "t:4" as TurnId })];
+  const md = renderTurn(turnOf(events));
+  assert.match(md, /^> forked to: Vault triage \(fork\)$/m);
 });

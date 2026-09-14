@@ -64,8 +64,8 @@ export function threadStream(log: ThreadLog, supervisor: Supervisor, after: Curs
   return out.chunks;
 }
 
-/** Thread boundaries plus ask events, so the list row moves into and out of "waiting". */
-const GLOBAL_KINDS = new Set<ThreadEvent["kind"]>(["thread.created", "thread.config", "thread.archived", "turn.started", "turn.ended", "input.queued", "ask.opened", "ask.answered"]);
+/** Thread boundaries plus ask events, so the list row moves into and out of "waiting", plus both halves of a fork, so a new one shows up in the list. */
+const GLOBAL_KINDS = new Set<ThreadEvent["kind"]>(["thread.created", "thread.config", "thread.archived", "thread.forked", "thread.forked.out", "turn.started", "turn.ended", "input.queued", "ask.opened", "ask.answered"]);
 
 /**
  * GET /api/events   (global, not persisted)

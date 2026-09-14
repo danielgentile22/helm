@@ -24,6 +24,7 @@
  *   PATCH  /api/threads/:id                                      -> reconfigure (model/effort/title/permissionMode)
  *   DELETE /api/threads/:id                                      -> archive
  *   POST   /api/threads/:id/send                                 -> SendResponse
+ *   POST   /api/threads/:id/fork   {turnId}                      -> 201 the fork's ThreadSummary; 404 no thread or turn; 409 the turn is still running
  *   POST   /api/threads/:id/interrupt                            -> 204 always
  *   POST   /api/threads/:id/answer                               -> 204; 409 already answered or expired; 404 unknown ask; 400 wrong shape
  *   GET    /api/threads/:id/commands                             -> { commands: SlashCommand[] }
@@ -50,7 +51,7 @@ import { extname, join, normalize, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { DEFAULT_EFFORT, EFFORTS, LIMITS, PERMISSION_MODES, THEMES } from "../../shared/protocol";
+import { DEFAULT_EFFORT, EFFORTS, LIMITS, PERMISSION_MODES, seqOfTurnId, THEMES } from "../../shared/protocol";
 import type {
   AnswerRequest,
   AskAnswer,
@@ -71,9 +72,11 @@ import type {
   ThreadConfigPatch,
   ThreadId,
   ThreadSummary,
+  TurnId,
 } from "../../shared/protocol";
 import type { AgentFactory } from "../core/agent";
 import { modelCatalog, parseModelId } from "../core/agent";
+import type { Forks } from "../core/fork";
 import { parseQuery, ThreadSearch } from "../core/search";
 import { threadSummary } from "../core/summary";
 import type { LogRegistry, ThreadLog } from "../core/log";
@@ -100,6 +103,7 @@ export interface AppDeps {
   readonly threads: ThreadStore;
   readonly logs: LogRegistry;
   readonly supervisor: Supervisor;
+  readonly forks: Forks;
   readonly agents: AgentFactory;
   readonly uploads: Uploads;
   readonly offers: Offers;
@@ -134,7 +138,7 @@ const MIME: Record<string, string> = {
 
 export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Response> } {
   const app = new Hono<Env>();
-  const fail = (c: Context, status: 400 | 401 | 403 | 404 | 413 | 500 | 503, error: string): Response => c.json({ error }, status);
+  const fail = (c: Context, status: 400 | 401 | 403 | 404 | 409 | 413 | 500 | 503, error: string): Response => c.json({ error }, status);
 
   // ---- auth doors -------------------------------------------------------
 
@@ -250,7 +254,7 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
   app.get("/api/threads", async (c) => {
     const configs = await deps.threads.list({ includeArchived: c.req.query("archived") === "1" });
     const out = await Promise.all(configs.map(async (cfg) => summary(await deps.logs.get(cfg.threadId), cfg)));
-    out.sort((a, b) => (b.lastTurnEndedAt ?? b.config.createdAt).localeCompare(a.lastTurnEndedAt ?? a.config.createdAt));
+    out.sort((a, b) => recency(b).localeCompare(recency(a)));
     return c.json(out);
   });
 
@@ -331,6 +335,17 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     }
     const res = await deps.supervisor.send(t.threadId, { clientMsgId: parsed.value.clientMsgId, text: parsed.value.text, uploads, origin: originFor(c, parsed.value.label) });
     return c.json(res, res.accepted ? 200 : 409);
+  });
+
+  app.post("/api/threads/:id/fork", async (c) => {
+    const t = await thread(c);
+    if (t instanceof Response) return t;
+    if (bodyTooLarge(c.req.raw.headers, LIMITS.SEND_BODY_BYTES)) return fail(c, 413, "body too large");
+    const parsed = parseFork(await json(c));
+    if (!parsed.ok) return fail(c, parsed.status, parsed.error);
+    const r = await deps.forks.fork(t.threadId, parsed.value);
+    if (!r.ok) return r.reason === "turn-open" ? fail(c, 409, "that turn is still running") : fail(c, 404, r.reason === "no-thread" ? "no such thread" : "no such turn");
+    return c.json(summary(await deps.logs.get(r.config.threadId), r.config), 201);
   });
 
   app.post("/api/threads/:id/interrupt", async (c) => {
@@ -489,6 +504,25 @@ type Parsed<T> = { ok: true; value: T } | { ok: false; status: 400 | 413; error:
 
 /** A client-minted id: uuid-like, so it is safe as a path segment and a filename. */
 const ID_RE = /^[a-f0-9-]{8,40}$/i;
+
+/**
+ * A fresh fork's copied turn ends are older than the fork itself, and a brand
+ * new thread has no turn end at all, so the list sorts on whichever of the two
+ * stamps is later.
+ */
+function recency(s: ThreadSummary): string {
+  const ended = s.lastTurnEndedAt;
+  return ended && ended > s.config.createdAt ? ended : s.config.createdAt;
+}
+
+/** The turn to fork at. `t:<n>` is the only spelling of a TurnId, so this is where a raw string becomes one. */
+export function parseFork(body: unknown): Parsed<TurnId> {
+  if (!isRecord(body)) return { ok: false, status: 400, error: "body must be a JSON object" };
+  if (typeof body.turnId !== "string") return { ok: false, status: 400, error: "turnId must be a string" };
+  const seq = seqOfTurnId(body.turnId as TurnId);
+  if (seq === null || seq < 1) return { ok: false, status: 400, error: "turnId must look like t:<seq>" };
+  return { ok: true, value: body.turnId as TurnId };
+}
 
 export function parseSend(body: unknown): Parsed<SendRequest & { clientMsgId: ClientMsgId }> {
   if (!isRecord(body)) return { ok: false, status: 400, error: "body must be a JSON object" };
