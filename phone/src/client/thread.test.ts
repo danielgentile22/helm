@@ -68,7 +68,7 @@ test("a shorter server log resets the view and the stream together: the phone re
   await tick();
   const second = es();
   assert.notEqual(second, first);
-  assert.equal(second.url, "http://x/api/threads/t-1/events?after=0");
+  assert.equal(second.url, "http://x/api/threads/t-1/events?after=0&gen=0", "a reset replays from zero in the generation the frame named");
   assert.equal(session.conn, "connecting");
   second.open();
   for (const e of log.slice(0, 3)) second.send(e);
@@ -86,7 +86,7 @@ test("a gap in the stream reconnects from the last seen seq without touching the
   first.send(log[4]!);
   assert.equal(session.view.headSeq, 3, "the out-of-order event never reached the fold");
   await tick();
-  assert.equal(es().url, "http://x/api/threads/t-1/events?after=3");
+  assert.equal(es().url, "http://x/api/threads/t-1/events?after=3&gen=0", "the reconnect names the generation learned from seq 1");
   assert.equal(session.conn, "replaying");
   session.stop();
 });
