@@ -23,6 +23,16 @@ export type Cursor = Seq | 0;
 export type ThreadId = Brand<string, "ThreadId">;
 /** Minted at the `turn.started` append; equals `t:<seq of that append>`. */
 export type TurnId = Brand<string, "TurnId">;
+
+/** `t:<seq>` of the turn.started event; derivable from the log so a TurnId can never dangle. The one place the spelling lives. */
+export function turnIdFor(seq: Seq): TurnId {
+  return `t:${seq}` as TurnId;
+}
+
+export function seqOfTurnId(id: TurnId): Seq | null {
+  const m = id.match(/^t:(\d+)$/);
+  return m ? (Number(m[1]) as Seq) : null;
+}
 /** Client-minted idempotency key for send(). */
 export type ClientMsgId = Brand<string, "ClientMsgId">;
 /** Claude Code session id, as reported by the SDK's `system.init` message. */
@@ -427,6 +437,29 @@ export interface ThreadSummary {
   readonly contextWindow: number | null;
   /** A turn is open and blocked on an unanswered ask. Distinct from running: the process is waiting, not working. */
   readonly waiting: boolean;
+}
+
+/** Where a search term matched inside a snippet: `[start, end)` offsets, so the client draws the highlight and the server sends no markup. */
+export type MatchRange = readonly [start: number, end: number];
+
+/** Sorted and non-overlapping. Touching ranges stay separate: two adjacent hits are two hits. */
+export function mergeRanges(ranges: readonly MatchRange[]): MatchRange[] {
+  const sorted = [...ranges].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const out: MatchRange[] = [];
+  for (const [start, end] of sorted) {
+    const last = out[out.length - 1];
+    if (last && start < last[1]) out[out.length - 1] = [last[0], Math.max(last[1], end)];
+    else out.push([start, end]);
+  }
+  return out;
+}
+
+/** One thread in a search result. `seq` is the turn boundary of the best matching turn, or null when only the title matched. */
+export interface SearchHit {
+  readonly summary: ThreadSummary;
+  readonly seq: Seq | null;
+  readonly snippet: string;
+  readonly ranges: readonly MatchRange[];
 }
 
 export interface DirEntry {

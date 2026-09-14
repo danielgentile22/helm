@@ -47,9 +47,8 @@ import type {
 } from "../../shared/protocol";
 import type { AgentEvent, AgentFactory, AgentSession } from "./agent";
 import { PHONE_APPENDIX } from "./agent";
-import { answerFits } from "../../shared/protocol";
+import { answerFits, turnIdFor } from "../../shared/protocol";
 import { MODEL_ORIGIN, type Offers } from "./offers";
-import { turnIdFor } from "./log";
 import type { LogRegistry, ThreadLog } from "./log";
 import type { ThreadStore } from "./thread-store";
 

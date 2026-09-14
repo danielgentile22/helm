@@ -74,7 +74,7 @@
 <div class="transcript" onclick={onCopy}>
   {#each sections as section (section.key)}
     {@const live = section.turnId !== null && section.turnId === openTurn}
-    <section class="turn" class:is-live={live}>
+    <section class="turn" class:is-live={live} data-turn={section.turnId}>
       {#if live}<span class="rail" aria-hidden="true"><i></i></span>{/if}
       {#each section.blocks as block (block.key)}
         <div class="blk blk-{block.kind}" data-glyph={GLYPH[block.kind]} use:enters>

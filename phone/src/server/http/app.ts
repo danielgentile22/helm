@@ -18,6 +18,7 @@
  *   GET    /api/settings                                         -> HelmSettings
  *   PATCH  /api/settings                                         -> HelmSettings
  *   GET    /api/threads?archived=1                               -> ThreadSummary[]
+ *   GET    /api/threads/search?q=..&archived=1&limit=N           -> SearchHit[]
  *   POST   /api/threads                                          -> create (idempotent on threadId)
  *   GET    /api/threads/:id                                      -> ThreadSummary
  *   PATCH  /api/threads/:id                                      -> reconfigure (model/effort/title/permissionMode)
@@ -63,6 +64,7 @@ import type {
   Origin,
   PermissionMode,
   QuestionAnswer,
+  SearchHit,
   SendRequest,
   SettingsPatch,
   ThreadConfig,
@@ -72,6 +74,7 @@ import type {
 } from "../../shared/protocol";
 import type { AgentFactory } from "../core/agent";
 import { modelCatalog, parseModelId } from "../core/agent";
+import { parseQuery, ThreadSearch } from "../core/search";
 import { threadSummary } from "../core/summary";
 import type { LogRegistry, ThreadLog } from "../core/log";
 import type { PushSubscriptionRecord } from "../core/push";
@@ -241,11 +244,27 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
   const summary = (log: ThreadLog, config: ThreadConfig): ThreadSummary =>
     threadSummary(log.getHead(), config, deps.supervisor.status(log.threadId).session);
 
+  /** The search corpus is a cache over the logs, so it lives as long as the app does. */
+  const search = new ThreadSearch(deps.logs);
+
   app.get("/api/threads", async (c) => {
     const configs = await deps.threads.list({ includeArchived: c.req.query("archived") === "1" });
     const out = await Promise.all(configs.map(async (cfg) => summary(await deps.logs.get(cfg.threadId), cfg)));
     out.sort((a, b) => (b.lastTurnEndedAt ?? b.config.createdAt).localeCompare(a.lastTurnEndedAt ?? a.config.createdAt));
     return c.json(out);
+  });
+
+  // Before /api/threads/:id so the static segment wins the match.
+  app.get("/api/threads/search", async (c) => {
+    const terms = parseQuery(c.req.query("q") ?? "");
+    if (terms.length === 0) return fail(c, 400, "q is required");
+    const raw = c.req.query("limit") ?? "20";
+    if (!/^-?\d+$/.test(raw)) return fail(c, 400, "limit must be an integer");
+    const limit = Math.min(100, Math.max(1, Number(raw)));
+    const configs = await deps.threads.list({ includeArchived: c.req.query("archived") === "1" });
+    const found = await search.find(configs, terms, limit);
+    const rows: SearchHit[] = found.map(({ config, log, match }) => ({ summary: summary(log, config), seq: match.seq, snippet: match.snippet, ranges: match.ranges }));
+    return c.json(rows);
   });
 
   app.post("/api/threads", async (c) => {
@@ -624,6 +643,7 @@ async function json(c: Context): Promise<Record<string, unknown> | null> {
     return null;
   }
 }
+
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
