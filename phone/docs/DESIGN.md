@@ -67,6 +67,14 @@ the generation with it and rebuild from the log when it moves. The open turn and
 after the last turn boundary are never touched, and compaction refuses while a viewer is
 attached or a turn is running.
 
+**A thread can be promoted to the vault.** "Save to vault" runs a server-owned prompt as an
+ordinary turn in the thread, so Claude has the whole conversation in context and queues behind
+whatever is running. The prompt points at the vault's own standing instructions rather than
+restating them, and Claude reports each note it wrote through a `record_note` tool, which
+appends `note.recorded` to the log. Everything downstream is a projection of that event: the
+cards on the phone, the "recorded" mark on the thread, the "Recorded to" links in the chat
+mirror, and the mirror note being kept past the 30 day window so those links do not go dead.
+
 **Session state is memory-only** (`cold | warming | idle | running | parked`). After a crash
 every thread is `cold`, which is the truthful state. Helm 1.0's `busy` lock becomes structural:
 `running` cannot accept a second spawn and there is no lock to release. Threads park after 30
