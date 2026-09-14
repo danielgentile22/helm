@@ -1,19 +1,17 @@
 // Drive headless Chrome over CDP against the dev-fake server and check the composer.
 // node scripts/verify-composer.mjs, with `node --import tsx scripts/dev-fake.ts` already listening on 8431.
 // Screenshots land in SHOTS (default: a temp dir).
-import { spawn } from "node:child_process";
+import { launchChrome } from "./chrome.mjs";
 import { writeFileSync } from "node:fs";
 
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const BASE = "http://127.0.0.1:8431";
 const OUT = (process.env.SHOTS ?? `${process.env.TMPDIR ?? "/tmp/"}helm2-shots`) + "/";
 import { mkdirSync } from "node:fs";
 mkdirSync(OUT, { recursive: true });
-const chrome = spawn(CHROME, ["--headless=new", "--remote-debugging-port=9333", "--window-size=400,860", "--user-data-dir=/tmp/helm2-cdp-profile", "about:blank"], { stdio: "ignore" });
+const { port } = await launchChrome({ windowSize: "400,860" });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-for (let i = 0; i < 40; i++) { try { await fetch("http://127.0.0.1:9333/json/version"); break; } catch { await sleep(250); } }
-const target = (await (await fetch("http://127.0.0.1:9333/json")).json()).find((t) => t.type === "page");
-setTimeout(() => { console.log("timed out"); chrome.kill(); process.exit(2); }, 90_000);
+const target = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((t) => t.type === "page");
+setTimeout(() => { console.log("timed out"); process.exit(2); }, 90_000);
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((r) => (ws.onopen = r));
 let id = 0; const pending = new Map();
@@ -116,7 +114,7 @@ await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-sch
 await sleep(300);
 await shot("10-dark");
 
-ws.close(); chrome.kill();
+ws.close();
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
 process.exit(failed.length ? 1 : 0);

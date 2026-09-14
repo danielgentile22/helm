@@ -1,19 +1,17 @@
 // Drive headless Chrome over CDP against the dev-fake server and check the fork divider and the link back.
 // node scripts/verify-fork.mjs, with `node --import tsx scripts/dev-fake.ts` already listening on 8431.
 // Screenshots land in SHOTS (default: a temp dir).
-import { spawn } from "node:child_process";
+import { launchChrome } from "./chrome.mjs";
 import { mkdirSync, writeFileSync } from "node:fs";
 
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const BASE = "http://127.0.0.1:8431";
 const COOKIE = "helm_session=dev-session-token";
 const OUT = (process.env.SHOTS ?? `${process.env.TMPDIR ?? "/tmp/"}helm2-fork-shots`) + "/";
 mkdirSync(OUT, { recursive: true });
-const chrome = spawn(CHROME, ["--headless=new", "--remote-debugging-port=9347", "--window-size=400,900", "--user-data-dir=/tmp/helm2-cdp-fork", "about:blank"], { stdio: "ignore" });
+const { port } = await launchChrome({ windowSize: "400,900" });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-for (let i = 0; i < 40; i++) { try { await fetch("http://127.0.0.1:9347/json/version"); break; } catch { await sleep(250); } }
-const target = (await (await fetch("http://127.0.0.1:9347/json")).json()).find((t) => t.type === "page");
-setTimeout(() => { console.log("timed out"); chrome.kill(); process.exit(2); }, 180_000);
+const target = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((t) => t.type === "page");
+setTimeout(() => { console.log("timed out"); process.exit(2); }, 180_000);
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((r) => (ws.onopen = r));
 let id = 0; const pending = new Map();
@@ -124,4 +122,4 @@ check("no error line is left over the composer", (await evaluate(`!document.quer
 await shot("05-forked-by-tap");
 
 console.log(`\n${fails === 0 ? "all checks passed" : fails + " FAILED"}`);
-chrome.kill(); process.exit(fails === 0 ? 0 : 1);
+process.exit(fails === 0 ? 0 : 1);
