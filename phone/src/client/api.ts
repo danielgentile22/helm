@@ -3,10 +3,14 @@
  * the reconnect loop; every other method is one fetch.
  *
  * Reconnect rule: on any error, close, or seq violation (a gap or a
- * duplicate), reopen with `after = lastSeqSeen`. A sync frame whose head is
- * behind the cursor means the server's log is shorter than what the phone
- * folded (a restore or a truncation): tell the handlers to reset and reopen
- * from zero. This loop is the only place that cursor rule lives.
+ * duplicate), reopen with `after = lastSeqSeen` and the generation it was
+ * seen in. The generation is learned from the log itself: seq 1 is
+ * `log.generation` in a compacted log and anything else in generation 0. A
+ * sync frame whose head is behind the cursor, or whose generation is not the
+ * one the cursor counts in (the log was compacted, even mid-replay), means
+ * the phone's fold no longer describes the server's log: tell the handlers
+ * to reset and reopen from zero in the frame's generation. This loop is the
+ * only place that cursor rule lives.
  *
  * Backoff 500 ms -> 5 s. On `visibilitychange` to visible, reopen
  * immediately (iOS suspends EventSource in the background; the cursor makes
@@ -20,6 +24,7 @@ import type {
   Cursor,
   DirEntry,
   ForkRequest,
+  Generation,
   HelmSettings,
   ModelChoice,
   SearchHit,
@@ -37,13 +42,14 @@ import type {
   TurnId,
   UploadId,
 } from "../shared/protocol";
+import { FIRST_GENERATION } from "../shared/protocol";
 
 export type ConnState = "connecting" | "replaying" | "live" | "offline";
 
 export interface AttachHandlers {
   onEvent(ev: ThreadEvent): void;
   onSync(frame: SyncFrame): void;
-  /** The server's log is shorter than what was folded: discard it all, a replay from zero follows. */
+  /** The server's log is shorter than what was folded, or in another generation: discard it all, a replay from zero follows. */
   onReset(frame: SyncFrame): void;
   onState(state: ConnState): void;
 }
@@ -232,6 +238,7 @@ export class HelmClient {
     const min = this.opts.minBackoffMs ?? 500;
     const max = this.opts.maxBackoffMs ?? 5000;
     let lastSeen: number = after;
+    let generation: Generation | null = null;
     let backoff = min;
     let es: EventSourceLike | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -240,7 +247,7 @@ export class HelmClient {
     const open = (): void => {
       if (stopped) return;
       handlers.onState(lastSeen === 0 ? "connecting" : "replaying");
-      const src = new ES(`${this.opts.baseUrl}/api/threads/${threadId}/events?after=${lastSeen}`);
+      const src = new ES(`${this.opts.baseUrl}/api/threads/${threadId}/events?after=${lastSeen}${generation === null ? "" : `&gen=${generation}`}`);
       es = src;
       src.onopen = () => {
         backoff = min;
@@ -253,11 +260,14 @@ export class HelmClient {
           return;
         }
         lastSeen = ev.seq;
+        if (ev.seq === 1) generation = ev.kind === "log.generation" ? ev.generation : FIRST_GENERATION;
         handlers.onEvent(ev);
       };
       src.addEventListener("sync", (m) => {
         const frame = JSON.parse(m.data) as SyncFrame;
-        if (frame.headSeq < lastSeen) {
+        const stale = lastSeen > 0 && (frame.headSeq < lastSeen || frame.generation !== generation);
+        generation = frame.generation;
+        if (stale) {
           lastSeen = 0;
           handlers.onReset(frame);
           reconnect(0);

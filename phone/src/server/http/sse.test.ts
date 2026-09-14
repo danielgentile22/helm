@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ClientMsgId, Cursor, ThreadId } from "../../shared/protocol";
+import { FIRST_GENERATION } from "../../shared/protocol";
+import type { ClientMsgId, Cursor, Generation, ThreadId, TurnId } from "../../shared/protocol";
 import { FakeAgentFactory } from "../core/agent.fake";
 import { LogRegistry } from "../core/log";
 import { Supervisor } from "../core/supervisor";
@@ -46,7 +47,7 @@ test("threadStream: replay from cursor, then sync, then live, with appends racin
   const h = await harness();
   for (let i = 1; i <= 50; i++) await h.log.append(h.queued(i));
 
-  const r = reader((signal) => threadStream(h.log, h.sup, 10 as Cursor, { heartbeatMs: 60_000, signal }));
+  const r = reader((signal) => threadStream(h.log, h.sup, 10 as Cursor, FIRST_GENERATION, { heartbeatMs: 60_000, signal }));
   // Race: append while the replay is in flight.
   for (let i = 51; i <= 70; i++) await h.log.append(h.queued(i));
   await new Promise((r) => setTimeout(r, 20));
@@ -72,7 +73,7 @@ test("threadStream: replay from cursor, then sync, then live, with appends racin
 
 test("threadStream from cursor 0 on an empty log sends only sync, then live events", async () => {
   const h = await harness();
-  const r = reader((signal) => threadStream(h.log, h.sup, 0, { heartbeatMs: 60_000, signal }));
+  const r = reader((signal) => threadStream(h.log, h.sup, 0, FIRST_GENERATION, { heartbeatMs: 60_000, signal }));
   await new Promise((r) => setTimeout(r, 10));
   await h.log.append(h.queued(1));
   r.disconnect();
@@ -83,7 +84,7 @@ test("threadStream from cursor 0 on an empty log sends only sync, then live even
 
 test("threadStream heartbeats while idle and stops on disconnect", async () => {
   const h = await harness();
-  const r = reader((signal) => threadStream(h.log, h.sup, 0, { heartbeatMs: 5, signal }));
+  const r = reader((signal) => threadStream(h.log, h.sup, 0, FIRST_GENERATION, { heartbeatMs: 5, signal }));
   await new Promise((r) => setTimeout(r, 40));
   r.disconnect();
   await r.done;
@@ -97,7 +98,7 @@ test("threadStream heartbeats while idle and stops on disconnect", async () => {
 test("threadStream with a cursor beyond the head reports the true head so the client can reset", async () => {
   const h = await harness();
   await h.log.append(h.queued(1));
-  const r = reader((signal) => threadStream(h.log, h.sup, 99 as Cursor, { heartbeatMs: 60_000, signal }));
+  const r = reader((signal) => threadStream(h.log, h.sup, 99 as Cursor, FIRST_GENERATION, { heartbeatMs: 60_000, signal }));
   await new Promise((r) => setTimeout(r, 10));
   r.disconnect();
   await r.done;
@@ -108,7 +109,7 @@ test("threadStream with a cursor beyond the head reports the true head so the cl
 
 test("a consumer that stops iterating detaches the listener too", async () => {
   const h = await harness();
-  const it = threadStream(h.log, h.sup, 0, { heartbeatMs: 60_000 })[Symbol.asyncIterator]();
+  const it = threadStream(h.log, h.sup, 0, null, { heartbeatMs: 60_000 })[Symbol.asyncIterator]();
   await it.next();
   assert.equal(h.log.viewerCount(), 1);
   await it.return?.();
@@ -139,14 +140,60 @@ test("globalStream forwards only thread and turn boundary events, tagged by thre
   await h.cleanup();
 });
 
-test("cursorFrom: Last-Event-ID wins over ?after, bad values are rejected", () => {
-  assert.deepEqual(cursorFrom(new URL("http://x/e?after=5"), null), { ok: true, after: 5 });
-  assert.deepEqual(cursorFrom(new URL("http://x/e?after=5"), "9"), { ok: true, after: 9 });
-  assert.deepEqual(cursorFrom(new URL("http://x/e"), null), { ok: true, after: 0 });
+test("cursorFrom: Last-Event-ID wins over ?after, gen rides alongside, bad values are rejected", () => {
+  assert.deepEqual(cursorFrom(new URL("http://x/e?after=5"), null), { ok: true, after: 5, generation: null });
+  assert.deepEqual(cursorFrom(new URL("http://x/e?after=5"), "9"), { ok: true, after: 9, generation: null });
+  assert.deepEqual(cursorFrom(new URL("http://x/e"), null), { ok: true, after: 0, generation: null });
   assert.deepEqual(cursorFrom(new URL("http://x/e?after=-1"), null), { ok: false });
   assert.deepEqual(cursorFrom(new URL("http://x/e?after=abc"), null), { ok: false });
-  assert.deepEqual(cursorFrom(new URL("http://x/e?after="), null), { ok: true, after: 0 });
+  assert.deepEqual(cursorFrom(new URL("http://x/e?after="), null), { ok: true, after: 0, generation: null });
   assert.deepEqual(cursorFrom(new URL("http://x/e?after=1.5"), null), { ok: false });
   assert.deepEqual(cursorFrom(new URL("http://x/e?after=99999999999999999999"), null), { ok: false });
-  assert.deepEqual(cursorFrom(new URL("http://x/e"), ""), { ok: true, after: 0 });
+  assert.deepEqual(cursorFrom(new URL("http://x/e"), ""), { ok: true, after: 0, generation: null });
+  assert.deepEqual(cursorFrom(new URL("http://x/e?after=5&gen=2"), null), { ok: true, after: 5, generation: 2 });
+  assert.deepEqual(cursorFrom(new URL("http://x/e?after=5&gen=0"), "7"), { ok: true, after: 7, generation: 0 });
+  assert.deepEqual(cursorFrom(new URL("http://x/e?after=5&gen="), null), { ok: true, after: 5, generation: null });
+  assert.deepEqual(cursorFrom(new URL("http://x/e?after=5&gen=-1"), null), { ok: false });
+  assert.deepEqual(cursorFrom(new URL("http://x/e?after=5&gen=x"), null), { ok: false });
+});
+
+/** A completed turn of many small deltas, so the log has something to compact. */
+async function compactableTurn(h: Awaited<ReturnType<typeof harness>>): Promise<void> {
+  await h.log.append({ kind: "thread.created", config: (await h.threads.create({ threadId, cwd: h.home, model: "claude-opus-5" as never, effort: "high", permissionMode: "bypass" })) });
+  await h.log.append(h.queued(1));
+  const start = await h.log.append((seq) => ({ kind: "turn.started" as const, turnId: `t:${seq}` as TurnId, clientMsgId: "m1" as ClientMsgId, model: "claude-opus-5" as never, effort: "high" as const, spawned: true }));
+  for (let i = 0; i < 20; i++) await h.log.append({ kind: "assistant.text", turnId: start.turnId, blockIx: 0, delta: `w${i} ` });
+  await h.log.append({ kind: "turn.ended", turnId: start.turnId, outcome: "ok", sessionId: null, usage: null, error: null });
+}
+
+test("a cursor from an older generation gets exactly one sync frame naming the new generation, no events, and the stream ends", async () => {
+  const h = await harness();
+  await compactableTurn(h);
+  const oldHead = h.log.getHead().lastSeq;
+  assert.equal((await h.log.compact()).ok, true);
+  assert.equal(h.log.getHead().generation, 1);
+
+  for (const gen of [FIRST_GENERATION, null]) {
+    const r = reader((signal) => threadStream(h.log, h.sup, oldHead, gen, { heartbeatMs: 60_000, signal }));
+    await r.done;
+    assert.deepEqual(r.frames.map((f) => f.kind), ["sync"], `gen ${gen}: one sync and nothing else`);
+    const sync = r.frames[0] as Extract<Frame, { kind: "sync" }>;
+    assert.equal(sync.frame.generation, 1);
+    assert.equal(sync.frame.headSeq, h.log.getHead().lastSeq);
+    assert.equal(h.log.viewerCount(), 0, "the listener is detached when the stream ends on its own");
+  }
+
+  const fresh = reader((signal) => threadStream(h.log, h.sup, 0, FIRST_GENERATION, { heartbeatMs: 60_000, signal }));
+  await new Promise((r) => setTimeout(r, 20));
+  fresh.disconnect();
+  await fresh.done;
+  assert.equal(fresh.frames.filter(ev).length, h.log.getHead().lastSeq, "a cursor of 0 replays whatever generation it names");
+  assert.equal(fresh.frames.filter(ev)[0]?.ev.kind, "log.generation");
+
+  const current = reader((signal) => threadStream(h.log, h.sup, 2 as Cursor, 1 as Generation, { heartbeatMs: 60_000, signal }));
+  await new Promise((r) => setTimeout(r, 20));
+  current.disconnect();
+  await current.done;
+  assert.equal(current.frames.filter(ev).length, h.log.getHead().lastSeq - 2, "a cursor in the current generation resumes exactly");
+  await h.cleanup();
 });

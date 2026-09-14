@@ -116,13 +116,13 @@ test("send and stream: SSE attached before send sees sync then the whole turn; r
   assert.deepEqual(dup, { accepted: true, state: "duplicate", seq: 2 });
 
   for (let c = 0; c <= head; c++) {
-    const f = await readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${c}`), (fr) => fr.some((x) => x.kind === "sync"));
+    const f = await readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${c}&gen=0`), (fr) => fr.some((x) => x.kind === "sync"));
     assert.deepEqual(eventSeqs(f), Array.from({ length: head - c }, (_, i) => c + 1 + i), `cursor ${c}`);
     const sync = f.find((x): x is Extract<Frame, { kind: "sync" }> => x.kind === "sync")!;
     assert.equal(sync.frame.headSeq, head);
     assert.equal(sync.frame.session, "idle");
   }
-  const viaHeader = await readSse(await s.api("GET", `/api/threads/${THREAD}/events`, undefined, { "last-event-id": String(head - 2) }), (fr) => fr.some((x) => x.kind === "sync"));
+  const viaHeader = await readSse(await s.api("GET", `/api/threads/${THREAD}/events?gen=0`, undefined, { "last-event-id": String(head - 2) }), (fr) => fr.some((x) => x.kind === "sync"));
   assert.deepEqual(eventSeqs(viaHeader), [head - 1, head]);
   assert.equal((await s.api("GET", `/api/threads/${THREAD}/events?after=x`)).status, 400);
 
@@ -164,7 +164,7 @@ test("crash mid-turn and reboot: the turn is sealed as orphaned, unstarted input
   assert.equal(sync.frame.queuedCount, 0);
   const head = evs.length;
   for (let c = 0; c <= head; c++) {
-    const f = await readSse(await r.api("GET", `/api/threads/${THREAD}/events?after=${c}`), (fr) => fr.some((x) => x.kind === "sync"));
+    const f = await readSse(await r.api("GET", `/api/threads/${THREAD}/events?after=${c}&gen=0`), (fr) => fr.some((x) => x.kind === "sync"));
     assert.deepEqual(eventSeqs(f), Array.from({ length: head - c }, (_, i) => c + 1 + i), `cursor ${c}`);
   }
 
@@ -173,7 +173,7 @@ test("crash mid-turn and reboot: the turn is sealed as orphaned, unstarted input
     t.text("back");
     t.end();
   });
-  const done = readSse(await r2.api("GET", `/api/threads/${THREAD}/events?after=${head}`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  const done = readSse(await r2.api("GET", `/api/threads/${THREAD}/events?after=${head}&gen=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
   await r2.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(3), text: "third" });
   await done;
   assert.equal(r2.agents.last.spawnOpts.resume, "fake-session-1");
@@ -322,7 +322,7 @@ test("the phone's view: folding the SSE frames a client receives reconstructs th
   const head = fullView.headSeq;
   for (let c = 1; c <= head; c++) {
     const before = foldAll(emptyView(seed), events(frames).slice(0, c));
-    const tail = await readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${c}`), (fr) => fr.some((x) => x.kind === "sync"));
+    const tail = await readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${c}&gen=0`), (fr) => fr.some((x) => x.kind === "sync"));
     const sync = tail.find((x): x is Extract<Frame, { kind: "sync" }> => x.kind === "sync")!;
     const after = applySync(foldAll(before, events(tail)), sync.frame);
     assert.deepEqual(after.turns, fullView.turns, `cursor ${c}`);
@@ -398,7 +398,7 @@ test("thread head: doing reports the open tool while running, the text tail once
   assert.equal(done.contextWindow, 200_000);
   assert.deepEqual(done.usageTotal, { inputTokens: 10, outputTokens: 5, cacheReadTokens: 100, cacheWriteTokens: 0 });
 
-  const second = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${done.headSeq}`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  const second = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${done.headSeq}&gen=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
   await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(2), text: "again" });
   await second;
   await untilIdle(s, THREAD);
@@ -576,7 +576,7 @@ test("push fires on a finished turn only when no SSE viewer is attached", async 
   await until(async () => s.pushed.length, (n) => n === 1);
   assert.equal(s.pushed[0]!.threadId, THREAD);
 
-  const live = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${log.getHead().lastSeq}`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  const live = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${log.getHead().lastSeq}&gen=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
   await until(async () => log.viewerCount(), (n) => n === 1);
   await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(2), text: "second" });
   await live;
@@ -591,7 +591,7 @@ const bashAsk: AskPayload = { kind: "tool", toolName: "Bash", input: { command: 
 async function assertReplayFolds(s: Stack, threadId: string, full: ThreadEvent[]): Promise<void> {
   const want = groupTurns(full);
   for (let c = 0; c <= full.length; c++) {
-    const tail = await readSse(await s.api("GET", `/api/threads/${threadId}/events?after=${c}`), (fr) => fr.some((x) => x.kind === "sync"));
+    const tail = await readSse(await s.api("GET", `/api/threads/${threadId}/events?after=${c}&gen=0`), (fr) => fr.some((x) => x.kind === "sync"));
     assert.deepEqual(eventSeqs(tail), full.slice(c).map((e) => e.seq), `cursor ${c}`);
     assert.deepEqual(groupTurns([...full.slice(0, c), ...events(tail)]), want, `cursor ${c} folds differently`);
   }
@@ -772,7 +772,7 @@ test("push fires for an ask left pending with no viewer attached, and not for a 
   await until(async () => s.pushed.length, (n) => n === 2);
   assert.equal(s.pushed[1]!.kind, "interrupted");
 
-  const live = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${log.getHead().lastSeq}`), (f) => events(f).some((e) => e.kind === "ask.opened" && !e.askId.startsWith("rule:")));
+  const live = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${log.getHead().lastSeq}&gen=0`), (f) => events(f).some((e) => e.kind === "ask.opened" && !e.askId.startsWith("rule:")));
   await until(async () => log.viewerCount(), (n) => n === 1);
   await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(2), text: "again" });
   await live;

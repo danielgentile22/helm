@@ -13,41 +13,44 @@ function client() {
   const states: string[] = [];
   const syncs: SyncFrame[] = [];
   const resets: number[] = [];
-  const stop = c.attach("t1" as ThreadId, 3 as Seq, { onEvent: (ev: ThreadEvent) => seen.push(ev.seq), onSync: (f) => syncs.push(f), onReset: (f) => resets.push(f.headSeq), onState: (s) => states.push(s) });
+  const stop = c.attach("t1" as ThreadId, 0, { onEvent: (ev: ThreadEvent) => seen.push(ev.seq), onSync: (f) => syncs.push(f), onReset: (f) => resets.push(f.headSeq), onState: (s) => states.push(s) });
   return { seen, states, syncs, resets, stop };
 }
 
-test("attach opens from the cursor, forwards contiguous events, and reports sync as live", async () => {
+test("attach opens from zero, forwards contiguous events, learns the generation from seq 1, and reports sync as live", async () => {
   const { seen, states, syncs, stop } = client();
   const es = FakeES.instances[0]!;
-  assert.equal(es.url, "http://x/api/threads/t1/events?after=3");
+  assert.equal(es.url, "http://x/api/threads/t1/events?after=0");
   es.open();
-  es.emit(4);
-  es.emit(5);
-  es.sync({ headSeq: 5 as Seq });
-  assert.deepEqual(seen, [4, 5]);
+  es.emit(1);
+  es.emit(2);
+  es.sync({ headSeq: 2 as Seq });
+  assert.deepEqual(seen, [1, 2]);
   assert.equal(syncs.length, 1);
   assert.equal(states.at(-1), "live");
+  es.fail();
+  await tick();
+  assert.equal(FakeES.instances[1]!.url, "http://x/api/threads/t1/events?after=2&gen=0", "a reconnect carries the cursor and the generation it counts in");
   stop();
-  assert.equal(es.closed, true);
+  assert.equal(FakeES.instances[1]!.closed, true);
 });
 
 test("a gap or a duplicate drops the connection and re-attaches from the last seen seq", async () => {
   const { seen, stop } = client();
   const es = FakeES.instances[0]!;
   es.open();
-  es.emit(4);
-  es.emit(6); // gap
-  assert.deepEqual(seen, [4]);
+  es.emit(1);
+  es.emit(3); // gap
+  assert.deepEqual(seen, [1]);
   assert.equal(es.closed, true);
   await tick();
   const es2 = FakeES.instances[1]!;
-  assert.equal(es2.url, "http://x/api/threads/t1/events?after=4");
+  assert.equal(es2.url, "http://x/api/threads/t1/events?after=1&gen=0");
   es2.open();
-  es2.emit(4); // duplicate
+  es2.emit(1); // duplicate
   assert.equal(es2.closed, true);
   await tick();
-  assert.equal(FakeES.instances[2]!.url, "http://x/api/threads/t1/events?after=4");
+  assert.equal(FakeES.instances[2]!.url, "http://x/api/threads/t1/events?after=1&gen=0");
   stop();
 });
 
@@ -67,10 +70,51 @@ test("a sync frame with a head behind the cursor tells the handlers to reset and
   const { syncs, resets, stop } = client();
   const es = FakeES.instances[0]!;
   es.open();
+  es.emit(1);
+  es.emit(2);
+  es.emit(3);
   es.sync({ headSeq: 1 as Seq });
   assert.deepEqual([syncs.length, resets], [0, [1]], "a reset, not a sync: the frame belongs to a log the phone is about to throw away");
   await tick();
-  assert.equal(FakeES.instances[1]!.url, "http://x/api/threads/t1/events?after=0");
+  assert.equal(FakeES.instances[1]!.url, "http://x/api/threads/t1/events?after=0&gen=0");
+  stop();
+});
+
+test("a sync frame from another generation resets and reopens from zero carrying the new generation", async () => {
+  const { seen, syncs, resets, stop } = client();
+  const es = FakeES.instances[0]!;
+  es.open();
+  es.emit(1);
+  es.sync({ headSeq: 1 as Seq, generation: 0 as never });
+  assert.equal(syncs.length, 1, "seq 1 was not a log.generation, so the log is generation 0 and the frame agrees");
+  es.emit(2);
+  es.sync({ headSeq: 9 as Seq, generation: 1 as never });
+  assert.deepEqual([seen, resets], [[1, 2], [9]], "a head ahead of the cursor in another generation is still a reset");
+  assert.equal(es.closed, true);
+  await tick();
+  const es2 = FakeES.instances[1]!;
+  assert.equal(es2.url, "http://x/api/threads/t1/events?after=0&gen=1", "the replay from zero names the generation it was told about");
+  es2.open();
+  es2.send({ seq: 1 as Seq, ts: "", kind: "log.generation", generation: 1 as never });
+  es2.emit(2);
+  es2.sync({ headSeq: 2 as Seq, generation: 1 as never });
+  assert.equal(syncs.length, 2, "the replayed log names generation 1 at seq 1, so the frame agrees");
+  es2.fail();
+  await tick();
+  assert.equal(FakeES.instances[2]!.url, "http://x/api/threads/t1/events?after=2&gen=1", "a plain reconnect carries the cursor and its generation");
+  stop();
+});
+
+test("a replay whose log turns out to be a newer generation than its sync frame claims is thrown away", async () => {
+  const { syncs, resets, stop } = client();
+  const es = FakeES.instances[0]!;
+  es.open();
+  es.send({ seq: 1 as Seq, ts: "", kind: "log.generation", generation: 2 as never });
+  es.emit(2);
+  es.sync({ headSeq: 2 as Seq, generation: 1 as never });
+  assert.deepEqual([syncs.length, resets], [0, [2]]);
+  await tick();
+  assert.equal(FakeES.instances[1]!.url, "http://x/api/threads/t1/events?after=0&gen=1");
   stop();
 });
 

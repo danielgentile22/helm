@@ -32,7 +32,7 @@
  *   POST   /api/threads/:id/uploads   (raw body, one file, Content-Length capped) -> StagedUpload[]
  *   GET    /api/threads/:id/uploads/:uploadId                    -> the staged bytes, inline
  *   GET    /api/threads/:id/files/:fileId                        -> bytes of a file the model offered, inline
- *   GET    /api/threads/:id/events?after=N   (SSE, cookie or key) -> ThreadEvent stream
+ *   GET    /api/threads/:id/events?after=N&gen=G (SSE, cookie or key) -> ThreadEvent stream; X-Helm-Generation header; a stale gen gets one sync and ends
  *   GET    /api/events                        (SSE)              -> global fan-in
  *   GET    /api/dirs?path=...                                    -> DirEntry[] (within browseRoots)
  *   GET    /api/push/key                                         -> VAPID public key
@@ -439,7 +439,7 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     if (t instanceof Response) return t;
     const cur = cursorFrom(new URL(c.req.url), c.req.header("last-event-id") ?? null);
     if (!cur.ok) return fail(c, 400, "bad cursor");
-    return respondThread(c, t.log, deps.supervisor, cur.after, deps.heartbeatMs);
+    return respondThread(c, t.log, deps.supervisor, cur.after, cur.generation, deps.heartbeatMs);
   });
 
   app.get("/api/events", (c) => respondGlobal(c, deps.logs, deps.heartbeatMs));

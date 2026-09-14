@@ -1,18 +1,24 @@
 /**
- * GET /api/threads/:id/events?after=<seq>   (also honors Last-Event-ID)
+ * GET /api/threads/:id/events?after=<seq>&gen=<generation>   (also honors Last-Event-ID)
  *
  * Replay-then-live with a gap-free, duplicate-free handoff:
  *
  *   1. subscribe() to the live log FIRST; buffer everything that arrives.
  *   2. stream read(after) from disk; track lastSent.
  *   3. flush the buffer, skipping seq <= lastSent.
- *   4. send `event: sync` with the head and session state.
+ *   4. send `event: sync` with the head, its generation and session state.
  *   5. go live: forward each event as it arrives.
  *
  * Because append() emits only after the line is on disk (log I2), every
  * event is either in the file when read() runs or arrives via the
  * subscription; the seq dedupe removes the overlap. The client asserts
  * ev.seq === headSeq + 1 and reconnects on violation.
+ *
+ * A cursor counts in one generation (log I6). A cursor above 0 whose
+ * generation is not the log's, or is missing, gets one sync frame naming the
+ * current generation and no events; the client throws its fold away and
+ * comes back from 0. A cursor of 0 has nothing to be stale, so its
+ * generation is ignored.
  *
  * Wire: `retry: 1000` first, then `id: <seq>` + `data: <json>` per event;
  * `: hb` comment every SSE_HEARTBEAT_MS.
@@ -25,7 +31,7 @@
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { LIMITS } from "../../shared/protocol";
-import type { Cursor, SyncFrame, ThreadEvent, ThreadId } from "../../shared/protocol";
+import type { Cursor, Generation, SyncFrame, ThreadEvent, ThreadId } from "../../shared/protocol";
 import type { LogRegistry, ThreadLog } from "../core/log";
 import type { Supervisor } from "../core/supervisor";
 import { Pushable } from "../util/pushable";
@@ -36,9 +42,18 @@ export interface StreamOptions {
 }
 
 /** Wire chunks for one thread's event stream. Never throws; a failed replay logs and ends the stream. */
-export function threadStream(log: ThreadLog, supervisor: Supervisor, after: Cursor, opts: StreamOptions = {}): AsyncIterable<string> {
+export function threadStream(log: ThreadLog, supervisor: Supervisor, after: Cursor, generation: Generation | null, opts: StreamOptions = {}): AsyncIterable<string> {
   let unsub = (): void => {};
   const out = wire(opts, () => unsub());
+  const sync = (): string => {
+    const head = log.getHead();
+    return formatControl("sync", { headSeq: head.lastSeq, generation: head.generation, ...supervisor.status(log.threadId), queuedCount: head.queued.length });
+  };
+  if (after > 0 && generation !== log.getHead().generation) {
+    out.push(sync());
+    out.end();
+    return out.chunks;
+  }
   let lastSent: Cursor = after;
   let live = false;
   const buffer: ThreadEvent[] = [];
@@ -54,8 +69,7 @@ export function threadStream(log: ThreadLog, supervisor: Supervisor, after: Curs
       for (const ev of buffer) forward(ev);
       buffer.length = 0;
       live = true;
-      const head = log.getHead();
-      out.push(formatControl("sync", { headSeq: head.lastSeq, generation: head.generation, ...supervisor.status(log.threadId), queuedCount: head.queued.length }));
+      out.push(sync());
     } catch (err) {
       console.error(`[sse ${log.threadId}] stream failed`, err);
       out.end();
@@ -90,9 +104,10 @@ export function globalStream(logs: LogRegistry, opts: StreamOptions = {}): Async
   return out.chunks;
 }
 
-/** Attach a thread's stream to the response. Ends when the client disconnects. */
-export function respondThread(c: Context, log: ThreadLog, supervisor: Supervisor, after: Cursor, heartbeatMs?: number): Response {
-  return respond(c, (signal) => threadStream(log, supervisor, after, { heartbeatMs, signal }));
+/** Attach a thread's stream to the response. Ends when the client disconnects. The header is for curl users, who see no sync frame before they need it. */
+export function respondThread(c: Context, log: ThreadLog, supervisor: Supervisor, after: Cursor, generation: Generation | null, heartbeatMs?: number): Response {
+  c.header("X-Helm-Generation", String(log.getHead().generation));
+  return respond(c, (signal) => threadStream(log, supervisor, after, generation, { heartbeatMs, signal }));
 }
 
 /** Attach the global stream to the response. Ends when the client disconnects. */
@@ -100,13 +115,20 @@ export function respondGlobal(c: Context, logs: LogRegistry, heartbeatMs?: numbe
   return respond(c, (signal) => globalStream(logs, { heartbeatMs, signal }));
 }
 
-/** Pure. Parse `after` query param or Last-Event-ID header into a cursor; bad input is 400. */
-export function cursorFrom(url: URL, lastEventId: string | null): { ok: true; after: Cursor } | { ok: false } {
-  const raw = lastEventId ?? url.searchParams.get("after");
-  if (raw === null || raw === "") return { ok: true, after: 0 };
-  if (!/^\d+$/.test(raw)) return { ok: false };
+/** Pure. Parse `after` (or Last-Event-ID) and `gen` into a cursor and its generation; bad input is 400, a missing gen is null. */
+export function cursorFrom(url: URL, lastEventId: string | null): { ok: true; after: Cursor; generation: Generation | null } | { ok: false } {
+  const after = nonNegative(lastEventId ?? url.searchParams.get("after"));
+  const generation = nonNegative(url.searchParams.get("gen"));
+  if (after === undefined || generation === undefined) return { ok: false };
+  return { ok: true, after: (after ?? 0) as Cursor, generation: generation as Generation | null };
+}
+
+/** A non-negative safe integer, null when absent or empty, undefined when malformed. */
+function nonNegative(raw: string | null): number | null | undefined {
+  if (raw === null || raw === "") return null;
+  if (!/^\d+$/.test(raw)) return undefined;
   const n = Number(raw);
-  return Number.isSafeInteger(n) && n >= 0 ? { ok: true, after: n as Cursor } : { ok: false };
+  return Number.isSafeInteger(n) ? n : undefined;
 }
 
 function respond(c: Context, open: (signal: AbortSignal) => AsyncIterable<string>): Response {
