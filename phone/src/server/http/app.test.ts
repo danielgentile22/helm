@@ -1281,6 +1281,11 @@ test("save to vault: the server's prompt runs as a vault-labelled turn, the note
 
   const summary = (await (await s.api("GET", `/api/threads/${THREAD}`)).json()) as ThreadSummary;
   assert.equal(summary.recorded, true, "the thread reads as promoted to the vault");
+
+  await s.mirrorIdle();
+  const mirrored = await readFile(join(s.home, "work", "inbox", "chats", `${THREAD}.md`), "utf8");
+  assert.match(mirrored, /^recorded: true$/m, "the chat mirror is marked so prune keeps it");
+  assert.match(mirrored, /^- \[\[Atlas\/Decisions\/backups\|backups\]\]: added the 2026-09-13 bullet on backups$/m, "and links to the note the save wrote");
   await s.cleanup();
 });
 

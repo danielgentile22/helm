@@ -34,6 +34,8 @@ export interface Stack {
   api(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<Response>;
   /** Abandon this stack without killing anything (a crash), then boot a new one over the same home. */
   restart(script?: FakeScript): Promise<Stack>;
+  /** Resolves once the mirror has written every queued append, so a test can read the note it produced. */
+  mirrorIdle(): Promise<void>;
   shutdown(): Promise<void>;
   cleanup(): Promise<void>;
 }
@@ -85,6 +87,7 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
           body: body !== undefined ? JSON.stringify(body) : undefined,
         }),
       ),
+    mirrorIdle: () => server.mirror.idle(),
     restart: (nextScript) => buildStack(nextScript ?? script, h, opts),
     shutdown: () => server.shutdown(),
     cleanup: async () => {
