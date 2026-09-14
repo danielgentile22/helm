@@ -1,23 +1,25 @@
 // Launch the browser the verify scripts drive, and guarantee it dies with this process.
 // Never /Applications/Google Chrome.app. A headless instance of that bundle registers with
 // LaunchServices under com.google.Chrome, so macOS hands `open -a "Google Chrome"` to an invisible
-// window and the real browser never appears. Chrome for Testing is com.google.chrome.for.testing.
+// window and the real browser never appears. chrome-headless-shell is a bare binary rather than an
+// app bundle, so it registers nothing. Chrome for Testing is a bundle and cannot reach 127.0.0.1
+// on this machine, which is why it is not the one we use.
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, globSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 const MARKER = "helm2-verify-profile";
-const CACHE = `${process.env.HOME}/.cache/puppeteer/chrome/*/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
+const CACHE = `${process.env.HOME}/.cache/puppeteer/chrome-headless-shell/*/chrome-headless-shell-*/chrome-headless-shell`;
 const INSTALL = "npm run setup:browser";
 
 const resolveBinary = (binary) => {
   const override = binary ?? process.env.HELM_CHROME;
   if (override?.includes("/Applications/Google Chrome.app")) {
-    throw new Error(`refusing the installed Chrome. A headless instance of that bundle absorbs every \`open -a "Google Chrome"\`. Use Chrome for Testing: ${INSTALL}`);
+    throw new Error(`refusing the installed Chrome. A headless instance of that bundle absorbs every \`open -a "Google Chrome"\`. Use chrome-headless-shell: ${INSTALL}`);
   }
   const found = override ?? globSync(CACHE).sort().at(-1);
-  if (!found || !existsSync(found)) throw new Error(`no Chrome for Testing binary found. Run: ${INSTALL}`);
+  if (!found || !existsSync(found)) throw new Error(`no chrome-headless-shell binary found. Run: ${INSTALL}`);
   return found;
 };
 
@@ -56,7 +58,7 @@ export const launchChrome = async ({ windowSize = "400,900", binary } = {}) => {
   const executable = resolveBinary(binary);
   await reapStale();
   const profile = mkdtempSync(join(tmpdir(), `${MARKER}-${process.pid}-`));
-  const chrome = spawn(executable, ["--headless=new", "--remote-debugging-port=0", `--window-size=${windowSize}`, `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
+  const chrome = spawn(executable, ["--remote-debugging-port=0", `--window-size=${windowSize}`, `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
 
   let closed = false;
   const close = () => {
@@ -78,5 +80,5 @@ export const launchChrome = async ({ windowSize = "400,900", binary } = {}) => {
     await new Promise((r) => setTimeout(r, 250));
   }
   close();
-  throw new Error("Chrome for Testing reported no debugging port within 20s");
+  throw new Error("chrome-headless-shell reported no debugging port within 20s");
 };

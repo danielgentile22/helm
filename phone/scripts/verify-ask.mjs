@@ -1,6 +1,6 @@
 // Drive headless Chrome over the ask card alone: the buttons, the deny reason, a 409, and the answered form.
 // node scripts/verify-ask.mjs. Nothing else needs to be running.
-import { spawn } from "node:child_process";
+import { launchChrome } from "./chrome.mjs";
 import { createServer } from "node:http";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,11 +22,9 @@ const srv = createServer((req, res) => {
   } catch { res.writeHead(404).end(); }
 }).listen(8479);
 
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const chrome = spawn(CHROME, ["--headless=new", "--remote-debugging-port=9341", "--window-size=400,900", "--user-data-dir=/tmp/helm2-cdp-ask2", "about:blank"], { stdio: "ignore" });
+const { port } = await launchChrome({ windowSize: "400,900" });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-for (let i = 0; i < 40; i++) { try { await fetch("http://127.0.0.1:9341/json/version"); break; } catch { await sleep(250); } }
-const target = (await (await fetch("http://127.0.0.1:9341/json")).json()).find((t) => t.type === "page");
+const target = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((t) => t.type === "page");
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((r) => (ws.onopen = r));
 let id = 0; const pending = new Map();
@@ -88,4 +86,4 @@ check("no horizontal overflow at 400px", overflow);
 const shot = await send("Page.captureScreenshot", { captureBeyondViewport: true });
 if (shot.result?.data) { writeFileSync(SP + "card.png", Buffer.from(shot.result.data, "base64")); console.log(`shot ${SP}card.png`); }
 console.log(`\n${fails === 0 ? "all checks passed" : fails + " FAILED"}`);
-chrome.kill(); srv.close(); process.exit(fails === 0 ? 0 : 1);
+srv.close(); process.exit(fails === 0 ? 0 : 1);

@@ -1,18 +1,16 @@
 // Drive headless Chrome over CDP against the dev-fake server and check the motion pass.
 // node scripts/verify-motion.mjs, with `node --import tsx scripts/dev-fake.ts` already listening on 8431.
 // Screenshots land in SHOTS (default: a temp dir).
-import { spawn } from "node:child_process";
+import { launchChrome } from "./chrome.mjs";
 import { mkdirSync, writeFileSync } from "node:fs";
 
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const BASE = "http://127.0.0.1:8431";
 const OUT = (process.env.SHOTS ?? `${process.env.TMPDIR ?? "/tmp/"}helm2-motion-shots`) + "/";
 mkdirSync(OUT, { recursive: true });
-const chrome = spawn(CHROME, ["--headless=new", "--remote-debugging-port=9334", "--window-size=400,860", "--user-data-dir=/tmp/helm2-cdp-motion", "about:blank"], { stdio: "ignore" });
+const { port } = await launchChrome({ windowSize: "400,860" });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-for (let i = 0; i < 40; i++) { try { await fetch("http://127.0.0.1:9334/json/version"); break; } catch { await sleep(250); } }
-const target = (await (await fetch("http://127.0.0.1:9334/json")).json()).find((t) => t.type === "page");
-setTimeout(() => { console.log("timed out"); chrome.kill(); process.exit(2); }, 180_000);
+const target = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((t) => t.type === "page");
+setTimeout(() => { console.log("timed out"); process.exit(2); }, 180_000);
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((r) => (ws.onopen = r));
 let id = 0; const pending = new Map();
@@ -97,7 +95,7 @@ check("reduced motion leaves nothing running longer than 1ms", reduced.every((d)
 check("the running rail is still painted under reduced motion", await evaluate(`(()=>{const i=document.querySelector('.turn .rail i');if(!i)return 'no rail';const s=getComputedStyle(i);return s.animationName==='none' && s.backgroundImage==='none' ? true : s.animationName+' / '+s.backgroundImage.slice(0,40)})()`));
 await shot("06-reduced-thread");
 
-ws.close(); chrome.kill();
+ws.close();
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
 process.exit(failed.length ? 1 : 0);

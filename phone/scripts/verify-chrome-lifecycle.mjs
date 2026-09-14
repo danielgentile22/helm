@@ -26,7 +26,7 @@ check("no stray browsers before the run", browsers().length === 0, `${browsers()
 const { port, close } = await launchChrome();
 const version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
 check("the helper returns a live debugging port", typeof port === "number" && port > 0, `port ${port}`);
-check("the browser is Chrome for Testing, not the installed Chrome", /Chrome\/\d/.test(version.Browser), version.Browser);
+check("the browser is chrome-headless-shell, not the installed Chrome", /HeadlessChrome\/\d/.test(version.Browser), version.Browser);
 const installed = processes().filter((line) => line.includes("/Applications/Google Chrome.app"));
 check("no process runs out of /Applications/Google Chrome.app", installed.length === 0, `${installed.length} matches`);
 let refused = "it launched anyway";
