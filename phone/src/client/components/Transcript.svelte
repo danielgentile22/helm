@@ -5,8 +5,8 @@
   import EndLine from "../blocks/EndLine.svelte";
   import FileCard from "../blocks/FileCard.svelte";
   import ForkDivider from "../blocks/ForkDivider.svelte";
-  import NoteCard from "../blocks/NoteCard.svelte";
   import ForkLink from "../blocks/ForkLink.svelte";
+  import NoteCard from "../blocks/NoteCard.svelte";
   import PromptBlock from "../blocks/PromptBlock.svelte";
   import TextBlock from "../blocks/TextBlock.svelte";
   import ThinkingBlock from "../blocks/ThinkingBlock.svelte";

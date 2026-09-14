@@ -28,7 +28,7 @@
   <div class="field">
     <label for="save-guidance">Guidance (optional)</label>
     <!-- svelte-ignore a11y_autofocus -->
-    <input id="save-guidance" autofocus placeholder="focus on the backup decision" bind:value={guidance} onkeydown={(e) => e.key === "Enter" && void save()} />
+    <input id="save-guidance" autofocus placeholder="focus on the backup decision" bind:value={guidance} onkeydown={(e) => e.key === "Enter" && !saving && void save()} />
   </div>
   {#if err}<p class="error">{err}</p>{/if}
   <div class="actions">

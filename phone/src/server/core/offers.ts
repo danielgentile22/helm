@@ -21,7 +21,8 @@ import type { ThreadStore } from "./thread-store";
 /** The origin stamped on offers made by the model's tool call. */
 export const MODEL_ORIGIN: Origin = { via: "key", label: "model" };
 
-const SUMMARY_CHARS = 200;
+/** An offer's note and a recorded note's summary are both one line on a card. */
+const LINE_CHARS = 200;
 
 export class Offers {
   private readonly index: LogIndex<FileId, OfferedFile>;
@@ -42,7 +43,7 @@ export class Offers {
       name: safeName(basename(path)),
       mime: (await sniffFile(path)) ?? mimeFromExtension(path),
       bytes: size,
-      note: note?.trim() ? note.trim().slice(0, SUMMARY_CHARS) : null,
+      note: note?.trim() ? note.trim().slice(0, LINE_CHARS) : null,
     };
     const log = await this.logs.get(threadId);
     await log.append({ kind: "file.offered", file, origin });
@@ -56,7 +57,7 @@ export class Offers {
     const rel = relative(resolve(this.vaultRoot), resolve(path));
     if (rel.startsWith("..") || isAbsolute(rel)) throw new Error(`${path} is not inside the vault at ${this.vaultRoot}; only vault notes can be recorded`);
     if (!path.toLowerCase().endsWith(".md")) throw new Error(`${path} is not a markdown file; a recorded note must be a .md file in the vault`);
-    const said = summary.trim().slice(0, SUMMARY_CHARS);
+    const said = summary.trim().slice(0, LINE_CHARS);
     if (said === "") throw new Error("summary must say what changed in this note");
 
     const note: RecordedNote = {
