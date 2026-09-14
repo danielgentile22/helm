@@ -5,13 +5,16 @@ import { mkdtemp, readFile, writeFile, mkdir, rm, truncate } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { turnIdFor } from "../../shared/protocol";
-import { LogRegistry, stampEvents, ThreadLog, writeLogFile } from "./log";
+import { groupTurns, type Turn } from "../../shared/turns";
+import type { ThreadHead } from "./log";
+import { compactEvents, LogRegistry, renumber, ThreadLog, writeLogFile } from "./log";
 import type {
   MessageUuid,
   AskId,
   ClaudeSessionId,
   ClientMsgId,
   Cursor,
+  Generation,
   ModelId,
   Seq,
   ThreadConfig,
@@ -19,6 +22,7 @@ import type {
   ThreadEventBody,
   ThreadId,
   TurnId,
+  Usage,
 } from "../../shared/protocol";
 
 const threadId = "0f0f0f0f-0000-4000-8000-000000000001" as ThreadId;
@@ -389,21 +393,264 @@ test("thread.forked with no resume leaves the head with nothing to resume at all
   assert.equal(log.getHead().fork, null);
 });
 
-test("stampEvents numbers a whole log from 1 and keeps each body's own timestamp; writeLogFile writes it back readable", async () => {
+test("renumber numbers a whole log from 1, remaps every turn id to its new seq, and keeps each body's own timestamp; writeLogFile writes it back readable", async () => {
   const dir = await freshDir();
-  const stamped = stampEvents([
+  const stamped = renumber([
     { kind: "thread.created", config: config(), ts: "2026-09-14T00:00:00.000Z" },
     { ...queued("m1"), ts: "2026-09-11T00:00:02.000Z" },
-    { ...started("t:3", "m1"), ts: "2026-09-11T00:00:03.000Z" },
-    { ...ended("t:3"), ts: "2026-09-11T00:00:04.000Z" },
+    { ...started("t:9", "m1"), ts: "2026-09-11T00:00:03.000Z" },
+    { kind: "assistant.text", turnId: "t:9" as TurnId, blockIx: 0, delta: "x", ts: "2026-09-11T00:00:03.500Z" },
+    { ...ended("t:9"), ts: "2026-09-11T00:00:04.000Z" },
+    { kind: "thread.forked.out", to: threadId, toTitle: "copy", atTurn: "t:9" as TurnId, ts: "2026-09-11T00:00:05.000Z" },
+    { kind: "thread.forked", from: threadId, fromTitle: null, atTurn: "t:9" as TurnId, resume: null, ts: "2026-09-11T00:00:06.000Z" },
+    { kind: "tool.finished", turnId: "t:77" as TurnId, toolUseId: "tu" as never, output: "", isError: false, ts: "2026-09-11T00:00:07.000Z" },
   ]);
-  assert.deepEqual(stamped.map((e) => e.seq), [1, 2, 3, 4]);
-  assert.deepEqual(stamped.map((e) => e.ts), ["2026-09-14T00:00:00.000Z", "2026-09-11T00:00:02.000Z", "2026-09-11T00:00:03.000Z", "2026-09-11T00:00:04.000Z"]);
+  assert.deepEqual(stamped.map((e) => e.seq), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(stamped.map((e) => e.ts).slice(0, 4), ["2026-09-14T00:00:00.000Z", "2026-09-11T00:00:02.000Z", "2026-09-11T00:00:03.000Z", "2026-09-11T00:00:03.500Z"]);
+  assert.deepEqual(stamped.map((e) => ("turnId" in e ? e.turnId : e.kind === "thread.forked.out" || e.kind === "thread.forked" ? e.atTurn : "")), ["", "", "t:3", "t:3", "t:3", "t:3", "t:9", "t:77"], "turn ids follow their turn.started; a source turn and an unknown id are left alone");
 
   await writeLogFile(dir, stamped);
   const reopened = await ThreadLog.open(threadId, dir);
   assert.deepEqual(await collect(reopened, 0), stamped, "a log written in one go reopens exactly as it was written");
-  assert.equal(reopened.getHead().lastSeq, 4);
+  assert.equal(reopened.getHead().lastSeq, 8);
   const next = await reopened.append(queued("m2"));
-  assert.equal(next.seq, 5, "append picks the seq run up where the written file left off");
+  assert.equal(next.seq, 9, "append picks the seq run up where the written file left off");
+});
+
+// ---------------------------------------------------------------------------
+// Compaction
+// ---------------------------------------------------------------------------
+
+const usage: Usage = { inputTokens: 100, outputTokens: 40, cacheReadTokens: 10, cacheWriteTokens: 5, costUsd: 0.01, contextTokens: 110, contextWindow: 200_000, durationMs: 900 };
+const text = (turnId: string, blockIx: number, delta: string): ThreadEventBody => ({ kind: "assistant.text", turnId: turnId as TurnId, blockIx, delta });
+const thinking = (turnId: string, delta: string): ThreadEventBody => ({ kind: "assistant.thinking", turnId: turnId as TurnId, delta });
+const at = (i: number): string => `2026-09-11T00:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}.000Z`;
+
+/**
+ * Several turns with one of everything: text in two blocks, thinking on
+ * both sides of a tool, an ask, an upload, an offered file, a config
+ * change, both halves of a fork, a session binding, and a queued input
+ * with no turn after the last turn.ended. Turn ids are placeholders that
+ * renumber resolves to `t:<seq>`.
+ */
+function busyLog(): ThreadEvent[] {
+  const bodies: ThreadEventBody[] = [
+    { kind: "thread.created", config: config() },
+    queued("m1", "first"),
+    { kind: "session.bound", sessionId },
+    started("A", "m1"),
+    thinking("A", "let "),
+    thinking("A", "me "),
+    thinking("A", "see"),
+    text("A", 0, "Hel"),
+    text("A", 0, "lo "),
+    text("A", 0, "there"),
+    { kind: "tool.started", turnId: "A" as TurnId, toolUseId: "tu1" as never, name: "Read", input: { file_path: "/x" } },
+    { kind: "tool.finished", turnId: "A" as TurnId, toolUseId: "tu1" as never, output: "contents", isError: false },
+    thinking("A", "after "),
+    thinking("A", "the tool"),
+    text("A", 1, "Second "),
+    text("A", 1, "block"),
+    { kind: "turn.ended", turnId: "A" as TurnId, outcome: "ok", sessionId, usage, error: null, forkPoint: "msg-1" as MessageUuid },
+    { kind: "thread.forked.out", to: "0f0f0f0f-0000-4000-8000-000000000009" as ThreadId, toTitle: "copy", atTurn: "A" as TurnId },
+    { kind: "thread.config", patch: { model: "claude-sonnet-5" as ModelId }, origin },
+    { kind: "upload.staged", upload: { uploadId: "u1" as never, path: "/tmp/u1", name: "a.png", mime: "image/png", bytes: 3 }, origin },
+    queued("m2", "second"),
+    started("B", "m2"),
+    askOpened("B", "a1"),
+    { kind: "ask.answered", turnId: "B" as TurnId, askId: "a1" as AskId, answer: { kind: "allow" }, by: { by: "user", origin } },
+    text("B", 0, "one"),
+    { kind: "file.offered", file: { fileId: "f1" as never, path: "/tmp/r.pdf", name: "r.pdf", mime: "application/pdf", bytes: 9, note: null }, origin },
+    text("B", 0, "two"),
+    text("B", 0, "three"),
+    { kind: "turn.ended", turnId: "B" as TurnId, outcome: "ok", sessionId, usage: { ...usage, contextTokens: 300 }, error: null },
+    { kind: "thread.forked", from: "0f0f0f0f-0000-4000-8000-000000000008" as ThreadId, fromTitle: "src", atTurn: "t:44" as TurnId, resume: null },
+    queued("m3", "third"),
+    started("C", "m3"),
+    text("C", 0, "un"),
+    text("C", 0, "finished"),
+    { kind: "turn.ended", turnId: "C" as TurnId, outcome: "interrupted", sessionId, usage: null, error: null },
+    queued("m4", "never started"),
+  ];
+  return renumber(bodies.map((b, i) => ({ ...b, ts: at(i) })));
+}
+
+/** A turn with every seq-bearing field mapped through `map`, so two generations of one log compare equal. */
+function normalize(turns: readonly Turn[], map: ReadonlyMap<Seq, Seq>): unknown[] {
+  const seq = (n: number): number => map.get(n as Seq) ?? -1;
+  const turnId = (id: TurnId | null): string | null => (id ? turnIdFor(seq(Number(id.slice(2))) as Seq) : null);
+  return turns.map((t) => ({
+    ...t,
+    key: t.key.startsWith("t:") ? `t:${turnId(t.turnId)}` : t.key.startsWith("n:") ? `n:${seq(Number(t.key.slice(2)))}` : t.key,
+    turnId: turnId(t.turnId),
+    end: t.end ? { ...t.end, seq: seq(t.end.seq) } : null,
+  }));
+}
+
+const identity = (events: readonly ThreadEvent[]): ReadonlyMap<Seq, Seq> => new Map(events.map((e) => [e.seq, e.seq]));
+
+function headFields(h: ThreadHead): unknown {
+  const { sessionId: s, usageTotal, contextTokens, contextWindow, lastOutcome, lastText, lastTurnEndedAt, queued: q } = h;
+  return { sessionId: s, usageTotal, contextTokens, contextWindow, lastOutcome, lastText: lastText?.text ?? null, lastTurnEndedAt, queued: q.map((e) => e.clientMsgId) };
+}
+
+async function headOf(events: readonly ThreadEvent[]): Promise<ThreadHead> {
+  const dir = await freshDir();
+  await writeLogFile(dir, events);
+  return (await ThreadLog.open(threadId, dir)).getHead();
+}
+
+test("compactEvents merges only consecutive same-key delta runs of completed turns, keeps everything else verbatim, and folds the same", async () => {
+  const original = busyLog();
+  const { events, seqMap, removed } = compactEvents(original, 1 as Generation, "2026-09-14T00:00:00.000Z");
+
+  assert.equal(events[0]?.kind, "log.generation");
+  assert.equal(events[0]?.kind === "log.generation" && events[0].generation, 1);
+  assert.deepEqual(events.map((e) => e.seq), events.map((_, i) => i + 1), "seqs are 1..n");
+  assert.equal(removed, 8, "A: 2 thinking, 2 text, 1 thinking, 1 text; B: 1 text, the file splits the other; C: 1 text");
+  assert.equal(events.length, original.length - removed + 1);
+
+  assert.deepEqual(normalize(groupTurns(events), identity(events)), normalize(groupTurns(original), seqMap), "the turn fold is unchanged");
+  assert.deepEqual(headFields(await headOf(events)), headFields(await headOf(original)), "the head is unchanged");
+
+  const lastEnd = original.findLastIndex((e) => e.kind === "turn.ended");
+  const strip = (e: ThreadEvent): unknown => {
+    const { seq: _s, ...rest } = e as ThreadEvent & { turnId?: TurnId; atTurn?: TurnId };
+    return { ...rest, turnId: undefined, atTurn: rest.kind === "thread.forked" ? rest.atTurn : undefined };
+  };
+  const isDelta = (e: ThreadEvent): boolean => e.kind === "assistant.text" || e.kind === "assistant.thinking";
+  assert.deepEqual(events.slice(1).filter((e) => !isDelta(e)).map(strip), original.filter((e) => !isDelta(e)).map(strip), "every non-delta event is kept in order, verbatim modulo seq and turn id");
+  assert.deepEqual(events.slice(events.length - (original.length - 1 - lastEnd)).map(strip), original.slice(lastEnd + 1).map(strip), "everything after the last turn.ended is verbatim");
+
+  const deltas = events.filter(isDelta).map((e) => (e.kind === "assistant.text" ? `text${e.blockIx}:${e.delta}@${e.ts}` : e.kind === "assistant.thinking" ? `think:${e.delta}@${e.ts}` : ""));
+  assert.deepEqual(deltas, [`think:let me see@${at(4)}`, `text0:Hello there@${at(7)}`, `think:after the tool@${at(12)}`, `text1:Second block@${at(14)}`, `text0:one@${at(24)}`, `text0:twothree@${at(26)}`, `text0:unfinished@${at(32)}`], "each run is one event with the first delta's ts; the file between B's deltas splits the run");
+
+  for (const e of original) {
+    const to = seqMap.get(e.seq);
+    if (to === undefined) continue;
+    const moved = events[to - 1]!;
+    assert.equal(moved.kind, e.kind, `seq ${e.seq} maps to its own kind`);
+    assert.equal(moved.ts, e.ts, `seq ${e.seq} keeps its ts`);
+  }
+  const forkOut = events.find((e) => e.kind === "thread.forked.out");
+  const startedA = original.find((e) => e.kind === "turn.started")!;
+  assert.equal(forkOut?.kind === "thread.forked.out" && forkOut.atTurn, turnIdFor(seqMap.get(startedA.seq)!), "forked.out names the same turn through the mapping");
+  const forked = events.find((e) => e.kind === "thread.forked");
+  assert.equal(forked?.kind === "thread.forked" && forked.atTurn, "t:44", "the source turn of a fork is never remapped");
+});
+
+test("compactEvents on an already compact log returns it unchanged with removed 0", () => {
+  const once = compactEvents(busyLog(), 1 as Generation, at(0)).events;
+  const again = compactEvents(once, 2 as Generation, at(1));
+  assert.equal(again.removed, 0);
+  assert.deepEqual(again.events, once);
+  assert.deepEqual([...again.seqMap].every(([a, b]) => a === b), true);
+});
+
+test("ThreadLog.compact rewrites the file one generation on, the fold and head survive a reopen, and a second compact has nothing to do", async () => {
+  const dir = await freshDir();
+  const log = await ThreadLog.open(threadId, dir);
+  await log.append({ kind: "thread.created", config: config() });
+  await log.append(queued("m1"));
+  const start = await log.append((seq) => started(turnIdFor(seq), "m1"));
+  const turnId = start.kind === "turn.started" ? start.turnId : ("" as TurnId);
+  for (let i = 0; i < 30; i++) await log.append(text(turnId, 0, `w${i} `));
+  await log.append({ kind: "tool.started", turnId, toolUseId: "tu" as never, name: "Bash", input: {} });
+  for (let i = 0; i < 10; i++) await log.append(thinking(turnId, `t${i}`));
+  await log.append({ kind: "turn.ended", turnId, outcome: "ok", sessionId, usage, error: null });
+  await log.append(queued("m2", "waiting"));
+  const before = await collect(log, 0);
+  const headBefore = log.getHead();
+  assert.equal(headBefore.generation, 0);
+  assert.equal(headBefore.collapsible, 38);
+
+  const r = await log.compact();
+  assert.deepEqual(r, { ok: true, removed: 38, generation: 1 });
+  const after = await collect(log, 0);
+  assert.equal(after.length, before.length - 38 + 1);
+  assert.equal(log.getHead().generation, 1);
+  assert.equal(log.getHead().collapsible, 0);
+  assert.equal(log.getHead().lastSeq, after.length);
+  assert.deepEqual(headFields(log.getHead()), headFields(headBefore));
+  assert.deepEqual(normalize(groupTurns(after), identity(after)), normalize(groupTurns(before), compactEvents(before, 1 as Generation, "").seqMap));
+
+  const reopened = await ThreadLog.open(threadId, dir);
+  assert.equal(reopened.getHead().generation, 1);
+  const replayed = await collect(reopened, 0);
+  assert.deepEqual(replayed.slice(0, after.length), after);
+  assert.equal(replayed[after.length]?.kind, "input.dropped", "open still drops the unstarted input, after the compacted lines");
+  const next = await reopened.append(queued("m3"));
+  assert.equal(next.seq, after.length + 2);
+
+  assert.deepEqual(await reopened.compact(), { ok: false, reason: "nothing" });
+  assert.equal(reopened.getHead().generation, 1);
+  await rm(dir, { recursive: true });
+});
+
+test("ThreadLog.compact refuses while a viewer is attached and leaves the file byte-identical", async () => {
+  const dir = await freshDir();
+  const log = await ThreadLog.open(threadId, dir);
+  await log.append({ kind: "thread.created", config: config() });
+  await log.append(text("t:1", 0, "a"));
+  await log.append(text("t:1", 0, "b"));
+  await log.append(ended("t:1"));
+  const before = await readFile(join(dir, "events.jsonl"));
+  const unsub = log.subscribe("viewer", () => {});
+  assert.deepEqual(await log.compact(), { ok: false, reason: "viewer" });
+  assert.equal((await readFile(join(dir, "events.jsonl"))).equals(before), true);
+  assert.equal(log.getHead().generation, 0);
+  unsub();
+  assert.equal((await log.compact()).ok, true);
+  await rm(dir, { recursive: true });
+});
+
+test("a crash before the rename leaves the old log; open deletes the stray temp file and reads generation 0", async () => {
+  const dir = await freshDir();
+  const original = busyLog();
+  await writeLogFile(dir, original);
+  const compacted = compactEvents(original, 1 as Generation, at(99)).events;
+  await writeFile(join(dir, "events.jsonl.compacting"), compacted.map((e) => JSON.stringify(e) + "\n").join(""));
+
+  const log = await ThreadLog.open(threadId, dir);
+  assert.equal(await readFile(join(dir, "events.jsonl.compacting"), "utf8").then(() => true, (e: NodeJS.ErrnoException) => e.code), "ENOENT");
+  assert.equal(log.getHead().generation, 0);
+  assert.deepEqual((await collect(log, 0)).slice(0, original.length), original);
+  await rm(dir, { recursive: true });
+});
+
+test("a crash after the rename leaves the new log; open reads generation 1 and folds the same", async () => {
+  const dir = await freshDir();
+  const original = busyLog();
+  const { events, seqMap } = compactEvents(original, 1 as Generation, at(99));
+  await writeLogFile(dir, events);
+
+  const log = await ThreadLog.open(threadId, dir);
+  assert.equal(log.getHead().generation, 1);
+  assert.deepEqual(normalize(groupTurns((await collect(log, 0)).slice(0, events.length)), identity(events)), normalize(groupTurns(original), seqMap));
+  assert.deepEqual(headFields(log.getHead()), headFields(await headOf(original)));
+  await rm(dir, { recursive: true });
+});
+
+test("collapsible counts consecutive same-key deltas, resets on any other event, and is 0 after compaction", async () => {
+  const dir = await freshDir();
+  const log = await ThreadLog.open(threadId, dir);
+  await log.append({ kind: "thread.created", config: config() });
+  assert.equal(log.getHead().collapsible, 0);
+  await log.append(text("t:1", 0, "a"));
+  assert.equal(log.getHead().collapsible, 0, "the first delta of a run is kept");
+  await log.append(text("t:1", 0, "b"));
+  await log.append(text("t:1", 0, "c"));
+  assert.equal(log.getHead().collapsible, 2);
+  await log.append(text("t:1", 1, "d"));
+  assert.equal(log.getHead().collapsible, 2, "a new block starts a new run");
+  await log.append(thinking("t:1", "e"));
+  await log.append(thinking("t:1", "f"));
+  assert.equal(log.getHead().collapsible, 3);
+  await log.append({ kind: "tool.started", turnId: "t:1" as TurnId, toolUseId: "x" as never, name: "Bash", input: {} });
+  await log.append(thinking("t:1", "g"));
+  assert.equal(log.getHead().collapsible, 3, "a tool between two thinking deltas splits the run");
+  await log.append(ended("t:1"));
+  assert.equal((await log.compact()).ok, true);
+  assert.equal(log.getHead().collapsible, 0);
+  await rm(dir, { recursive: true });
 });
