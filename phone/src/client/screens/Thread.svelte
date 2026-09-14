@@ -13,6 +13,7 @@
   import ArchiveConfirm from "../sheets/ArchiveConfirm.svelte";
   import ModelEffort from "../sheets/ModelEffort.svelte";
   import Rename from "../sheets/Rename.svelte";
+  import SaveToVault from "../sheets/SaveToVault.svelte";
   import ThreadInfo from "../sheets/ThreadInfo.svelte";
   import { isWaiting } from "../fold";
   import { openThread } from "../thread.svelte";
@@ -26,7 +27,7 @@
   let session = $state<ThreadSession | null>(null);
   let failure = $state<unknown>(null);
   let menuOpen = $state(false);
-  let openSheet = $state<"rename" | "model" | "info" | "archive" | null>(null);
+  let openSheet = $state<"rename" | "model" | "info" | "save" | "archive" | null>(null);
   let insert = $state<(text: string) => void>(() => undefined);
   let atBottom = $state(true);
   /** Blocks the reader has already had under their eyes. Frozen while they are scrolled up. */
@@ -132,6 +133,7 @@
     <header class="topbar">
       <button class="icon-btn" aria-label="Back" onclick={() => router.navigate("/")}>‹</button>
       <h1>{s.config.title ?? "Untitled"}</h1>
+      {#if s.view.recorded}<span class="recorded"><span class="glyph" aria-hidden="true">▣</span>recorded</span>{/if}
       <Gauge tokens={s.view.contextTokens} limit={s.view.contextWindow} />
       <div class="anchor">
         <button class="icon-btn" aria-label="Thread menu" onclick={() => (menuOpen = true)}>⋯</button>
@@ -141,6 +143,7 @@
             onRename={() => ((menuOpen = false), (openSheet = "rename"))}
             onModel={() => ((menuOpen = false), (openSheet = "model"))}
             onInfo={() => ((menuOpen = false), (openSheet = "info"))}
+            onSave={() => ((menuOpen = false), (openSheet = "save"))}
             onArchive={() => ((menuOpen = false), (openSheet = "archive"))}
           />
         {/if}
@@ -168,6 +171,8 @@
       <ModelEffort {api} config={s.config} onClose={() => (openSheet = null)} />
     {:else if openSheet === "info"}
       <ThreadInfo {api} view={s.view} onClose={() => (openSheet = null)} />
+    {:else if openSheet === "save"}
+      <SaveToVault {api} {threadId} onClose={() => (openSheet = null)} />
     {:else if openSheet === "archive"}
       <ArchiveConfirm {api} {threadId} onClose={() => (openSheet = null)} />
     {/if}

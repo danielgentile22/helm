@@ -37,9 +37,13 @@ export interface StateCell {
 
 export type SessionApi = Pick<HelmClient, "attach" | "send" | "upload" | "interrupt" | "listCommands" | "reloadCommands" | "answerAsk">;
 
-/** The summary is the seed: its config and head stand in until the replay from zero has caught up. */
+/**
+ * The summary is the seed: its config and head stand in until the replay from
+ * zero has caught up. `recorded` is seeded too, so the header mark is right
+ * while replaying; the fold only ever sets it, never clears it.
+ */
 export function initialState(summary: ThreadSummary): ThreadState {
-  return { view: emptyView(summary.config, summary.headSeq), conn: "connecting", attachments: [], commands: [], commandsError: null, error: null };
+  return { view: { ...emptyView(summary.config, summary.headSeq), recorded: summary.recorded }, conn: "connecting", attachments: [], commands: [], commandsError: null, error: null };
 }
 
 export class ThreadSession {

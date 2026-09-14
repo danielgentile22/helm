@@ -28,6 +28,7 @@ import type {
   HelmSettings,
   ModelChoice,
   SearchHit,
+  SaveRequest,
   SendRequest,
   SendResponse,
   SettingsPatch,
@@ -159,6 +160,11 @@ export class HelmClient {
   /** Idempotent on clientMsgId. Safe to retry after a dropped request. */
   send(threadId: ThreadId, req: SendRequest): Promise<SendResponse> {
     return this.call("POST", `/api/threads/${threadId}/send`, { ...req, label: req.label ?? this.opts.label });
+  }
+  /** Runs the server's "Save to vault" prompt as a turn in this thread. Queues behind a running turn rather than being refused. */
+  saveToVault(threadId: ThreadId, guidance: string | null): Promise<SendResponse> {
+    const req: SaveRequest = guidance === null ? {} : { guidance };
+    return this.call("POST", `/api/threads/${threadId}/save`, req);
   }
   interrupt(threadId: ThreadId): Promise<void> {
     return this.call("POST", `/api/threads/${threadId}/interrupt`);

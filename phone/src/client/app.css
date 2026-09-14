@@ -361,3 +361,12 @@ a { color: var(--accent); }
 .file-main .sub { font-family: var(--mono); font-size: var(--t-xs); color: var(--ink-3); }
 .file-main .note-line { font-size: var(--t-sm); color: var(--ink-2); }
 .file-open { display: inline-flex; align-items: center; flex: none; }
+
+/* Vault note a save wrote (NoteCard) */
+.note-card { display: flex; }
+.note-card .file-main { flex: 1; min-width: 0; text-decoration: none; color: inherit; }
+.note-card .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.save-row { font-weight: 600; }
+/* A thread promoted to the vault: glyph plus word, never a coloured dot. */
+.recorded { display: inline-flex; align-items: center; gap: 5px; flex: none; font-family: var(--mono); font-size: var(--t-mono-xs); letter-spacing: .04em; color: var(--ink-3); white-space: nowrap; }
+.recorded .glyph { font-size: inherit; line-height: 1; }

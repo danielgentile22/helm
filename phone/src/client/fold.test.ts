@@ -195,3 +195,23 @@ test("a turn that ends while an ask is open clears the pending set, and a closed
   assert.deepEqual(ended.pendingAsks, []);
   assert.equal(isWaiting(ended), false);
 });
+
+test("a recorded note becomes a card in the running turn and marks the thread as recorded", () => {
+  seq = 0;
+  const recorded = {
+    file: { fileId: "n1", path: "/v/Atlas/Decisions/backups.md", name: "backups.md", mime: "text/markdown", bytes: 20, note: null },
+    rel: "Atlas/Decisions/backups.md",
+    summary: "added the 2026-09-13 bullet",
+  };
+  const t = "t:2" as TurnId;
+  const view = foldAll(emptyView(config), [
+    ev({ kind: "input.queued", clientMsgId: "c1" as never, text: "Record this conversation", uploads: [], origin: { via: "pwa", label: "vault" } }),
+    ev({ kind: "turn.started", turnId: t, clientMsgId: "c1" as never, model: "m" as never, effort: "high", spawned: false }),
+    ev({ kind: "note.recorded", note: recorded, origin: { via: "key", label: "model" } }),
+  ]);
+  assert.equal(view.recorded, true);
+  const item = view.turns[0]?.items[0];
+  assert.ok(item?.kind === "recorded");
+  assert.deepEqual([item.fileId, item.rel, item.summary], ["n1", "Atlas/Decisions/backups.md", "added the 2026-09-13 bullet"]);
+  assert.equal(emptyView(config).recorded, false);
+});
