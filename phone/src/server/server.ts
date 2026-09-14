@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { LIMITS } from "../shared/protocol";
 import type { ThreadId } from "../shared/protocol";
 import type { AgentFactory } from "./core/agent";
+import { Forks } from "./core/fork";
 import { LogRegistry } from "./core/log";
 import { Mirror } from "./core/mirror";
 import { PushService, type Send, type VapidKeys } from "./core/push";
@@ -92,6 +93,7 @@ export async function buildServer(cfg: ServerConfig, deps: ServerDeps): Promise<
   const threads = new ThreadStore(threadsRoot);
   const offers = new Offers(threads, logs);
   const supervisor = new Supervisor(logs, threads, deps.agents, { additionalDirectories: cfg.additionalDirectories, idleParkMs: cfg.idleParkMs ?? LIMITS.IDLE_PARK_MS, offers });
+  const forks = new Forks(cfg.home, threads, logs);
   const uploads = new Uploads(threads, logs);
   const settings = new SettingsStore(join(cfg.home, "settings.json"), { defaultCwd: cfg.vaultRoot });
   const sessions = new FileSessionStore(join(cfg.home, "auth", "sessions.json"));
@@ -116,6 +118,7 @@ export async function buildServer(cfg: ServerConfig, deps: ServerDeps): Promise<
     threads,
     logs,
     supervisor,
+    forks,
     agents: deps.agents,
     uploads,
     offers,

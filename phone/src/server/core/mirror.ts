@@ -17,7 +17,7 @@
  * a missing mirror block is repaired by the next resume().
  *
  * Frontmatter (seeded once):
- *   thread, type: chat, created, cwd, model, title, tags: [chat]
+ *   thread, type: chat, created, cwd, model, title, forked_from, tags: [chat]
  *
  * This module is the one thing in the server that writes into the vault, and
  * it writes nothing but these notes (user story 62). prune() deletes notes
@@ -121,7 +121,7 @@ export class Mirror {
     if (turns.length === 0) return;
 
     let out = "";
-    if (existing.trim() === "") out += frontmatter(log.threadId, (await this.threads.get(log.threadId).catch(() => null)) ?? configFromLog(events));
+    if (existing.trim() === "") out += frontmatter(log.threadId, (await this.threads.get(log.threadId).catch(() => null)) ?? configFromLog(events), forkOrigin(events));
     for (const turn of turns) out += "\n" + renderTurn(turn) + "\n";
 
     await mkdir(dirname(file), { recursive: true });
@@ -145,12 +145,39 @@ function configFromLog(events: readonly ThreadEvent[]): ThreadConfig | null {
   return null;
 }
 
+/** Where a forked thread came from. The fork point is the last copied turn, which is the event right before the divider. */
+interface ForkOrigin {
+  readonly from: ThreadId;
+  readonly fromTitle: string | null;
+  readonly at: string;
+  readonly remembers: boolean;
+}
+
+function forkOrigin(events: readonly ThreadEvent[]): ForkOrigin | null {
+  const ix = events.findIndex((ev) => ev.kind === "thread.forked");
+  const ev = ix < 0 ? null : events[ix];
+  if (!ev || ev.kind !== "thread.forked") return null;
+  return { from: ev.from, fromTitle: ev.fromTitle, at: events[ix - 1]?.ts ?? ev.ts, remembers: ev.resume !== null };
+}
+
+/**
+ * The one line that keeps a fork's note from reading as a duplicated
+ * conversation: the turns above it were copied, from where, and whether Claude
+ * carries them into the first new turn.
+ */
+function forkLine(origin: ForkOrigin): string {
+  const memory = origin.remembers
+    ? "Claude picks that session up here, so it remembers the turns above."
+    : "Claude starts fresh here, so it does not remember the turns above.";
+  return `The turns above the first new one were copied from [[${origin.from}|${origin.fromTitle ?? origin.from}]], forked at ${origin.at}. ${memory}`;
+}
+
 /** YAML scalar that is safe for a path, a title, or a model id. */
 function yaml(value: string): string {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
-function frontmatter(threadId: ThreadId, config: ThreadConfig | null): string {
+function frontmatter(threadId: ThreadId, config: ThreadConfig | null, fork: ForkOrigin | null): string {
   const lines = [
     "---",
     `thread: ${threadId}`,
@@ -162,7 +189,9 @@ function frontmatter(threadId: ThreadId, config: ThreadConfig | null): string {
     lines.push(`model: ${yaml(config.model)}`);
     if (config.title) lines.push(`title: ${yaml(config.title)}`);
   }
+  if (fork) lines.push(`forked_from: ${yaml(fork.from)}`);
   lines.push("tags: [chat]", "---", "", `# ${config?.title ?? threadId}`, "");
+  if (fork) lines.push(forkLine(fork), "");
   return lines.join("\n");
 }
 
@@ -239,6 +268,8 @@ export function renderTurn(turn: CompletedTurn): string {
       sent.push(`sent to phone: ${item.name} (${fmtBytes(item.bytes)})${item.note ? `: ${item.note}` : ""}`);
     } else if (item.kind === "ask") {
       tools.push(`asked: ${askSummary(item.ask)}`, `answered: ${answerVerb(item)}`);
+    } else if (item.kind === "forkOut") {
+      tools.push(`forked to: ${item.toTitle}`);
     }
   }
 

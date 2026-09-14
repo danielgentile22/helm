@@ -4,6 +4,8 @@
   import AskCard from "../blocks/AskCard.svelte";
   import EndLine from "../blocks/EndLine.svelte";
   import FileCard from "../blocks/FileCard.svelte";
+  import ForkDivider from "../blocks/ForkDivider.svelte";
+  import ForkLink from "../blocks/ForkLink.svelte";
   import PromptBlock from "../blocks/PromptBlock.svelte";
   import TextBlock from "../blocks/TextBlock.svelte";
   import ThinkingBlock from "../blocks/ThinkingBlock.svelte";
@@ -15,6 +17,7 @@
     replaying,
     onResend,
     onQuote,
+    onFork,
     onAnswer,
     uploadUrl,
     fileUrl,
@@ -25,13 +28,14 @@
     replaying: boolean;
     onResend: (text: string) => void;
     onQuote: (quoted: string) => void;
+    onFork: (turnId: TurnId) => void;
     onAnswer: (askId: AskId, answer: AskAnswer) => Promise<void>;
     uploadUrl: (uploadId: UploadId) => string;
     fileUrl: (fileId: string) => string;
     fetchFile: (fileId: string, onProgress: (bytes: number) => void) => Promise<Blob>;
   } = $props();
 
-  const GLYPH: Readonly<Record<Block["kind"], string>> = { prompt: "❯", thinking: "∴", text: "·", activity: "$", end: "", file: "↓", ask: "?", note: "" };
+  const GLYPH: Readonly<Record<Block["kind"], string>> = { prompt: "❯", thinking: "∴", text: "·", activity: "$", end: "", file: "↓", ask: "?", fork: "", forkOut: "↳", note: "" };
 
   /**
    * A block animates only if the log was already on screen, and live, before the render that
@@ -74,16 +78,17 @@
 <div class="transcript" onclick={onCopy}>
   {#each sections as section (section.key)}
     {@const live = section.turnId !== null && section.turnId === openTurn}
+    {@const forkable = section.ended ? section.turnId : null}
     <section class="turn" class:is-live={live} data-turn={section.turnId}>
       {#if live}<span class="rail" aria-hidden="true"><i></i></span>{/if}
       {#each section.blocks as block (block.key)}
         <div class="blk blk-{block.kind}" data-glyph={GLYPH[block.kind]} use:enters>
           {#if block.kind === "prompt"}
-            <PromptBlock prompt={block.prompt} {onResend} {uploadUrl} />
+            <PromptBlock prompt={block.prompt} {onResend} {onQuote} {uploadUrl} onFork={forkable === null ? null : () => onFork(forkable)} />
           {:else if block.kind === "thinking"}
             <ThinkingBlock text={block.text} collapsed={block.collapsed} streaming={block.streaming} />
           {:else if block.kind === "text"}
-            <TextBlock text={block.text} streaming={block.streaming} {onQuote} />
+            <TextBlock text={block.text} streaming={block.streaming} {onQuote} onFork={forkable === null ? null : () => onFork(forkable)} />
           {:else if block.kind === "activity"}
             <ActivityBlock {block} />
           {:else if block.kind === "end"}
@@ -92,6 +97,10 @@
             <AskCard ask={block.ask} live={block.live} onAnswer={(answer) => onAnswer(block.ask.askId, answer)} />
           {:else if block.kind === "file"}
             <FileCard file={block.file} url={fileUrl(block.file.fileId)} fetch={(onProgress) => fetchFile(block.file.fileId, onProgress)} />
+          {:else if block.kind === "fork"}
+            <ForkDivider from={block.from} fromTitle={block.fromTitle} memory={block.memory} atSeq={block.atSeq} />
+          {:else if block.kind === "forkOut"}
+            <ForkLink to={block.to} toTitle={block.toTitle} />
           {:else}
             <div class="note">{block.text}</div>
           {/if}

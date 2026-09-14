@@ -43,6 +43,8 @@ export type FileId = Brand<string, "FileId">;
 export type ToolUseId = Brand<string, "ToolUseId">;
 /** Minted by the adapter when Claude Code asks something mid-turn; echoed by the answer route. */
 export type AskId = Brand<string, "AskId">;
+/** The SDK's uuid of one message in a Claude Code session; the adapter is the only place a raw string becomes one. */
+export type MessageUuid = Brand<string, "MessageUuid">;
 
 // ---------------------------------------------------------------------------
 // Thread config (user-set inputs, stored in thread.json, not derived)
@@ -305,6 +307,12 @@ export function addUsage(total: UsageTotal | null, u: Usage): UsageTotal {
   };
 }
 
+/** Where a fork's first spawn picks the conversation up: the source session, and the message in it to resume at. */
+export interface ForkResume {
+  readonly sessionId: ClaudeSessionId;
+  readonly at: MessageUuid;
+}
+
 /**
  * Event bodies. Every variant is a fact that happened; nothing here is a
  * command. Client folds these; server projections (mirror, push) read these.
@@ -361,7 +369,25 @@ export type ThreadEventBody =
       usage: Usage | null;
       /** Human-readable, already scrubbed of paths and stack traces. */
       error: string | null;
+      /**
+       * The SDK uuid of the turn's last message, where a fork of this thread
+       * resumes (the SDK forks at the kept turn's last chain entry). Absent on
+       * turns logged before forking existed and on turns that produced no
+       * message; a fork from such a turn starts Claude fresh.
+       */
+      forkPoint?: MessageUuid;
     }
+  /**
+   * This thread began as a copy of another, up to and including `atTurn`
+   * there. Everything before this event in the log is that copy, re-stamped
+   * with this log's seqs and the original timestamps. `resume` names the
+   * source session and the message the fork's first turn resumes at; null
+   * when the source turn recorded no fork point, so Claude starts here with
+   * no memory of the copied turns.
+   */
+  | { kind: "thread.forked"; from: ThreadId; fromTitle: string | null; atTurn: TurnId; resume: ForkResume | null }
+  /** Someone forked this thread at `atTurn`; the copy lives in `to`. Never copied into a further fork. */
+  | { kind: "thread.forked.out"; to: ThreadId; toTitle: string; atTurn: TurnId }
   | { kind: "upload.staged"; upload: StagedUpload; origin: Origin }
   /** Appended by the tool handler, not the agent stream, so it is not tied to a turn. */
   | { kind: "file.offered"; file: OfferedFile; origin: Origin }
@@ -407,6 +433,11 @@ export interface CreateThreadRequest {
   readonly title?: string | null;
   /** Absent: bypass in the vault root, else the server's default. */
   readonly permissionMode?: PermissionMode;
+}
+
+/** POST /api/threads/:id/fork. The turn must have ended; the reply is the new thread's summary. Two calls make two forks. */
+export interface ForkRequest {
+  readonly turnId: string;
 }
 
 export interface SendRequest {

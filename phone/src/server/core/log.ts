@@ -8,7 +8,9 @@
  * Invariants
  *   I1. seq is contiguous from 1. append() assigns lastSeq + 1 under a
  *       per-instance serial queue; there is exactly one ThreadLog instance
- *       per thread per process (LogRegistry enforces it).
+ *       per thread per process (LogRegistry enforces it). The one other
+ *       minter is stampEvents, for a log written whole (a fork) before any
+ *       instance or subscriber exists.
  *   I2. An event is emitted to subscribers only after its line has been
  *       fully written to the file. So anything a subscriber has seen is on
  *       disk, and anything on disk with seq > cursor is returned by read().
@@ -26,7 +28,7 @@
  */
 
 import { createReadStream } from "node:fs";
-import { appendFile, mkdir, open as fsOpen, readdir, readFile, stat, truncate } from "node:fs/promises";
+import { appendFile, mkdir, open as fsOpen, readdir, readFile, stat, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { addUsage, LIMITS } from "../../shared/protocol";
 import type {
@@ -34,6 +36,7 @@ import type {
   ClaudeSessionId,
   ClientMsgId,
   Cursor,
+  ForkResume,
   PendingAsk,
   Seq,
   ThreadEvent,
@@ -49,6 +52,12 @@ import type {
 export interface ThreadHead {
   readonly lastSeq: Cursor;
   readonly sessionId: ClaudeSessionId | null;
+  /**
+   * The fork's first spawn resumes this session at this message uuid. Set by
+   * `thread.forked`, cleared by the next `session.bound` or `turn.ended`, so a
+   * spawn the SDK refused is retried fresh rather than forever.
+   */
+  readonly fork: ForkResume | null;
   /** turnId of a `turn.started` without a matching `turn.ended`. Always null after open(). */
   readonly openTurn: TurnId | null;
   /** `input.queued` events not yet consumed by a `turn.started`, in order. */
@@ -89,14 +98,19 @@ export type SubscriberKind = "viewer" | "projection";
 const RECENT_IDS = 64;
 const FILE = "events.jsonl";
 
-const emptyHead: ThreadHead = { lastSeq: 0, sessionId: null, openTurn: null, queued: [], recentClientMsgIds: new Map(), lastTurnEndedAt: null, lastOutcome: null, contextTokens: null, activeTool: null, lastText: null, usageTotal: null, contextWindow: null, pendingAsks: [], recentAskIds: new Set() };
+const emptyHead: ThreadHead = { lastSeq: 0, sessionId: null, fork: null, openTurn: null, queued: [], recentClientMsgIds: new Map(), lastTurnEndedAt: null, lastOutcome: null, contextTokens: null, activeTool: null, lastText: null, usageTotal: null, contextWindow: null, pendingAsks: [], recentAskIds: new Set() };
 
 /** Pure: the head after one more event. */
 function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
-  let { sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds } = h;
+  let { sessionId, fork, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds } = h;
   switch (ev.kind) {
     case "session.bound":
       sessionId = ev.sessionId;
+      fork = null;
+      break;
+    case "thread.forked":
+      sessionId = null;
+      fork = ev.resume;
       break;
     case "input.queued": {
       queued = [...queued, ev];
@@ -136,6 +150,7 @@ function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
       break;
     case "turn.ended":
       openTurn = null;
+      fork = null;
       activeTool = null;
       pendingAsks = [];
       if (ev.sessionId) sessionId = ev.sessionId;
@@ -151,7 +166,7 @@ function advance(h: ThreadHead, ev: ThreadEvent): ThreadHead {
       queued = [];
       break;
   }
-  return { lastSeq: ev.seq, sessionId, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds };
+  return { lastSeq: ev.seq, sessionId, fork, openTurn, queued, recentClientMsgIds, lastTurnEndedAt, lastOutcome, contextTokens, activeTool, lastText, usageTotal, contextWindow, pendingAsks, recentAskIds };
 }
 
 type DeltaBody = Extract<ThreadEventBody, { kind: "assistant.text" | "assistant.thinking" }>;
@@ -162,6 +177,22 @@ function isDelta(body: ThreadEventBody | ((seq: Seq) => ThreadEventBody)): boole
 
 function deltaKey(b: DeltaBody): string {
   return b.kind === "assistant.text" ? `${b.turnId}:${b.blockIx}` : `${b.turnId}:thinking`;
+}
+
+/**
+ * Stamp a run of bodies as a whole log, seqs 1..n. The only way to mint seqs
+ * outside append(), and it exists so a forked log is written in one go rather
+ * than appended event by event into a thread nobody can see yet. Timestamps
+ * come in with the bodies: a copied event keeps the ts it happened at.
+ */
+export function stampEvents(bodies: readonly (ThreadEventBody & { ts: string })[]): ThreadEvent[] {
+  return bodies.map(({ ts, ...body }, i) => ({ seq: (i + 1) as Seq, ts, ...body }) as ThreadEvent);
+}
+
+/** Write a whole events.jsonl in the shape append() writes it, one event per line. */
+export async function writeLogFile(dir: string, events: readonly ThreadEvent[]): Promise<void> {
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, FILE), events.map((ev) => JSON.stringify(ev) + "\n").join(""));
 }
 
 export class ThreadLog {

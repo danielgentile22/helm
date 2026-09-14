@@ -19,6 +19,7 @@ import type {
   CreateThreadRequest,
   Cursor,
   DirEntry,
+  ForkRequest,
   HelmSettings,
   ModelChoice,
   SearchHit,
@@ -33,6 +34,7 @@ import type {
   ThreadEvent,
   ThreadId,
   ThreadSummary,
+  TurnId,
   UploadId,
 } from "../shared/protocol";
 
@@ -135,6 +137,11 @@ export class HelmClient {
   }
   patchThread(threadId: ThreadId, patch: ThreadConfigPatch): Promise<ThreadConfig> {
     return this.call("PATCH", `/api/threads/${threadId}`, patch);
+  }
+  /** Copies the thread up to and including `turnId` into a new one. 409 while that turn is still running, 404 when it is unknown. Two calls make two forks. */
+  forkThread(threadId: ThreadId, turnId: TurnId): Promise<ThreadSummary> {
+    const req: ForkRequest = { turnId };
+    return this.call("POST", `/api/threads/${threadId}/fork`, req);
   }
   archiveThread(threadId: ThreadId): Promise<void> {
     return this.call("DELETE", `/api/threads/${threadId}`);

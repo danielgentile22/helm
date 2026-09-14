@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { Seq, SyncFrame, ThreadEvent, ThreadId, UploadId } from "../shared/protocol";
-import { HelmClient } from "./api";
+import type { Seq, SyncFrame, ThreadEvent, ThreadId, TurnId, UploadId } from "../shared/protocol";
+import { HelmClient, HttpError } from "./api";
 import { FakeES } from "./testkit";
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 5));
@@ -101,4 +101,23 @@ test("a 503 from the command endpoint reaches the caller as an HttpError to fall
 test("call() surfaces the server's error message with its status", async () => {
   const c = new HelmClient({ baseUrl: "http://x", fetch: (async () => new Response(JSON.stringify({ error: "no such thread" }), { status: 404, headers: { "content-type": "application/json" } })) as typeof fetch });
   await assert.rejects(c.getThread("zz" as ThreadId), (err: Error & { status?: number }) => err.message === "no such thread" && err.status === 404);
+});
+
+test("forkThread posts the turn id to the source thread and hands back the new summary", async () => {
+  const seen: { method: string; url: string; body: unknown }[] = [];
+  const summary = { config: { threadId: "t2" }, headSeq: 4 };
+  const c = new HelmClient({
+    baseUrl: "http://x",
+    fetch: (async (url: string, init?: RequestInit) => {
+      seen.push({ method: init?.method ?? "GET", url, body: JSON.parse(String(init?.body)) });
+      return new Response(JSON.stringify(summary), { status: 201, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch,
+  });
+  assert.deepEqual(await c.forkThread("t1" as ThreadId, "t:6" as TurnId), summary);
+  assert.deepEqual(seen, [{ method: "POST", url: "http://x/api/threads/t1/fork", body: { turnId: "t:6" } }]);
+});
+
+test("a 409 from the fork endpoint reaches the caller as an HttpError, so the screen can say why", async () => {
+  const c = new HelmClient({ baseUrl: "http://x", fetch: (async () => new Response(JSON.stringify({ error: "the turn is still running" }), { status: 409, headers: { "content-type": "application/json" } })) as typeof fetch });
+  await assert.rejects(c.forkThread("t1" as ThreadId, "t:6" as TurnId), (err: Error) => err instanceof HttpError && err.status === 409 && err.message === "the turn is still running");
 });

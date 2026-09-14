@@ -6,7 +6,7 @@
  * whatever sequence of events the test needs, with whatever timing.
  */
 
-import type { AskAnswer, AskId, AskPayload, ClaudeSessionId, Effort, ModelId, PermissionMode, SlashCommand, ToolUseId, TurnId, Usage } from "../../shared/protocol";
+import type { AskAnswer, AskId, AskPayload, ClaudeSessionId, Effort, MessageUuid, ModelId, PermissionMode, SlashCommand, ToolUseId, TurnId, Usage } from "../../shared/protocol";
 import { Pushable } from "../util/pushable";
 import type { AgentEvent, AgentFactory, AgentSession, RawModel, SpawnOptions, TurnInput } from "./agent";
 
@@ -26,7 +26,7 @@ export interface FakeTurn {
    * The fake never emits the `ask.answered`; the supervisor logs that.
    */
   ask(ask: AskPayload): Promise<AskAnswer>;
-  /** Finish the turn. Exactly once per send; the fake enforces it. */
+  /** Finish the turn, carrying a fork point. Exactly once per send; the fake enforces it. A turn without one needs a hand-built `emit`. */
   end(outcome?: "ok" | "error", error?: string | null, usage?: Usage | null): void;
   /** Resolves when the supervisor calls interrupt() during this turn. */
   readonly interrupted: Promise<void>;
@@ -124,7 +124,7 @@ export class FakeSession implements AgentSession {
       },
       tool: (name, inp, output, isError = false) => turn.toolEnd(turn.toolStart(name, inp), output, isError),
       end: (outcome = "ok", error = null, usage = defaultUsage) =>
-        turn.emit({ kind: "turn.ended", turnId: input.turnId, outcome, sessionId: this.sessionId, usage, error }),
+        turn.emit({ kind: "turn.ended", turnId: input.turnId, outcome, sessionId: this.sessionId, usage, error, forkPoint: `msg-${input.turnId}` as MessageUuid }),
       crash: () => {
         this.dead = true;
         this.out.end();
@@ -210,7 +210,8 @@ export class FakeAgentFactory implements AgentFactory {
 
   async spawn(opts: SpawnOptions): Promise<AgentSession> {
     this.spawnCount += 1;
-    const sessionId = (opts.resume ?? `fake-session-${this.spawnCount}`) as ClaudeSessionId;
+    // A fork mints a new session id the way the SDK does, rather than continuing the one it forked from.
+    const sessionId = ((opts.forkAt === null ? opts.resume : null) ?? `fake-session-${this.spawnCount}`) as ClaudeSessionId;
     const s = new FakeSession(opts, this.script, sessionId, () => this.commandList);
     this.sessions.push(s);
     return s;

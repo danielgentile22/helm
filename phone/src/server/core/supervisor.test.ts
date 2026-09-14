@@ -395,7 +395,7 @@ test("hardening: a throw inside a turn seals it and leaves the thread cold, not 
   h.agents.script = () => {
     throw new Error("script exploded synchronously");
   };
-  h.agents.spawn = async () => ({ ...(await new FakeAgentFactory().spawn({ cwd: h.home, model, effort: "high", permissionMode: "bypass", resume: null, additionalDirectories: [], appendSystemPrompt: "", sendToPhone: () => Promise.reject(new Error("no")) })), send: () => { throw new Error("send exploded"); } }) as never;
+  h.agents.spawn = async () => ({ ...(await new FakeAgentFactory().spawn({ cwd: h.home, model, effort: "high", permissionMode: "bypass", resume: null, forkAt: null, additionalDirectories: [], appendSystemPrompt: "", sendToPhone: () => Promise.reject(new Error("no")) })), send: () => { throw new Error("send exploded"); } }) as never;
   const ended = h.nextTurnEnd();
   await h.sup.send(h.threadId, msg("m1"));
   const end = await ended;

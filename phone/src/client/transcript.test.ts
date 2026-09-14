@@ -257,3 +257,43 @@ test("answerLine names who answered and what, and tells an expiry apart from a d
   assert.equal(answerLine(item({ kind: "deny", reason: null }, { by: "system", reason: "archived" })), `Expired (archived) · ${stamp}`);
   assert.equal(answerLine(item({ kind: "deny", reason: "a deny rule matched" }, { by: "system", reason: "rule" })), `Auto-denied by a rule: a deny rule matched · ${stamp}`);
 });
+
+test("a fork's divider stands in its own unfinished section below the copied turn, pointing at the source turn's seq", () => {
+  const copied = (): ThreadEvent[] => [...started(), ev({ kind: "assistant.text", turnId: T, blockIx: 0, delta: "Hi" }), ended()];
+  const fresh = toSections(build([...copied(), ev({ kind: "thread.forked", from: "t-src" as ThreadId, fromTitle: "Listing", atTurn: "t:17" as TurnId, resume: null })], null));
+  assert.deepEqual(
+    fresh.map((s) => [s.ended, s.blocks.map((b) => b.kind)]),
+    [
+      [true, ["prompt", "text"]],
+      [false, ["fork"]],
+    ],
+  );
+  const divider = fresh[1]!.blocks[0]!;
+  assert.ok(divider.kind === "fork");
+  assert.deepEqual([divider.from, divider.fromTitle, divider.memory, divider.atSeq], ["t-src", "Listing", "fresh", 17]);
+  assert.equal(divider.key, `fork:${fresh[1]!.key}`);
+
+  const resumed = toSections(build([...copied(), ev({ kind: "thread.forked", from: "t-src" as ThreadId, fromTitle: null, atTurn: "t:17" as TurnId, resume: { sessionId: "s" as never, at: "uuid-9" } })], null));
+  const kept = resumed[1]!.blocks[0]!;
+  assert.ok(kept.kind === "fork");
+  assert.deepEqual([kept.memory, kept.fromTitle], ["session", null], "a resumable source leaves the copied turns in Claude's memory");
+});
+
+test("the link to a fork lands inside the turn it was forked from", () => {
+  const events = [...started(), ev({ kind: "assistant.text", turnId: T, blockIx: 0, delta: "Hi" }), ended(), ev({ kind: "thread.forked.out", to: "t-fork" as ThreadId, toTitle: "Listing (fork)", atTurn: T })];
+  const sections = toSections(build(events, null));
+  assert.equal(sections.length, 1, "the link belongs to the forked turn, not to a section of its own");
+  assert.deepEqual(sections[0]!.blocks.map((b) => b.kind), ["prompt", "text", "forkOut"]);
+  const link = sections[0]!.blocks[2]!;
+  assert.ok(link.kind === "forkOut");
+  assert.deepEqual([link.to, link.toTitle, link.key], ["t-fork", "Listing (fork)", "forkOut:t-fork"]);
+});
+
+test("a section is ended only once its turn has, which is what gates forking from it", () => {
+  const open = [...started(), ev({ kind: "assistant.text", turnId: T, blockIx: 0, delta: "working" })];
+  assert.deepEqual(toSections(build(open, T)).map((s) => [s.turnId, s.ended]), [[T, false]]);
+  assert.deepEqual(toSections(build([...open, ended()], null)).map((s) => [s.turnId, s.ended]), [[T, true]]);
+  seq = 0;
+  clock = 0;
+  assert.deepEqual(toSections(build([ev({ kind: "thread.archived" })], null)).map((s) => [s.turnId, s.ended]), [[null, false]], "a loose note has no turn to fork");
+});

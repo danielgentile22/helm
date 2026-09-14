@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { turnIdFor } from "../../shared/protocol";
-  import type { ThreadId } from "../../shared/protocol";
+  import type { ThreadId, TurnId } from "../../shared/protocol";
   import type { HelmClient } from "../api";
   import Composer from "../components/Composer.svelte";
   import Gauge from "../components/Gauge.svelte";
@@ -16,6 +16,7 @@
   import ThreadInfo from "../sheets/ThreadInfo.svelte";
   import { isWaiting } from "../fold";
   import { openThread } from "../thread.svelte";
+  import { message } from "../thread";
   import type { ThreadSession } from "../thread";
   import { blockCount, jumpCount, toBlocks } from "../transcript";
   import ErrorScreen from "./ErrorScreen.svelte";
@@ -64,6 +65,24 @@
       live?.stop();
     };
   });
+
+  // Forking is deliberately not idempotent, so a second tap while the first is in flight would make a second thread.
+  let forking = false;
+
+  async function fork(turnId: TurnId): Promise<void> {
+    const s = session;
+    if (!s || forking) return;
+    forking = true;
+    try {
+      const summary = await api.forkThread(threadId, turnId);
+      s.error = null;
+      router.navigate(`/t/${summary.config.threadId}`);
+    } catch (err) {
+      s.error = `Fork failed: ${message(err)}`;
+    } finally {
+      forking = false;
+    }
+  }
 
   $effect(() => {
     const onScroll = (): void => {
@@ -129,7 +148,7 @@
     </header>
     <StatusBar conn={s.conn} seen={s.view.headSeq} head={s.view.logHead} waiting={isWaiting(s.view)} />
     </div>
-    <Transcript {sections} openTurn={s.view.openTurn} replaying={s.view.replaying} onResend={(text) => void s.submit(text, [])} onQuote={(quoted) => insert(quoted)} onAnswer={(askId, answer) => s.answer(askId, answer)} uploadUrl={(uploadId) => api.uploadUrl(threadId, uploadId)} fileUrl={(fileId) => api.fileUrl(threadId, fileId)} fetchFile={(fileId, onProgress) => api.fetchFile(threadId, fileId, onProgress)} />
+    <Transcript {sections} openTurn={s.view.openTurn} replaying={s.view.replaying} onResend={(text) => void s.submit(text, [])} onQuote={(quoted) => insert(quoted)} onFork={(turnId) => void fork(turnId)} onAnswer={(askId, answer) => s.answer(askId, answer)} uploadUrl={(uploadId) => api.uploadUrl(threadId, uploadId)} fileUrl={(fileId) => api.fileUrl(threadId, fileId)} fetchFile={(fileId, onProgress) => api.fetchFile(threadId, fileId, onProgress)} />
     {#if s.error}
       <div class="inline-error">
         <span class="glyph">▲</span>

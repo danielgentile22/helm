@@ -905,3 +905,210 @@ test("search: one row per thread at its best turn, live turns included, and iden
   await untilIdle(r, THREAD);
   await r.cleanup();
 });
+
+/** Run one turn on a thread and resolve once it is on disk and the session is idle. */
+async function runTurn(s: Stack, threadId: string, n: number, text = `message ${n}`): Promise<void> {
+  await s.api("POST", `/api/threads/${threadId}/send`, { clientMsgId: uuid(n), text });
+  await untilIdle(s, threadId);
+}
+
+const replay = async (s: Stack, threadId: string): Promise<ThreadEvent[]> =>
+  events(await readSse(await s.api("GET", `/api/threads/${threadId}/events?after=0`), (f) => f.some((x) => x.kind === "sync")));
+
+const turnIds = (evs: ThreadEvent[]): string[] => evs.filter((e) => e.kind === "turn.started").map((e) => e.turnId);
+
+test("fork: the copy ends at the chosen turn, the source gains a link to it, and the fork sorts to the top of the list", async () => {
+  const s = await buildStack();
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  await runTurn(s, THREAD, 1, "first");
+  await runTurn(s, THREAD, 2, "second");
+  const sourceEvents = await replay(s, THREAD);
+  const [firstTurn, secondTurn] = turnIds(sourceEvents);
+
+  const res = await s.api("POST", `/api/threads/${THREAD}/fork`, { turnId: firstTurn });
+  assert.equal(res.status, 201);
+  const fork = (await res.json()) as ThreadSummary;
+  assert.equal(fork.config.title, "first (fork)", "the title says where it came from");
+  assert.equal(fork.config.cwd, sourceEvents[0]!.kind === "thread.created" && sourceEvents[0]!.config.cwd);
+  assert.notEqual(fork.config.threadId, THREAD);
+
+  const copied = await replay(s, fork.config.threadId);
+  assert.deepEqual(copied.map((e) => e.seq), Array.from({ length: copied.length }, (_, i) => i + 1), "the fork's log is contiguous from 1");
+  assert.equal(copied[0]!.kind, "thread.created");
+  assert.equal(copied.at(-1)!.kind, "thread.forked", "the divider is the last thing in the copy");
+  const divider = copied.at(-1)!;
+  assert.ok(divider.kind === "thread.forked");
+  assert.equal(divider.from, THREAD);
+  assert.equal(divider.atTurn, firstTurn, "atTurn names the turn in the source, which is what the link back resolves");
+  assert.ok(!copied.some((e) => e.kind === "turn.started" && e.turnId === secondTurn), "nothing from the discarded turn is copied");
+  assert.equal(turnIds(copied).length, 1);
+
+  const folded = groupTurns(copied);
+  assert.equal(folded.length, 2, "one copied turn plus the divider");
+  assert.equal(folded[0]!.prompt?.text, "first");
+  assert.deepEqual(folded[1]!.items.map((i) => i.kind), ["fork"]);
+
+  const back = (await replay(s, THREAD)).at(-1)!;
+  assert.ok(back.kind === "thread.forked.out");
+  assert.deepEqual({ to: back.to, toTitle: back.toTitle, atTurn: back.atTurn }, { to: fork.config.threadId, toTitle: "first (fork)", atTurn: firstTurn });
+  assert.equal(groupTurns(await replay(s, THREAD))[0]!.items.filter((i) => i.kind === "forkOut").length, 1, "the source marks the turn it was forked from");
+
+  const list = (await (await s.api("GET", "/api/threads")).json()) as ThreadSummary[];
+  assert.deepEqual(list.map((t) => t.config.threadId), [fork.config.threadId, THREAD], "a fork carries old copied turn ends and must still sort to the top");
+  await s.cleanup();
+});
+
+test("fork: a running thread forks at its completed turns only, and 409s on the turn still in flight", async () => {
+  let release = (): void => {};
+  const s = await buildStack(async (t) => {
+    if (t.input.text === "second") await new Promise<void>((r) => (release = r));
+    t.text(`reply to ${t.input.text}`);
+    t.end();
+  });
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  await runTurn(s, THREAD, 1, "first");
+  void s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(2), text: "second" });
+  const open = await until(async () => await replay(s, THREAD), (evs) => evs.some((e) => e.kind === "turn.started" && turnIds(evs).length === 2));
+  const [firstTurn, openTurn] = turnIds(open);
+
+  assert.equal((await s.api("POST", `/api/threads/${THREAD}/fork`, { turnId: openTurn })).status, 409, "only completed turns fork");
+  const res = await s.api("POST", `/api/threads/${THREAD}/fork`, { turnId: firstTurn });
+  assert.equal(res.status, 201, "the completed turn forks without waiting for the running one");
+  const fork = (await res.json()) as ThreadSummary;
+  const copied = await replay(s, fork.config.threadId);
+  assert.deepEqual(turnIds(copied).length, 1);
+  assert.ok(!copied.some((e) => e.kind === "input.queued" && e.text === "second"), "the running turn's prompt is not copied either");
+
+  release();
+  await untilIdle(s, THREAD);
+  await s.cleanup();
+});
+
+test("fork: an archived thread forks, and its archive is not inherited by the copy", async () => {
+  const s = await buildStack();
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  await runTurn(s, THREAD, 1, "first");
+  const turnId = turnIds(await replay(s, THREAD))[0]!;
+  assert.equal((await s.api("DELETE", `/api/threads/${THREAD}`)).status, 204);
+
+  const res = await s.api("POST", `/api/threads/${THREAD}/fork`, { turnId });
+  assert.equal(res.status, 201, "old work resumes without unarchiving the original");
+  const fork = (await res.json()) as ThreadSummary;
+  assert.equal(fork.config.archivedAt, null);
+  const copied = await replay(s, fork.config.threadId);
+  assert.ok(!copied.some((e) => e.kind === "thread.archived"));
+  assert.equal((await s.api("POST", `/api/threads/${fork.config.threadId}/send`, { clientMsgId: uuid(5), text: "go on" })).status, 200);
+  await untilIdle(s, fork.config.threadId);
+  await s.cleanup();
+});
+
+test("fork: the first send resumes the source session at the copied fork point, and the SDK's new session id lands in the fork's log", async () => {
+  const s = await buildStack();
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  await runTurn(s, THREAD, 1, "first");
+  const sourceEvents = await replay(s, THREAD);
+  const turnId = turnIds(sourceEvents)[0]!;
+  const sourceEnd = sourceEvents.find((e) => e.kind === "turn.ended")!;
+  assert.ok(sourceEnd.kind === "turn.ended");
+
+  const fork = (await (await s.api("POST", `/api/threads/${THREAD}/fork`, { turnId })).json()) as ThreadSummary;
+  await runTurn(s, fork.config.threadId, 3, "try again");
+
+  const opts = s.agents.last.spawnOpts;
+  assert.equal(opts.resume, sourceEnd.sessionId, "the fork's first spawn resumes the session the source was on at the fork point");
+  assert.equal(opts.forkAt, sourceEnd.forkPoint, "and truncates it there rather than continuing it");
+
+  const copied = await replay(s, fork.config.threadId);
+  const bound = copied.filter((e) => e.kind === "session.bound").at(-1)!;
+  assert.ok(bound.kind === "session.bound");
+  assert.notEqual(bound.sessionId, sourceEnd.sessionId, "the SDK mints a new session for the fork, so the source's session file is never written to");
+  await s.cleanup();
+});
+
+test("fork: a turn that recorded no fork point forks with Claude starting fresh, and its first spawn resumes nothing", async () => {
+  const s = await buildStack((t) => {
+    t.text("no fork point here");
+    t.emit({ kind: "turn.ended", turnId: t.input.turnId, outcome: "ok", sessionId: "fake-session-1" as never, usage: null, error: null });
+  });
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  await runTurn(s, THREAD, 1, "first");
+  const turnId = turnIds(await replay(s, THREAD))[0]!;
+
+  const fork = (await (await s.api("POST", `/api/threads/${THREAD}/fork`, { turnId })).json()) as ThreadSummary;
+  const divider = (await replay(s, fork.config.threadId)).at(-1)!;
+  assert.ok(divider.kind === "thread.forked");
+  assert.equal(divider.resume, null, "a turn logged before forking existed degrades honestly rather than guessing a fork point");
+
+  await runTurn(s, fork.config.threadId, 3, "try again");
+  assert.deepEqual({ resume: s.agents.last.spawnOpts.resume, forkAt: s.agents.last.spawnOpts.forkAt }, { resume: null, forkAt: null });
+  await s.cleanup();
+});
+
+test("fork: uploads named in the copied turns still resolve through the fork's id", async () => {
+  const s = await buildStack();
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  const body = Buffer.from("hello");
+  const up = await s.fetch(
+    new Request(`https://x/api/threads/${THREAD}/uploads`, { method: "POST", headers: { "x-helm-key": API_KEY, "content-type": "text/plain", "content-length": String(body.length), "x-upload-name": "notes.txt" }, body }),
+  );
+  const [staged] = (await up.json()) as { uploadId: string }[];
+  const uploadId = staged!.uploadId;
+  await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "look", uploadIds: [uploadId] });
+  await untilIdle(s, THREAD);
+  const turnId = turnIds(await replay(s, THREAD))[0]!;
+
+  const fork = (await (await s.api("POST", `/api/threads/${THREAD}/fork`, { turnId })).json()) as ThreadSummary;
+  const bytes = await s.api("GET", `/api/threads/${fork.config.threadId}/uploads/${uploadId}`);
+  assert.equal(bytes.status, 200, "the copied upload.staged event is what the fork's index finds on its first miss");
+  assert.equal(await bytes.text(), "hello");
+  await s.cleanup();
+});
+
+test("fork: forking a fork works and the titles number themselves; two forks of one turn are two threads", async () => {
+  const s = await buildStack();
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  await runTurn(s, THREAD, 1, "first");
+  const turnId = turnIds(await replay(s, THREAD))[0]!;
+
+  const one = (await (await s.api("POST", `/api/threads/${THREAD}/fork`, { turnId })).json()) as ThreadSummary;
+  const two = (await (await s.api("POST", `/api/threads/${THREAD}/fork`, { turnId })).json()) as ThreadSummary;
+  assert.notEqual(one.config.threadId, two.config.threadId, "forking is not idempotent by design: two calls make two threads to compare");
+  assert.equal(two.config.title, "first (fork)");
+
+  await runTurn(s, one.config.threadId, 4, "retry");
+  const inner = turnIds(await replay(s, one.config.threadId)).at(-1)!;
+  const deep = (await (await s.api("POST", `/api/threads/${one.config.threadId}/fork`, { turnId: inner })).json()) as ThreadSummary;
+  assert.equal(deep.config.title, "first (fork 2)", "branching is not one level deep");
+  const copied = await replay(s, deep.config.threadId);
+  const dividers = copied.filter((e) => e.kind === "thread.forked");
+  assert.equal(dividers.length, 2, "the source's own divider is a fact of the copied transcript and is kept; the new one is appended after it");
+  assert.deepEqual(dividers.map((e) => e.from), [THREAD, one.config.threadId]);
+  assert.equal(turnIds(copied).length, 2, "both the copied turn and the retry come across");
+  await s.cleanup();
+});
+
+test("fork: copied events never pass through append, so no notification fires for them", async () => {
+  const s = await buildStack();
+  await s.api("POST", "/api/push/subscribe", { subscription: { endpoint: "https://push.example/x", keys: { p256dh: "p", auth: "a" } } });
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  await runTurn(s, THREAD, 1, "first");
+  const turnId = turnIds(await replay(s, THREAD))[0]!;
+  const before = s.pushed.length;
+
+  const fork = (await (await s.api("POST", `/api/threads/${THREAD}/fork`, { turnId })).json()) as ThreadSummary;
+  await replay(s, fork.config.threadId);
+  assert.equal(s.pushed.length, before, "copying a transcript is not a turn finishing, so nobody's phone buzzes");
+  await s.cleanup();
+});
+
+test("fork: bad turn ids and unknown threads are refused at the boundary", async () => {
+  const s = await buildStack();
+  await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
+  await runTurn(s, THREAD, 1, "first");
+  assert.equal((await s.api("POST", `/api/threads/${THREAD}/fork`, {})).status, 400);
+  assert.equal((await s.api("POST", `/api/threads/${THREAD}/fork`, { turnId: 4 })).status, 400);
+  assert.equal((await s.api("POST", `/api/threads/${THREAD}/fork`, { turnId: "turn-4" })).status, 400);
+  assert.equal((await s.api("POST", `/api/threads/${THREAD}/fork`, { turnId: "t:999" })).status, 404, "a well-formed id for a turn this log never had");
+  assert.equal((await s.api("POST", `/api/threads/${uuid(9)}/fork`, { turnId: "t:4" })).status, 404);
+  await s.cleanup();
+});

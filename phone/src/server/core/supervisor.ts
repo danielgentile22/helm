@@ -24,6 +24,9 @@
  *       what reaches the process: answer() appends first and forwards only
  *       when the append won; interrupt, archive, and a dead process seal
  *       every pending ask with a system denial before the turn ends.
+ *   S7. A spawn resumes the thread's own session, except the first spawn of
+ *       a fork, which resumes the source's session at the head's fork point
+ *       and lets the SDK mint the fork its own id (log head `fork`).
  */
 
 import type {
@@ -354,13 +357,15 @@ export class Supervisor {
     }
     if (s.tag === "running") return { live: s.live, spawned: false };
     this.states.set(threadId, { tag: "warming" });
+    const head = log.getHead();
     try {
       const agent = await this.agents.spawn({
         cwd: config.cwd,
         model: config.model,
         effort: config.effort,
         permissionMode: config.permissionMode,
-        resume: log.getHead().sessionId,
+        resume: head.fork?.sessionId ?? head.sessionId,
+        forkAt: head.fork?.at ?? null,
         additionalDirectories: this.opts.additionalDirectories,
         appendSystemPrompt: PHONE_APPENDIX,
         sendToPhone: (path, note) => this.opts.offers.offer(threadId, path, note, MODEL_ORIGIN),
