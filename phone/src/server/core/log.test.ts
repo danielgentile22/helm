@@ -5,7 +5,7 @@ import { mkdtemp, readFile, writeFile, mkdir, rm, truncate } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { turnIdFor } from "../../shared/protocol";
-import { LogRegistry, ThreadLog } from "./log";
+import { LogRegistry, stampEvents, ThreadLog, writeLogFile } from "./log";
 import type {
   AskId,
   ClaudeSessionId,
@@ -358,4 +358,51 @@ test("hardening: a non-delta append flushes pending deltas first, so the log kee
   await log.append(queued("late"));
   assert.deepEqual((await collect(log, 0)).map((e) => e.kind), ["assistant.text", "input.queued"]);
   await rm(dir, { recursive: true });
+});
+
+test("thread.forked drops the source session from the head and parks the fork point, which the next spawn boundary clears", async () => {
+  const dir = await freshDir();
+  const forked: ThreadEventBody = { kind: "thread.forked", from: threadId, fromTitle: "Source", atTurn: "t:4" as TurnId, resume: { sessionId, at: "msg-1" } };
+  const log = await writeLog(dir, [...completeTurn, forked]);
+
+  assert.equal(log.getHead().sessionId, null, "a fork must never resume the source's session plainly, which would mutate the source's session file");
+  assert.deepEqual(log.getHead().fork, { sessionId, at: "msg-1" });
+
+  await log.append({ kind: "session.bound", sessionId: "sess-fork" as ClaudeSessionId });
+  assert.equal(log.getHead().sessionId, "sess-fork");
+  assert.equal(log.getHead().fork, null, "the SDK minted a new session for the fork; there is nothing left to fork from");
+});
+
+test("a turn.ended clears the fork point too, so a resume the SDK refused is retried fresh rather than forever", async () => {
+  const dir = await freshDir();
+  const forked: ThreadEventBody = { kind: "thread.forked", from: threadId, fromTitle: null, atTurn: "t:4" as TurnId, resume: { sessionId, at: "msg-1" } };
+  const log = await writeLog(dir, [...completeTurn, forked, queued("m2"), started("t:11", "m2")]);
+  await log.append(ended("t:11"));
+  assert.equal(log.getHead().fork, null);
+});
+
+test("thread.forked with no resume leaves the head with nothing to resume at all", async () => {
+  const dir = await freshDir();
+  const log = await writeLog(dir, [...completeTurn, { kind: "thread.forked", from: threadId, fromTitle: null, atTurn: "t:4" as TurnId, resume: null }]);
+  assert.equal(log.getHead().sessionId, null);
+  assert.equal(log.getHead().fork, null);
+});
+
+test("stampEvents numbers a whole log from 1 and keeps each body's own timestamp; writeLogFile writes it back readable", async () => {
+  const dir = await freshDir();
+  const stamped = stampEvents([
+    { kind: "thread.created", config: config(), ts: "2026-09-14T00:00:00.000Z" },
+    { ...queued("m1"), ts: "2026-09-11T00:00:02.000Z" },
+    { ...started("t:3", "m1"), ts: "2026-09-11T00:00:03.000Z" },
+    { ...ended("t:3"), ts: "2026-09-11T00:00:04.000Z" },
+  ]);
+  assert.deepEqual(stamped.map((e) => e.seq), [1, 2, 3, 4]);
+  assert.deepEqual(stamped.map((e) => e.ts), ["2026-09-14T00:00:00.000Z", "2026-09-11T00:00:02.000Z", "2026-09-11T00:00:03.000Z", "2026-09-11T00:00:04.000Z"]);
+
+  await writeLogFile(dir, stamped);
+  const reopened = await ThreadLog.open(threadId, dir);
+  assert.deepEqual(await collect(reopened, 0), stamped, "a log written in one go reopens exactly as it was written");
+  assert.equal(reopened.getHead().lastSeq, 4);
+  const next = await reopened.append(queued("m2"));
+  assert.equal(next.seq, 5, "append picks the seq run up where the written file left off");
 });

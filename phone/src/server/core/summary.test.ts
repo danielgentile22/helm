@@ -22,6 +22,7 @@ const config: ThreadConfig = {
 const head = (over: Partial<ThreadHead>): ThreadHead => ({
   lastSeq: 0,
   sessionId: null,
+  fork: null,
   openTurn: null,
   queued: [],
   recentClientMsgIds: new Map(),

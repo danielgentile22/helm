@@ -21,6 +21,8 @@
  *   Options.canUseTool: CanUseTool                          sdk.d.ts:209
  *   Query.setPermissionMode(mode)                           sdk.d.ts:2632
  *   system.permission_denied                                sdk.d.ts:4922
+ *   Options.forkSession?: boolean                           sdk.d.ts:1580
+ *   Options.resumeSessionAt?: string                        sdk.d.ts:1951
  *
  * supportedCommands() tracks the `commands_changed` system message the CLI
  * pushes mid-session, so there is nothing to cache or invalidate here.
@@ -66,6 +68,8 @@ export interface SpawnOptions {
   readonly permissionMode: PermissionMode;
   /** Present when we have a session to resume; absent on a brand-new thread. */
   readonly resume: ClaudeSessionId | null;
+  /** With `resume`: fork the resumed session at this message uuid into a new session instead of continuing it. */
+  readonly forkAt: string | null;
   /** `--add-dir` equivalents; from config, default ~/Projects ~/Desktop ~/Documents. */
   readonly additionalDirectories: readonly string[];
   /** Short phone-context appendix; never the vault. */
@@ -169,6 +173,12 @@ interface MapContext {
   readonly interrupted: boolean;
   /** Cumulative cost reported by the previous result; the SDK reports cost cumulatively per process. */
   readonly prevCostUsd: number;
+  /**
+   * The uuid of the turn's last main-thread message, which is where a fork of
+   * this thread resumes. The SDK forks at the kept turn's LAST chain entry
+   * (sdk.d.ts resumeDropsTurn), not at the prompt or the first reply.
+   */
+  readonly lastUuid: string | null;
 }
 
 /** Truncate a JSON-able value to at most `max` bytes of its JSON text. */
@@ -352,6 +362,7 @@ function agentMessageToEvents(turnId: TurnId, sdkMessage: unknown, ctx: MapConte
           sessionId: typeof m.session_id === "string" ? (m.session_id as ClaudeSessionId) : null,
           usage: usageFrom(m, ctx),
           error: ctx.interrupted ? null : errorText,
+          ...(ctx.lastUuid === null ? {} : { forkPoint: ctx.lastUuid }),
         },
       ];
     }
@@ -516,6 +527,8 @@ class SdkSession implements AgentSession {
   /** Command names the CLI tags as terminal-only; the phone menu hides them. */
   private terminalCommands: ReadonlySet<string> = new Set();
   private prevCostUsd = 0;
+  /** The last main-thread message uuid of the turn in flight; the fork point turn.ended carries. */
+  private lastUuid: string | null = null;
   private dead = false;
   private killing: Promise<void> | null = null;
 
@@ -532,6 +545,8 @@ class SdkSession implements AgentSession {
       model: opts.model,
       effort: opts.effort,
       resume: opts.resume ?? undefined,
+      // forkSession is set only for a fork: on a plain resume it would branch the thread's own session every spawn.
+      ...(opts.forkAt === null ? {} : { forkSession: true, resumeSessionAt: opts.forkAt }),
       permissionMode: SDK_MODE[opts.permissionMode],
       // A consent flag, not a behavior: it lets a live setPermissionMode reach bypass in a session spawned in ask.
       allowDangerouslySkipPermissions: true,
@@ -575,8 +590,9 @@ class SdkSession implements AgentSession {
     if (msg.type === "system" && msg.subtype === "init" && Array.isArray(msg.terminal_slash_commands)) {
       this.terminalCommands = new Set(msg.terminal_slash_commands);
     }
+    if ((msg.type === "assistant" || msg.type === "user") && msg.parent_tool_use_id === null && typeof msg.uuid === "string") this.lastUuid = msg.uuid;
     const turnId = this.turn?.turnId ?? ("t:0" as TurnId);
-    const events = agentMessageToEvents(turnId, msg, { interrupted: this.turn?.interrupted ?? false, prevCostUsd: this.prevCostUsd });
+    const events = agentMessageToEvents(turnId, msg, { interrupted: this.turn?.interrupted ?? false, prevCostUsd: this.prevCostUsd, lastUuid: this.lastUuid });
     if (msg.type === "result") this.prevCostUsd = msg.total_cost_usd;
     for (const ev of events) {
       if (ev.kind === "session.bound") this.sessionId = ev.sessionId;
@@ -620,6 +636,7 @@ class SdkSession implements AgentSession {
   async send(input: TurnInput): Promise<void> {
     if (this.dead) throw new Error("session is dead");
     const content = await contentFor(input);
+    this.lastUuid = null;
     const done = new Promise<void>((settle) => {
       this.turn = { turnId: input.turnId, interrupted: false, settle };
     });

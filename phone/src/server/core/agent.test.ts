@@ -18,7 +18,7 @@ const result = (extra: Record<string, unknown> = {}): SDKMessage =>
   sdkFrame({ type: "result", subtype: "success", is_error: false, session_id: "s1", duration_ms: 1234, total_cost_usd: 0.5, usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 4000, cache_creation_input_tokens: 300 }, result: "done", ...extra });
 const textDelta = (text: string, index = 0): SDKMessage => sdkFrame({ type: "stream_event", parent_tool_use_id: null, event: { type: "content_block_delta", index, delta: { type: "text_delta", text } } });
 
-const spawnOpts: SpawnOptions = { cwd: "/tmp", model: "claude-opus-5" as ModelId, effort: "low", permissionMode: "ask", resume: null, additionalDirectories: [], appendSystemPrompt: PHONE_APPENDIX, sendToPhone: () => Promise.reject(new Error("not in this test")) };
+const spawnOpts: SpawnOptions = { cwd: "/tmp", model: "claude-opus-5" as ModelId, effort: "low", permissionMode: "ask", resume: null, forkAt: null, additionalDirectories: [], appendSystemPrompt: PHONE_APPENDIX, sendToPhone: () => Promise.reject(new Error("not in this test")) };
 
 /** Poll until `pred` holds, with a real timeout, so the tests wait on a condition rather than a fixed number of ticks. */
 async function until(pred: () => boolean, what: string): Promise<void> {
@@ -478,7 +478,7 @@ test("real SDK: spawn, one short turn, interrupt a long one, kill-tree", { skip:
   assert.ok(catalog.length > 0, "catalog is empty");
   const model = catalog.find((c) => /sonnet/.test(c.id))?.id ?? catalog[0]!.id;
 
-  const session = await factory.spawn({ cwd: process.cwd(), model, effort: "low", permissionMode: "bypass", resume: null, additionalDirectories: [], appendSystemPrompt: PHONE_APPENDIX, sendToPhone: () => Promise.reject(new Error("not in this test")) });
+  const session = await factory.spawn({ cwd: process.cwd(), model, effort: "low", permissionMode: "bypass", resume: null, forkAt: null, additionalDirectories: [], appendSystemPrompt: PHONE_APPENDIX, sendToPhone: () => Promise.reject(new Error("not in this test")) });
   const seen: string[] = [];
   const reader = (async () => {
     for await (const ev of session.events()) {
@@ -545,4 +545,31 @@ test("usage carries the context window of the model that did the most of the tur
   assert.equal(zero?.kind === "turn.ended" && "contextWindow" in (zero.usage ?? {}), false, "a zero window is not a window");
   const none = await ended(undefined);
   assert.equal(none?.kind === "turn.ended" && "contextWindow" in (none.usage ?? {}), false, "the field is absent, not zero");
+});
+
+test("turn.ended carries the uuid of the turn's last main-thread message, which is where the SDK forks a kept turn", async () => {
+  const chain = (type: "assistant" | "user", uuid: string, parent: string | null = null): SDKMessage =>
+    sdkFrame({ type, uuid, parent_tool_use_id: parent, message: { role: type, content: [] } });
+  const evs = await turnEvents([chain("assistant", "u-1"), chain("user", "u-2"), chain("assistant", "u-3"), chain("assistant", "sub-1", "toolu_1")]);
+  const end = evs.at(-1)!;
+  assert.ok(end.kind === "turn.ended");
+  assert.equal(end.forkPoint, "u-3", "the LAST chain entry of the kept turn, not the prompt and not the first reply");
+
+  const bare = (await turnEvents([textDelta("hi")])).at(-1)!;
+  assert.ok(bare.kind === "turn.ended");
+  assert.equal(bare.forkPoint, undefined, "a turn that produced no chain message has no fork point and forks fresh");
+});
+
+test("spawning with forkAt asks the SDK to fork the resumed session; a plain resume continues it", async () => {
+  const forked = recorded();
+  await new SdkAgentFactory(forked.deps).spawn({ ...spawnOpts, resume: "sess-1" as never, forkAt: "u-3" });
+  assert.equal(forked.spawned.options?.resume, "sess-1");
+  assert.equal(forked.spawned.options?.forkSession, true);
+  assert.equal(forked.spawned.options?.resumeSessionAt, "u-3");
+
+  const plain = recorded();
+  await new SdkAgentFactory(plain.deps).spawn({ ...spawnOpts, resume: "sess-1" as never });
+  assert.equal(plain.spawned.options?.resume, "sess-1");
+  assert.equal(plain.spawned.options?.forkSession, undefined, "forkSession on an ordinary resume would branch the thread's own session every spawn");
+  assert.equal(plain.spawned.options?.resumeSessionAt, undefined);
 });

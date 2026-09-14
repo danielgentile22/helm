@@ -354,13 +354,15 @@ export class Supervisor {
     }
     if (s.tag === "running") return { live: s.live, spawned: false };
     this.states.set(threadId, { tag: "warming" });
+    const head = log.getHead();
     try {
       const agent = await this.agents.spawn({
         cwd: config.cwd,
         model: config.model,
         effort: config.effort,
         permissionMode: config.permissionMode,
-        resume: log.getHead().sessionId,
+        resume: head.fork?.sessionId ?? head.sessionId,
+        forkAt: head.fork?.at ?? null,
         additionalDirectories: this.opts.additionalDirectories,
         appendSystemPrompt: PHONE_APPENDIX,
         sendToPhone: (path, note) => this.opts.offers.offer(threadId, path, note, MODEL_ORIGIN),
