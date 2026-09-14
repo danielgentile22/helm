@@ -27,6 +27,9 @@
  *   S7. A spawn resumes the thread's own session, except the first spawn of
  *       a fork, which resumes the source's session at the head's fork point
  *       and lets the SDK mint the fork its own id (log head `fork`).
+ *   S8. The log is compacted only with no turn open here (not running, not
+ *       warming) and no viewer attached (log.compact checks that itself):
+ *       at park, when enough delta lines would go, or on request.
  */
 
 import type {
@@ -50,7 +53,7 @@ import type {
 } from "../../shared/protocol";
 import type { AgentEvent, AgentFactory, AgentSession } from "./agent";
 import { PHONE_APPENDIX } from "./agent";
-import { answerFits, turnIdFor } from "../../shared/protocol";
+import { answerFits, LIMITS, turnIdFor } from "../../shared/protocol";
 import { MODEL_ORIGIN, type Offers } from "./offers";
 import type { LogRegistry, ThreadLog } from "./log";
 import type { ThreadStore } from "./thread-store";
@@ -70,6 +73,9 @@ interface Live {
  * takes answers or deny).
  */
 export type AnswerResult = "ok" | "conflict" | "unknown" | "mismatch";
+
+/** Why a compaction did or did not run: `running` covers a turn open or a process warming up, the rest come from the log. */
+export type CompactOutcome = "ok" | "nothing" | "viewer" | "running";
 
 export type SessionState =
   | { tag: "cold" }
@@ -386,6 +392,17 @@ export class Supervisor {
     if (s.tag !== "idle") return;
     this.states.set(threadId, { tag: "parked" });
     await s.live.agent.kill();
+    const log = await this.logs.get(threadId);
+    if (log.getHead().collapsible < LIMITS.COMPACT_MIN_LINES) return;
+    if ((await this.compact(threadId)) === "viewer") console.log(`[supervisor ${threadId}] compaction skipped at park: a viewer is attached`);
+  }
+
+  /** Compact the thread's log now (S8). */
+  async compact(threadId: ThreadId): Promise<CompactOutcome> {
+    const tag = this.state(threadId).tag;
+    if (tag === "running" || tag === "warming") return "running";
+    const r = await (await this.logs.get(threadId)).compact();
+    return r.ok ? "ok" : r.reason;
   }
 }
 

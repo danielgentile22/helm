@@ -145,7 +145,7 @@ test("the mirror and the phone agree on turn count, prompts, tool joins and text
   ];
   const view = foldAll(emptyView({ threadId: "x" as never, cwd: "/v", model: "m" as never, effort: "high", permissionMode: "ask", title: null, createdAt: "", archivedAt: null }), events);
   const sections = toBlocks(applySync(view, { headSeq: view.headSeq, generation: FIRST_GENERATION, session: "idle", openTurn: null, queuedCount: 0 }));
-  const notes = groupTurns(events).filter(isCompleted).map(renderTurn);
+  const notes = groupTurns(events).filter(isCompleted).map((t) => renderTurn(t, FIRST_GENERATION));
 
   assert.equal(sections.length, 2);
   assert.equal(notes.length, 2);

@@ -5,13 +5,16 @@
  * about Daniel finding the conversation later, not about where the work
  * happened.
  *
- * Idempotent: each turn block ends with `<!-- helm:seq=N -->` where N is the
- * seq of the turn.ended. Every append, whether driven by watch() or by
- * resume(), re-reads that marker, reads the log from there, and writes only
- * the turns beyond it, so a crash between log append and mirror append never
- * duplicates or skips a turn. Appends for one thread run on a per-thread
- * serial queue, so a live turn.ended landing during a boot catch-up cannot
- * interleave with it.
+ * Idempotent: each turn block ends with `<!-- helm:seq=N gen=G -->` where N
+ * is the seq of the turn.ended and G the log generation it counts in. Every
+ * append, whether driven by watch() or by resume(), re-reads that marker,
+ * reads the log from there, and writes only the turns beyond it, so a crash
+ * between log append and mirror append never duplicates or skips a turn.
+ * When the log has moved to a new generation (compaction), the marker's seq
+ * names nothing, so the whole note is written again from the log; the note
+ * carries the generation, so a crash anywhere leaves it rebuildable. Appends
+ * for one thread run on a per-thread serial queue, so a live turn.ended
+ * landing during a boot catch-up cannot interleave with it.
  *
  * Best effort: a write that fails is logged and swallowed. The log is canon;
  * a missing mirror block is repaired by the next resume().
@@ -24,16 +27,17 @@
  * whose mtime is past the 30 day window and touches nothing else.
  */
 
-import { mkdir, readdir, readFile, stat, unlink, appendFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, unlink, appendFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { answerPhrase, askSummary, fmtBytes, toolSummary } from "../../shared/protocol";
-import type { Cursor, Seq, ThreadConfig, ThreadEvent, ThreadId } from "../../shared/protocol";
+import { answerPhrase, askSummary, FIRST_GENERATION, fmtBytes, toolSummary } from "../../shared/protocol";
+import type { Cursor, Generation, Seq, ThreadConfig, ThreadEvent, ThreadId } from "../../shared/protocol";
 import { groupTurns, isCompleted, type AskItem, type CompletedTurn, type TurnEnd } from "../../shared/turns";
 import type { ThreadLog, Unsubscribe } from "./log";
 import type { ThreadStore } from "./thread-store";
 
 const RETENTION_MS = 30 * 24 * 60 * 60_000;
-const MARKER = /<!--\s*helm:seq=(\d+)\s*-->/g;
+/** An older marker has no gen, which reads as generation 0. */
+const MARKER = /<!--\s*helm:seq=(\d+)(?:\s+gen=(\d+))?\s*-->/g;
 /** Mirror notes are named after a thread id, so prune never considers anything else. */
 const NOTE_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.md$/i;
 
@@ -103,7 +107,8 @@ export class Mirror {
    * Append every completed turn whose turn.ended is beyond the note's last
    * marker. Reads from the marker; a message queued during the previous turn
    * has a seq below it while its own turn does not, and that one case
-   * re-reads from zero so the prompt is not lost.
+   * re-reads from zero so the prompt is not lost. A marker from another
+   * generation names nothing in this log, so the note is written whole again.
    */
   private async catchUp(log: ThreadLog): Promise<void> {
     const file = mirrorPath(this.vaultRoot, log.threadId);
@@ -111,21 +116,25 @@ export class Mirror {
       if (err.code === "ENOENT") return "";
       throw err;
     });
-    const after = lastMirroredSeq(existing);
+    const generation = log.getHead().generation;
+    const marker = lastMarker(existing);
+    const rebuild = marker.seq > 0 && marker.generation !== generation;
+    const after = rebuild ? 0 : marker.seq;
     let events = await collect(log.read(after));
     let turns = completedAfter(events, after);
     if (after > 0 && turns.some((t) => t.prompt === null)) {
       events = await collect(log.read(0));
       turns = completedAfter(events, after);
     }
-    if (turns.length === 0) return;
+    if (turns.length === 0 && !rebuild) return;
 
     let out = "";
-    if (existing.trim() === "") out += frontmatter(log.threadId, (await this.threads.get(log.threadId).catch(() => null)) ?? configFromLog(events), forkOrigin(events));
-    for (const turn of turns) out += "\n" + renderTurn(turn) + "\n";
+    if (rebuild || existing.trim() === "") out += frontmatter(log.threadId, (await this.threads.get(log.threadId).catch(() => null)) ?? configFromLog(events), forkOrigin(events));
+    for (const turn of turns) out += "\n" + renderTurn(turn, generation) + "\n";
 
     await mkdir(dirname(file), { recursive: true });
-    await appendFile(file, out);
+    if (rebuild) await writeFile(file, out);
+    else await appendFile(file, out);
   }
 }
 
@@ -249,7 +258,7 @@ function answerVerb(item: AskItem): string {
  * "failed", never with color alone. An ask takes two lines in the same
  * stream, what was asked and how it was answered.
  */
-export function renderTurn(turn: CompletedTurn): string {
+export function renderTurn(turn: CompletedTurn, generation: Generation): string {
   const ended = turn.end;
   const prompt = turn.prompt;
 
@@ -288,7 +297,7 @@ export function renderTurn(turn: CompletedTurn): string {
   if (sent.length > 0) out.push(sent.map((t) => `> ${t}`).join("\n"));
 
   out.push(footer(ended));
-  out.push(`<!-- helm:seq=${ended.seq} -->`);
+  out.push(`<!-- helm:seq=${ended.seq} gen=${generation} -->`);
   return out.join("\n\n") + "\n";
 }
 
@@ -300,12 +309,15 @@ export function mirrorPath(vaultRoot: string, threadId: ThreadId): string {
   return join(chatsDir(vaultRoot), `${threadId}.md`);
 }
 
-/** Pure. Reads the highest `<!-- helm:seq=N -->` marker; 0 if the file is missing or has none. */
-export function lastMirroredSeq(markdown: string): Cursor {
-  let max: Cursor = 0;
+/** Pure. The highest `<!-- helm:seq=N gen=G -->` marker; seq 0 in generation 0 when the note is missing or has none. */
+export function lastMarker(markdown: string): { seq: Cursor; generation: Generation } {
+  let seq: Cursor = 0;
+  let generation = FIRST_GENERATION;
   for (const m of markdown.matchAll(MARKER)) {
     const n = Number(m[1]);
-    if (Number.isFinite(n) && n > max) max = n as Seq;
+    if (!Number.isFinite(n) || n <= seq) continue;
+    seq = n as Seq;
+    generation = (m[2] === undefined ? 0 : Number(m[2])) as Generation;
   }
-  return max;
+  return { seq, generation };
 }

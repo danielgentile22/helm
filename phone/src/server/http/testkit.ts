@@ -38,7 +38,7 @@ export interface Stack {
   cleanup(): Promise<void>;
 }
 
-export async function buildStack(script: FakeScript = echoScript, home?: string, opts: { apiKey?: string | undefined } = {}): Promise<Stack> {
+export async function buildStack(script: FakeScript = echoScript, home?: string, opts: { apiKey?: string | undefined; idleParkMs?: number } = {}): Promise<Stack> {
   const h = home ?? (await mkdtemp(join(tmpdir(), "helm2-http-")));
   const staticDir = join(h, "static");
   await mkdir(staticDir, { recursive: true });
@@ -61,7 +61,7 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
       sessionTtlMs: 3600_000,
       staticDir,
       version: "0.0.0-test",
-      idleParkMs: 60_000,
+      idleParkMs: opts.idleParkMs ?? 60_000,
       heartbeatMs: 60_000,
       askGraceMs: 10,
     },

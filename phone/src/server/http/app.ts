@@ -26,6 +26,7 @@
  *   POST   /api/threads/:id/send                                 -> SendResponse
  *   POST   /api/threads/:id/fork   {turnId}                      -> 201 the fork's ThreadSummary; 404 no thread or turn; 409 the turn is still running
  *   POST   /api/threads/:id/interrupt                            -> 204 always
+ *   POST   /api/threads/:id/compact                              -> 204 compacted or nothing to compact; 409 a viewer is attached or a turn is running
  *   POST   /api/threads/:id/answer                               -> 204; 409 already answered or expired; 404 unknown ask; 400 wrong shape
  *   GET    /api/threads/:id/commands                             -> { commands: SlashCommand[] }
  *   POST   /api/threads/:id/commands/reload                      -> { commands: SlashCommand[] } (rediscovers skills)
@@ -352,6 +353,15 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
     const t = await thread(c);
     if (t instanceof Response) return t;
     await deps.supervisor.interrupt(t.threadId);
+    return c.body(null, 204);
+  });
+
+  app.post("/api/threads/:id/compact", async (c) => {
+    const t = await thread(c);
+    if (t instanceof Response) return t;
+    const r = await deps.supervisor.compact(t.threadId);
+    if (r === "viewer") return fail(c, 409, "a viewer is attached");
+    if (r === "running") return fail(c, 409, "a turn is running");
     return c.body(null, 204);
   });
 

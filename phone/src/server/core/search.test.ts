@@ -1,9 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { Seq } from "../../shared/protocol";
-import { matchAll, parseQuery, searchCorpus, type Corpus, type TurnText } from "./search";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { FIRST_GENERATION } from "../../shared/protocol";
+import type { ClientMsgId, Seq, ThreadId, TurnId } from "../../shared/protocol";
+import { LogRegistry } from "./log";
+import { matchAll, parseQuery, searchCorpus, ThreadSearch, type Corpus, type TurnText } from "./search";
 
 const corpusOf = (...turns: readonly [number, string][]): Corpus => ({
+  generation: FIRST_GENERATION,
   headSeq: (turns[turns.length - 1]?.[0] ?? 0) as Seq,
   done: turns.map(([seq, text]): TurnText => ({ seq: seq as Seq, text })),
   live: [],
@@ -72,4 +78,34 @@ test("searchCorpus: a long line is windowed around the first hit and overlapping
   const long = searchCorpus(null, corpusOf([2, `${"filler word ".repeat(20)}${phrase} tail`]), [phrase])!;
   const [from, to] = long.ranges[0]!;
   assert.equal(long.snippet.slice(from, to), phrase, "a term longer than half the window is not cut by it");
+});
+
+test("ThreadSearch folds a corpus again from nothing when the log has moved to a new generation, and finds the same passage", async () => {
+  const root = await mkdtemp(join(tmpdir(), "helm2-search-"));
+  const logs = new LogRegistry(root);
+  const threadId = "0f0f0f0f-0000-4000-8000-0000000000cc" as ThreadId;
+  const log = await logs.get(threadId);
+  const origin = { via: "pwa", label: "iphone" } as const;
+  await log.append({ kind: "input.queued", clientMsgId: "m1" as ClientMsgId, text: "where are uploads staged", uploads: [], origin });
+  const start = await log.append((seq) => ({ kind: "turn.started" as const, turnId: `t:${seq}` as TurnId, clientMsgId: "m1" as ClientMsgId, model: "claude-opus-5" as never, effort: "high" as const, spawned: true }));
+  for (const word of ["in ", "a ", "temp ", "dir"]) await log.append({ kind: "assistant.text", turnId: start.turnId, blockIx: 0, delta: word });
+  await log.append({ kind: "turn.ended", turnId: start.turnId, outcome: "ok", sessionId: null, usage: null, error: null });
+
+  const search = new ThreadSearch(logs);
+  const before = await search.corpus(threadId);
+  assert.equal(before.generation, 0);
+  assert.equal(before.headSeq, 7);
+  const hitBefore = searchCorpus(null, before, ["temp"])!;
+  assert.equal(hitBefore.seq, start.seq);
+
+  assert.equal((await log.compact()).ok, true);
+  const after = await search.corpus(threadId);
+  assert.equal(after.generation, 1);
+  assert.equal(after.headSeq, 5, "the corpus was rebuilt over the compacted log rather than extended past a head it never had");
+  const hitAfter = searchCorpus(null, after, ["temp"])!;
+  assert.equal(hitAfter.snippet, hitBefore.snippet);
+  assert.deepEqual(hitAfter.ranges, hitBefore.ranges);
+  assert.equal(hitAfter.seq, 3, "the turn boundary in the new numbering");
+  assert.equal(await search.corpus(threadId), after, "a corpus in the current generation is reused");
+  await rm(root, { recursive: true });
 });
