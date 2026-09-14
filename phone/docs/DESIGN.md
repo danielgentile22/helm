@@ -55,6 +55,18 @@ so phone and laptop on one thread converge because they fold the same bytes.
 "live format" and "stored format", so a reconnecting client cannot observe a different
 conversation than a connected one.
 
+**A log has a generation.** When a thread parks with enough delta lines to be worth it, every
+completed turn's runs of consecutive same-block deltas are merged into one event each, the
+whole file is renumbered from 1 and rewritten through a temp file and one rename, and the new
+file opens with `log.generation {n}` at seq 1 (a file without one is generation 0). A seq is
+only meaningful with its generation: the events endpoint takes `gen` beside `after`, the sync
+frame carries the log's generation, and a client whose cursor counts in another generation is
+told so and discards its fold before replaying the new one, so two generations can never be
+folded together. Projections that store a seq (the mirror's markers, the search corpus) store
+the generation with it and rebuild from the log when it moves. The open turn and everything
+after the last turn boundary are never touched, and compaction refuses while a viewer is
+attached or a turn is running.
+
 **Session state is memory-only** (`cold | warming | idle | running | parked`). After a crash
 every thread is `cold`, which is the truthful state. Helm 1.0's `busy` lock becomes structural:
 `running` cannot accept a second spawn and there is no lock to release. Threads park after 30
@@ -136,7 +148,9 @@ so all the fallbacks were deleted:
   bounds the window to about 30 s.
 - We accept that state lives at `~/.helm2`, outside the vault's git history, in exchange for
   honoring "never write application state into the vault".
-- We accept no log compaction and no blob GC in v1. Non-goals, not gaps.
+- We accept that a compacted log is a rewrite of the whole file: deltas are merged at park
+  behind a log generation, so the reconnect rule gains one comparison and a projection that
+  stored a seq rebuilds on a generation change. No blob GC in v1.
 
 ## Decisions on the open questions (Daniel, 2026-09-11)
 
