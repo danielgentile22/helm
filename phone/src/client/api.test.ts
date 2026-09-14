@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { Seq, SyncFrame, ThreadEvent, ThreadId, TurnId, UploadId } from "../shared/protocol";
+import type { Generation, Seq, SyncFrame, ThreadEvent, ThreadId, TurnId, UploadId } from "../shared/protocol";
 import { HelmClient, HttpError } from "./api";
 import { FakeES } from "./testkit";
 
@@ -164,4 +164,18 @@ test("forkThread posts the turn id to the source thread and hands back the new s
 test("a 409 from the fork endpoint reaches the caller as an HttpError, so the screen can say why", async () => {
   const c = new HelmClient({ baseUrl: "http://x", fetch: (async () => new Response(JSON.stringify({ error: "the turn is still running" }), { status: 409, headers: { "content-type": "application/json" } })) as typeof fetch });
   await assert.rejects(c.forkThread("t1" as ThreadId, "t:6" as TurnId), (err: Error) => err instanceof HttpError && err.status === 409 && err.message === "the turn is still running");
+});
+
+test("attach from a saved cursor with no generation known is answered by a reset, then replays from zero in the frame's generation", async () => {
+  FakeES.instances = [];
+  const c = new HelmClient({ baseUrl: "http://x", EventSource: FakeES, minBackoffMs: 1, maxBackoffMs: 4 });
+  const resets: number[] = [];
+  const stop = c.attach("t1" as ThreadId, 3 as Seq, { onEvent: () => {}, onSync: () => {}, onReset: (f) => resets.push(f.generation), onState: () => {} });
+  assert.equal(FakeES.instances[0]!.url, "http://x/api/threads/t1/events?after=3", "no generation to send yet");
+  FakeES.instances[0]!.open();
+  FakeES.instances[0]!.sync({ headSeq: 9 as Seq, generation: 1 as Generation });
+  assert.deepEqual(resets, [1]);
+  await tick();
+  assert.equal(FakeES.instances[1]!.url, "http://x/api/threads/t1/events?after=0&gen=1");
+  stop();
 });

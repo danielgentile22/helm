@@ -394,7 +394,11 @@ export class Supervisor {
     await s.live.agent.kill();
     const log = await this.logs.get(threadId);
     if (log.getHead().collapsible < LIMITS.COMPACT_MIN_LINES) return;
-    if ((await this.compact(threadId)) === "viewer") console.log(`[supervisor ${threadId}] compaction skipped at park: a viewer is attached`);
+    try {
+      if ((await this.compact(threadId)) === "viewer") console.log(`[supervisor ${threadId}] compaction skipped at park: a viewer is attached`);
+    } catch (err) {
+      console.error(`[supervisor ${threadId}] compaction at park failed`, err);
+    }
   }
 
   /** Compact the thread's log now (S8). */

@@ -31,7 +31,9 @@
  *       it, and it rewrites the whole file through a temp file and one
  *       rename, so a log is always in exactly one generation. Seqs are
  *       contiguous from 1 within a generation. A cursor without its
- *       generation is only meaningful at 0.
+ *       generation is only meaningful at 0. compact() refuses while a
+ *       viewer is attached; the supervisor adds the no-open-turn half (S8),
+ *       since only it knows whether a process is warming.
  */
 
 import { createReadStream } from "node:fs";
@@ -63,8 +65,9 @@ export interface ThreadHead {
   readonly generation: Generation;
   /**
    * Delta events whose immediately preceding event is a delta with the same
-   * key (turn and block for text, turn for thinking): the number of lines
-   * compaction would remove.
+   * key (turn and block for text, turn for thinking). The open turn's runs
+   * count too, so this is the number of lines compaction would remove once
+   * the turn ends, which is the only time it runs.
    */
   readonly collapsible: number;
   /** The key of the last event when it was a delta, else null; what `collapsible` counts against. */
@@ -418,7 +421,9 @@ export class ThreadLog {
    * runs merged (I6). Runs on the serial queue so no append interleaves, and
    * refuses while a viewer is attached: a viewer's cursor would die with the
    * generation. Nothing is emitted; projections are generation-aware and
-   * rebuild when they notice the head's generation moved.
+   * rebuild when they notice the head's generation moved. Not atomicWrite:
+   * the temp file is fsynced before the rename, and its name is fixed so
+   * open() can delete a leftover.
    */
   compact(): Promise<CompactResult> {
     this.kickDelta();

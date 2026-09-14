@@ -201,10 +201,12 @@ export class ThreadSearch {
 
   private async fold(threadId: ThreadId): Promise<Corpus> {
     const log = await this.logs.get(threadId);
+    // One read of the head: a compaction landing between two reads would label an old-generation prefix with the new number.
+    const { generation, lastSeq } = log.getHead();
     const cached = this.cached.get(threadId);
-    const have = cached && cached.generation === log.getHead().generation ? cached : undefined;
-    if (have && log.getHead().lastSeq <= have.headSeq) return have;
-    const next = await extend(have ?? emptyCorpus, log);
+    const have = cached && cached.generation === generation ? cached : undefined;
+    if (have && lastSeq <= have.headSeq) return have;
+    const next = await extend(have ?? { ...emptyCorpus, generation }, log);
     this.cached.set(threadId, next);
     return next;
   }
@@ -216,8 +218,6 @@ async function extend(base: Corpus, log: ThreadLog): Promise<Corpus> {
   const done = [...base.done];
   let live = base.live;
   let headSeq = base.headSeq;
-  // Read before the file is opened: a compaction landing mid-read leaves the old inode streaming, which is this generation's log.
-  const generation = log.getHead().generation;
   for await (const ev of log.read(base.headSeq)) {
     if (ev.kind === "input.queued") promptSeq.set(ev.clientMsgId, ev.seq);
     live = foldTurn(live, ev);
@@ -237,5 +237,5 @@ async function extend(base: Corpus, log: ThreadLog): Promise<Corpus> {
     if (turn.turnId) doneIds.add(turn.turnId);
     if (turn.prompt) promptSeq.delete(turn.prompt.clientMsgId);
   }
-  return { generation, headSeq, done, live: open, promptSeq, doneIds };
+  return { generation: base.generation, headSeq, done, live: open, promptSeq, doneIds };
 }
