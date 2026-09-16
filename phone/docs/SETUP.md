@@ -9,7 +9,7 @@ always-on desktop. Every step is safe to repeat.
 - Claude Code installed and logged in for the user who will run the server (`claude` works in a terminal).
 - Tailscale installed, logged in, and set to start at login. Check `tailscale status` shows this
   machine and the phone. Nothing here is reachable until Tailscale is running.
-- The vault at `~/Projects/Vault` (or set `HELM_VAULT_ROOT`).
+- The vault at `~/Projects/otto/Vault` (or set `HELM_VAULT_ROOT`).
 
 ## 2. Install
 
