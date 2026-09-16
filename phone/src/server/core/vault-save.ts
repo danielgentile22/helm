@@ -12,7 +12,7 @@ import type { ThreadId } from "../../shared/protocol";
 import { GUIDANCE_PREFIX } from "../../shared/vault";
 
 export function savePrompt(vaultRoot: string, threadId: ThreadId, guidance: string | null): string {
-  const mirror = `[[inbox/chats/${threadId}]]`;
+  const mirror = `[[Inbox/helm2-phone-chats/${threadId}]]`;
   const paragraphs = [
     `Record this conversation as knowledge in the Obsidian vault at ${vaultRoot}.`,
 
