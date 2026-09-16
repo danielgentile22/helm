@@ -1,6 +1,6 @@
 /**
  * Markdown mirror: a projection of the log into the vault at
- * <vault>/inbox/chats/<threadId>.md so conversations are searchable in
+ * <vault>/Inbox/helm2-phone-chats/<threadId>.md so conversations are searchable in
  * Obsidian. Always the vault, regardless of the thread's cwd: the mirror is
  * about Daniel finding the conversation later, not about where the work
  * happened.
@@ -341,7 +341,7 @@ export function renderTurn(turn: CompletedTurn, generation: Generation): string 
 }
 
 function chatsDir(vaultRoot: string): string {
-  return join(vaultRoot, "inbox", "chats");
+  return join(vaultRoot, "Inbox", "helm2-phone-chats");
 }
 
 export function mirrorPath(vaultRoot: string, threadId: ThreadId): string {

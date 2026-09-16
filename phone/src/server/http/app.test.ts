@@ -1150,7 +1150,7 @@ test("compaction: park compacts a chatty thread behind a new generation; the tra
   );
   stack = s;
   const log = await s.logs.get(THREAD as ThreadId);
-  const note = join(s.home, "work", "inbox", "chats", `${THREAD}.md`);
+  const note = join(s.home, "work", "Inbox", "helm2-phone-chats", `${THREAD}.md`);
   const transcript = (evs: ThreadEvent[]): unknown => groupTurns(evs).map((t) => ({ prompt: t.prompt?.text ?? null, items: t.items.map((i) => (i.kind === "text" ? `text${i.blockIx}:${i.text}` : i.kind === "thinking" ? `think:${i.text}` : i.kind === "tool" ? `tool:${i.name}:${i.output}` : i.kind)), outcome: t.end?.outcome ?? null, usage: t.end?.usage ?? null }));
   const replay = async (after: number, gen: number): Promise<Frame[]> => readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=${after}&gen=${gen}`), (f) => f.some((x) => x.kind === "sync"));
   const sync = (frames: Frame[]): Extract<Frame, { kind: "sync" }> => frames.find((f): f is Extract<Frame, { kind: "sync" }> => f.kind === "sync")!;
@@ -1283,7 +1283,7 @@ test("save to vault: the server's prompt runs as a vault-labelled turn, the note
   assert.equal(summary.recorded, true, "the thread reads as promoted to the vault");
 
   await s.mirrorIdle();
-  const mirrored = await readFile(join(s.home, "work", "inbox", "chats", `${THREAD}.md`), "utf8");
+  const mirrored = await readFile(join(s.home, "work", "Inbox", "helm2-phone-chats", `${THREAD}.md`), "utf8");
   assert.match(mirrored, /^recorded: true$/m, "the chat mirror is marked so prune keeps it");
   assert.match(mirrored, /^- \[\[Atlas\/Decisions\/backups\|backups\]\]: added the 2026-09-13 bullet on backups$/m, "and links to the note the save wrote");
   await s.cleanup();

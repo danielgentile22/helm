@@ -118,8 +118,8 @@ test("lastMarker reads the highest marker with its generation, an old marker as 
   assert.deepEqual(lastMarker("a\n<!-- helm:seq=7 -->\nb\n<!-- helm:seq=19 gen=1 -->\nc\n<!-- helm:seq=12 gen=2 -->\n"), { seq: 19, generation: 1 });
 });
 
-test("mirrorPath is one note per thread under inbox/chats", () => {
-  assert.equal(mirrorPath("/v", threadId), `/v/inbox/chats/${threadId}.md`);
+test("mirrorPath is one note per thread under Inbox/helm2-phone-chats", () => {
+  assert.equal(mirrorPath("/v", threadId), `/v/Inbox/helm2-phone-chats/${threadId}.md`);
 });
 
 // ---------------------------------------------------------------------------
@@ -259,7 +259,7 @@ test("resume skips a turn that has no turn.ended", async () => {
 
 test("prune removes only thread notes older than the retention window", async () => {
   const h = await harness();
-  const dir = join(h.vault, "inbox", "chats");
+  const dir = join(h.vault, "Inbox", "helm2-phone-chats");
   await mkdir(dir, { recursive: true });
   const old = join(dir, `${threadId}.md`);
   const recent = join(dir, `${otherThreadId}.md`);
@@ -472,13 +472,13 @@ test("catchUp flips an existing note's frontmatter to recorded, and prune then k
   assert.equal(text.match(/^---$/gm)?.length, 2, "exactly one frontmatter block");
 
   const stale = new Date(Date.now() - 40 * 24 * 60 * 60_000);
-  const plain = join(h.vault, "inbox", "chats", `${otherThreadId}.md`);
+  const plain = join(h.vault, "Inbox", "helm2-phone-chats", `${otherThreadId}.md`);
   await writeFile(plain, "---\nthread: other\n---\n\n# other\n");
   await utimes(plain, stale, stale);
   await utimes(h.note, stale, stale);
 
   await mirror.prune();
-  assert.deepEqual(await readdir(join(h.vault, "inbox", "chats")), [`${threadId}.md`], "a recorded note is kept so its provenance links do not go dead");
+  assert.deepEqual(await readdir(join(h.vault, "Inbox", "helm2-phone-chats")), [`${threadId}.md`], "a recorded note is kept so its provenance links do not go dead");
   await rm(h.vault, { recursive: true });
 });
 

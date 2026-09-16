@@ -10,7 +10,7 @@ test("the save prompt names the vault root, the standing instructions, the mirro
   const p = savePrompt("/Users/d/Vault", threadId, null);
   assert.match(p, /\/Users\/d\/Vault/, "the vault root it writes into");
   assert.match(p, /\/Users\/d\/Vault\/CLAUDE\.md/, "the vault's standing instructions, read before writing");
-  assert.match(p, new RegExp(`\\[\\[inbox/chats/${threadId}\\]\\]`), "the chat mirror note every produced note links to");
+  assert.match(p, new RegExp(`\\[\\[Inbox/helm2-phone-chats/${threadId}\\]\\]`), "the chat mirror note every produced note links to");
   assert.match(p, /record_note/, "the tool that makes the outcome structured");
   assert.match(p, /canon-worthy/i, "the vault's own bar for what belongs in Atlas");
   assert.match(p, /commit/i, "the vault's git repo is committed, never pushed");
