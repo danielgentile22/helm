@@ -11,7 +11,7 @@ import { resolve } from "node:path";
 
 export interface Env {
   readonly HELM_HOME: string; // ~/.helm2
-  readonly HELM_VAULT_ROOT: string; // ~/Projects/Vault
+  readonly HELM_VAULT_ROOT: string; // ~/Projects/otto/Vault
   readonly HELM_BIND_ADDR: string; // loopback; tailscale serve proxies to it
   readonly HELM_PORT: number;
   readonly HELM_API_KEY: string | undefined;
@@ -65,7 +65,7 @@ export function loadEnv(raw: NodeJS.ProcessEnv): Env {
   if (!(hours > 0)) throw new Error("HELM_SESSION_HOURS must be a positive number");
   return {
     HELM_HOME: expand(raw.HELM_HOME ?? "~/.helm2"),
-    HELM_VAULT_ROOT: expand(raw.HELM_VAULT_ROOT ?? "~/Projects/Vault"),
+    HELM_VAULT_ROOT: expand(raw.HELM_VAULT_ROOT ?? "~/Projects/otto/Vault"),
     HELM_BIND_ADDR: need("HELM_BIND_ADDR"),
     HELM_PORT: port,
     HELM_API_KEY: raw.HELM_API_KEY || undefined,
