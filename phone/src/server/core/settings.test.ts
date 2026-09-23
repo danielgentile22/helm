@@ -36,12 +36,24 @@ test("a file written by a newer version still reads: unknown keys are dropped, n
   }
 });
 
+test("a saved defaultCwd that no longer exists falls back to the default", async () => {
+  const home = await mkdtemp(join(tmpdir(), "helm2-settings-"));
+  try {
+    const file = join(home, "settings.json");
+    await writeFile(file, JSON.stringify({ defaultCwd: join(home, "moved-away") }));
+    const store = new SettingsStore(file, { defaultCwd: home });
+    assert.equal((await store.get()).defaultCwd, home);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("concurrent patches all land: the store serializes read-modify-write", async () => {
   const home = await mkdtemp(join(tmpdir(), "helm2-settings-"));
   try {
     const store = new SettingsStore(join(home, "settings.json"), { defaultCwd: "/home/work" });
-    await Promise.all([store.patch({ theme: "dark" }), store.patch({ defaultEffort: "low" }), store.patch({ defaultCwd: "/elsewhere" })]);
-    assert.deepEqual(await store.get(), { theme: "dark", defaultModel: null, defaultEffort: "low", defaultCwd: "/elsewhere", defaultPermissionMode: "ask" });
+    await Promise.all([store.patch({ theme: "dark" }), store.patch({ defaultEffort: "low" }), store.patch({ defaultCwd: home })]);
+    assert.deepEqual(await store.get(), { theme: "dark", defaultModel: null, defaultEffort: "low", defaultCwd: home, defaultPermissionMode: "ask" });
   } finally {
     await rm(home, { recursive: true, force: true });
   }
