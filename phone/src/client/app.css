@@ -4,7 +4,7 @@
 * { box-sizing: border-box; }
 /* A display rule on the element beats the user-agent [hidden] rule, so every `hidden` binding needs this. */
 [hidden] { display: none !important; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px; -webkit-text-size-adjust: 100%; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px; -webkit-text-size-adjust: 100%; touch-action: manipulation; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 a { color: var(--accent); }
