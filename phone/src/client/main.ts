@@ -17,3 +17,7 @@ void swRegistration().catch(() => null);
 const target = document.getElementById("app")!;
 target.replaceChildren();
 mount(App, { target, props: { api } });
+
+// Safari ignores the viewport meta's zoom lock in a browser tab, so the pinch gesture is
+// refused here too. Double-tap zoom is off through touch-action in app.css.
+document.addEventListener("gesturestart", (e) => e.preventDefault(), { passive: false });
