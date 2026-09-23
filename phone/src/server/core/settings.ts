@@ -9,7 +9,7 @@
  * unknown field has a bug, and a silent no-op would hide it.
  */
 
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { DEFAULT_EFFORT, EFFORTS, PERMISSION_MODES, THEMES } from "../../shared/protocol";
 import type { Effort, HelmSettings, ModelId, PermissionMode, SettingsPatch } from "../../shared/protocol";
@@ -46,7 +46,11 @@ export class SettingsStore {
       // No file yet is the normal state until the first patch.
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") console.error(`[settings] cannot read ${this.file}`, err);
     }
-    return settingsFrom(raw, this.defaults);
+    const settings = settingsFrom(raw, this.defaults);
+    // A saved cwd can outlive the directory (the vault moved once already). New threads
+    // would then fail to create, so a dead path yields to the default instead of being trusted.
+    const alive = await stat(settings.defaultCwd).then((s) => s.isDirectory(), () => false);
+    return alive ? settings : { ...settings, defaultCwd: this.defaults.defaultCwd };
   }
 
   async patch(p: SettingsPatch): Promise<HelmSettings> {
