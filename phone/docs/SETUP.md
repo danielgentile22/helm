@@ -58,7 +58,7 @@ ops/install.sh
 ```
 
 This renders and loads two user agents: `com.helm2.server` (KeepAlive, restarts on crash, logs to
-`~/.helm2/server.log`) and `com.helm2.caffeinate` (`caffeinate -dims`, keeps the Mac awake).
+`~/.helm2/server.log`) and `com.helm2.caffeinate` (`caffeinate -ims`, keeps the Mac awake but lets the display sleep).
 Rerun the script after pulling changes; it is idempotent. `ops/uninstall.sh` removes both.
 
 Boot is idempotent by design: the server repairs any torn log, seals any turn that was open when

@@ -45,7 +45,7 @@ largely abandoned; we salvage four small pieces from it (below) and rebuild the 
   WebAuthn all require it.
 - **Device lock:** WebAuthn passkey (Face ID on iOS) gating app open, short-lived session
   cookie after, re-prompt on cold open. Keep a static API key as a floor for curl/debugging.
-- **Liveness:** server + Tailscale as launchd KeepAlive jobs, `caffeinate -dims`.
+- **Liveness:** server + Tailscale as launchd KeepAlive jobs, `caffeinate -ims`.
 - Today the host is Daniel's MacBook, but design as if it is a permanently-on desktop; he will
   migrate the whole setup to a real always-on desktop soon. Nothing should assume "laptop."
 
