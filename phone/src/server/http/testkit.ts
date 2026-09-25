@@ -103,37 +103,53 @@ export async function buildStack(script: FakeScript = echoScript, home?: string,
 /** The global stream tags each event with its thread; the thread stream does not. */
 export type Frame = { kind: "event"; id: number; ev: ThreadEvent & { threadId?: ThreadId } } | { kind: "sync"; frame: SyncFrame } | { kind: "comment"; text: string };
 
+/** An open SSE response that can be read in steps. `frames` accumulates across calls to `until`. */
+export interface SseReader {
+  until(done: (frames: Frame[]) => boolean, timeoutMs?: number): Promise<Frame[]>;
+  close(): Promise<void>;
+}
+
+/** Open an SSE response for reading in steps, so a test can wait for sync before it acts. */
+export async function sseReader(res: Response): Promise<SseReader> {
+  if (res.status !== 200 || !res.body) throw new Error(`sse: status ${res.status} ${await res.text()}`);
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  const frames: Frame[] = [];
+  let buf = "";
+  return {
+    async until(done, timeoutMs = 3000) {
+      const deadline = Date.now() + timeoutMs;
+      while (!done(frames)) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) throw new Error(`sse: timed out with ${frames.length} frames`);
+        const r = await Promise.race([reader.read(), new Promise<never>((_, rej) => setTimeout(() => rej(new Error("sse: read timed out")), remaining))]);
+        if (r.done) break;
+        buf += decoder.decode(r.value, { stream: true });
+        let ix: number;
+        while ((ix = buf.indexOf("\n\n")) >= 0) {
+          const f = parseFrame(buf.slice(0, ix));
+          buf = buf.slice(ix + 2);
+          if (f) frames.push(f);
+        }
+      }
+      return frames;
+    },
+    close: () => reader.cancel().catch(() => undefined),
+  };
+}
+
 /**
  * Read an SSE response, parsing frames, until `until` returns true or the
  * stream ends. Cancels the body afterwards, which is what a phone dropping
  * the connection looks like to the server.
  */
 export async function readSse(res: Response, until: (frames: Frame[]) => boolean, timeoutMs = 3000): Promise<Frame[]> {
-  if (res.status !== 200 || !res.body) throw new Error(`sse: status ${res.status} ${await res.text()}`);
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  const frames: Frame[] = [];
-  let buf = "";
-  const deadline = Date.now() + timeoutMs;
+  const sse = await sseReader(res);
   try {
-    while (!until(frames)) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) throw new Error(`sse: timed out with ${frames.length} frames`);
-      const r = await Promise.race([reader.read(), new Promise<never>((_, rej) => setTimeout(() => rej(new Error("sse: read timed out")), remaining))]);
-      if (r.done) break;
-      buf += decoder.decode(r.value, { stream: true });
-      let ix: number;
-      while ((ix = buf.indexOf("\n\n")) >= 0) {
-        const block = buf.slice(0, ix);
-        buf = buf.slice(ix + 2);
-        const f = parseFrame(block);
-        if (f) frames.push(f);
-      }
-    }
+    return await sse.until(until, timeoutMs);
   } finally {
-    await reader.cancel().catch(() => undefined);
+    await sse.close();
   }
-  return frames;
 }
 
 export function parseFrame(block: string): Frame | null {

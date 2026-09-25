@@ -7,7 +7,7 @@ import type { AskPayload, HelmSettings, SearchHit, SlashCommand, ThreadConfig, T
 import { groupTurns } from "../../shared/turns";
 import { guidanceOf } from "../../shared/vault";
 import { parseAnswer, parseCreateThread, parsePatch, parseSave, parseSend, passkeyRows } from "./app";
-import { API_KEY, buildStack, eventSeqs, events, readSse, type Frame, type Stack } from "./testkit";
+import { API_KEY, buildStack, eventSeqs, events, readSse, sseReader, type Frame, type Stack } from "./testkit";
 
 const THREAD = "0f0f0f0f-0000-4000-8000-0000000000aa";
 const uuid = (n: number) => `0f0f0f0f-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -106,10 +106,12 @@ test("send and stream: SSE attached before send sees sync then the whole turn; r
     t.end();
   });
   await s.api("POST", "/api/threads", { threadId: THREAD, model: "claude-opus-5" });
-  const live = readSse(await s.api("GET", `/api/threads/${THREAD}/events?after=0`), (f) => events(f).some((e) => e.kind === "turn.ended"));
+  const live = await sseReader(await s.api("GET", `/api/threads/${THREAD}/events?after=0`));
+  await live.until((f) => f.some((x) => x.kind === "sync"));
   const sent = await (await s.api("POST", `/api/threads/${THREAD}/send`, { clientMsgId: uuid(1), text: "Say hello\nplease" })).json();
   assert.deepEqual(sent, { accepted: true, state: "running", seq: 2 });
-  const frames = await live;
+  const frames = await live.until((f) => events(f).some((e) => e.kind === "turn.ended"));
+  await live.close();
   assert.equal(frames[0]?.kind, "event", "thread.created replayed");
   assert.equal(frames[1]?.kind, "sync");
   const kinds = events(frames).map((e) => e.kind);
