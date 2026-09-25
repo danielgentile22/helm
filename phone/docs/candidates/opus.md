@@ -253,9 +253,6 @@ projection for Obsidian search.
   degrade to "seal the turn, start a new one with `resume`" if not, which is correct but loses
   in-flight context. This is the single largest unverified assumption in the design and should
   be spiked before anything else is built.
-  rather than a wall: the UI flagging a turn whose tool calls touched that path, with no
-  blocking? Phase A said do not add a capability wall, and this would not be one, but it is
-  your call whether it is worth the noise.
 - `inbox/chats/` retention: the markdown projection is regenerable from the log, so pruning it
   is lossless. Should Helm prune it on a schedule (30 days, matching morning reports) and offer
   a rebuild command, or keep chat transcripts indefinitely like research?

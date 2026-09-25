@@ -24,7 +24,6 @@ export function savePrompt(vaultRoot: string, threadId: ThreadId, guidance: stri
 
     `Link every note you create or change to this conversation's chat mirror note, ${mirror}, so the knowledge keeps its provenance. The mirror note links back on its own.`,
 
-
     "If this thread already called record_note earlier, those calls name the notes you wrote before. Update those notes rather than creating new ones.",
 
     `Commit the vault's local git repo with a message naming this thread (${threadId}). Never add a remote and never push.`,

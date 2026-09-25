@@ -80,8 +80,6 @@ largely abandoned; we salvage four small pieces from it (below) and rebuild the 
 - The vault has machine-owned areas that must not be hand-edited:
   `Atlas/Projects/Morphy/_board-snapshot.md`, `system/morphy-state.json`, and `system/`
   caches generally.
-  reach it (no sandbox, by explicit choice). Flag in "Open questions" whether a path-level
-  deny rule is wanted; do not unilaterally add one, and do not let it become a capability wall.
 - Inbox retention: research kept indefinitely, morning reports 30 days. `inbox/chats/` has no
   stated retention policy yet — worth raising.
 

@@ -242,8 +242,6 @@ apps/server/
 
 ## Open questions and risks
 
-  stay fully reachable like everything else? Grounding says not to unilaterally add one; this
-  design adds none, so the question stands as-is for Daniel to answer.
 - Is 500 in-memory ring events per thread the right retention for "resume after being away a
   while," or should replay-from-0 be the common case for a phone that reopens after days? The
   file-backed path handles it either way, but it changes SSE route sizing assumptions.

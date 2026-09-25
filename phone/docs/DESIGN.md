@@ -165,14 +165,13 @@ so all the fallbacks were deleted:
 1. **Backup of `~/.helm2`.** Nightly sync to an off-machine location, to be chosen later. The
    vault needs the same and the two share one destination. Not a blocker for the build; a
    blocker for the desktop migration.
-   tailnet. The CLAUDE.md instruction is the only guard.
-3. **`inbox/chats/` retention.** Prune at 30 days, matching morning reports.
-4. **Uploads.** Stage under the thread's working directory in an ignored `.helm2-uploads/`
+2. **`inbox/chats/` retention.** Prune at 30 days, matching morning reports.
+3. **Uploads.** Stage under the thread's working directory in an ignored `.helm2-uploads/`
    folder, so moving a file into the vault is a same-filesystem rename.
-5. **Passkeys.** One credential set in the first version, stored as a list keyed by device so
+4. **Passkeys.** One credential set in the first version, stored as a list keyed by device so
    per-device revocation is a later UI addition and not a schema change.
-6. **Remote.** Private GitHub repo, branch and PR workflow as usual.
-7. **Host.** The MacBook is the interim host with launchd `KeepAlive` and `caffeinate -dims`.
+5. **Remote.** Private GitHub repo, branch and PR workflow as usual.
+6. **Host.** The MacBook is the interim host with launchd `KeepAlive` and `caffeinate -dims`.
    Tailscale must be running on whichever host serves.
 
 Still open: whether Tailscale stays the network layer or is replaced. See the security options
