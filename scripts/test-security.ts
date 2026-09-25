@@ -6,10 +6,8 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { NextRequest } from "next/server";
 import { bodyTooLarge, checkHelmKey } from "../lib/auth";
 import { escapeHtml, mdToHtml } from "../lib/reportMd";
-import { blockedInChatOnly, config as middlewareConfig, middleware } from "../middleware";
 
 let failed = 0;
 const pass = (msg: string) => console.log(`PASS  ${msg}`);
@@ -49,43 +47,6 @@ check(bodyTooLarge(reqWithLength("9000000"), 8 * 1024 * 1024), "content-length o
 check(!bodyTooLarge(reqWithLength("1000"), 8 * 1024 * 1024), "content-length under cap → allowed");
 check(bodyTooLarge(reqWithLength(null), 8 * 1024 * 1024), "missing content-length (chunked) → rejected");
 check(bodyTooLarge(reqWithLength("junk"), 8 * 1024 * 1024), "unparseable content-length → rejected");
-
-// --- CHAT_ONLY method gating (middleware.ts) ------------------------------------
-// Writes 404 on the Fly box (they'd enqueue runner work Syncthing carries back).
-check(blockedInChatOnly("/api/queue", "POST"), "chat-only blocks POST /api/queue");
-check(blockedInChatOnly("/api/voice", "POST"), "chat-only blocks POST /api/voice");
-check(blockedInChatOnly("/api/voice/text", "POST"), "chat-only blocks POST /api/voice/text");
-check(blockedInChatOnly("/api/todos", "POST"), "chat-only blocks POST /api/todos (toggle)");
-check(blockedInChatOnly("/api/transcript", "DELETE"), "chat-only blocks DELETE /api/transcript");
-check(blockedInChatOnly("/api/chats", "POST"), "chat-only blocks POST /api/chats (no prefix confusion)");
-// Reads pass so the phone can render every tab.
-check(!blockedInChatOnly("/api/state", "GET"), "chat-only allows GET /api/state");
-check(!blockedInChatOnly("/api/report", "GET"), "chat-only allows GET /api/report");
-check(!blockedInChatOnly("/api/transcript", "GET"), "chat-only allows GET /api/transcript");
-check(!blockedInChatOnly("/api/todos", "GET"), "chat-only allows GET /api/todos");
-// Chat + key pass regardless of method; non-API pages are never gated.
-check(!blockedInChatOnly("/api/chat", "POST"), "chat-only allows POST /api/chat");
-check(!blockedInChatOnly("/api/key", "GET"), "chat-only allows /api/key");
-check(!blockedInChatOnly("/chat", "GET"), "chat-only ignores non-API pages");
-
-// --- CHAT_ONLY middleware wiring (env gate + arg order + matcher scope) ----------
-// blockedInChatOnly above is the pure logic; this exercises the 2-line
-// middleware() wiring where a refactor regression would actually land.
-{
-  const call = (path: string, method: string) =>
-    middleware(new NextRequest(`http://localhost:3107${path}`, { method }));
-  const prevChatOnly = process.env.CHAT_ONLY;
-  process.env.CHAT_ONLY = "1";
-  eq(call("/api/queue", "POST").status, 404, "CHAT_ONLY=1 → middleware 404s POST /api/queue");
-  eq(call("/api/state", "GET").status, 200, "CHAT_ONLY=1 → middleware passes GET /api/state");
-  eq(call("/api/chat", "POST").status, 200, "CHAT_ONLY=1 → middleware passes POST /api/chat");
-  delete process.env.CHAT_ONLY;
-  eq(call("/api/queue", "POST").status, 200, "CHAT_ONLY unset → middleware passes POST /api/queue");
-  if (prevChatOnly !== undefined) process.env.CHAT_ONLY = prevChatOnly;
-  // matcher scope: middleware never runs at all outside its matcher, so a
-  // narrowed matcher silently unguards routes no matter what the code says.
-  eq(middlewareConfig.matcher, "/api/:path*", "middleware matcher covers all of /api");
-}
 
 // --- auth-guard route sweep (every mutating route calls checkHelmKey) ------------
 // The feared failure mode is a NEW mutating route that never calls the guard —

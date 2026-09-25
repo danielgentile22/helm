@@ -157,7 +157,7 @@ by hand, or seed a sample to demo the tile.
   row opens the report overlay.
 - **Chat tab** — typed conversation with the same router/brain; the voice
   transcript is a Documents row (open it to read, "reset transcript ×" to
-  clear). For chat from your phone anywhere, see `docs/fly-deploy.md`.
+  clear). For chat from your phone, see [`phone/`](phone/).
 
 ## Security
 
@@ -166,8 +166,7 @@ the `HELM_API_KEY` shared secret (from `~/.claude/.env`) sent as
 `X-HELM-KEY` — no key configured means writes fail closed (503). It still
 assumes a trusted machine: never bind it to `0.0.0.0`, never port-forward
 3107/3108 — `/api/queue` feeds the runner's headless Claude. The full
-perimeter, including why the remote deployment can't write and why Syncthing
-can't enqueue work, is in [ADRs 0002–0005 and 0009](docs/decisions/).
+perimeter, including why Syncthing can't enqueue work, is in [ADRs 0002–0005 and 0009](docs/decisions/).
 
 ## Quality gates
 
