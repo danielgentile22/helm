@@ -271,13 +271,19 @@ export function toSlashCommands(raw: unknown, hide: ReadonlySet<string>): readon
   return out;
 }
 
+/** The home directory as a whole path segment: `/Users/dan` must not match inside `/Users/daniel`. */
+function homePath(): RegExp {
+  const escaped = homedir().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`${escaped}(?![\\w.-])`, "g");
+}
+
 /** Strip absolute home paths and stack frames from an error string before it reaches the phone. */
 function scrubError(text: string): string {
   return text
     .split("\n")
     .filter((l) => !/^\s+at\s/.test(l))
     .join("\n")
-    .replaceAll(homedir(), "~")
+    .replace(homePath(), "~")
     .trim()
     .slice(0, 500);
 }
