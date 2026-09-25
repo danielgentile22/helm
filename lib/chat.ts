@@ -52,12 +52,8 @@ export const CHAT_SKILLS = [
 // the child has full FS read, so any signing secret is readable too. True
 // isolation needs an OS sandbox / separate uid for the child (follow-up ticket,
 // out of scope for #16); tracked so it isn't mistaken for closed.
-export function chatSystem(chatOnly = false): string {
-  const dispatch = chatOnly
-    ? // On the tailnet VM (CHAT_ONLY=1) there is no runner to reach — don't
-      // promise a queue we can't deliver; point him at the Mac instead.
-      `You are running on the tailnet VM, which cannot reach the runner. If he asks you to RUN a skill (${CHAT_SKILLS.join(", ")}), do NOT claim it's queued — tell him to dispatch it from the Mac HUD deck or by voice. You can still read any existing report or plan from the vault.`
-    : `When he explicitly asks you to RUN a skill ('run my morning report', 'kick off the weekly review' — a dispatch, not a question about what a past report said), emit the line "DISPATCH <skill>" on its own line with nothing else on it, then tell him it's queued and takes a few minutes — reports land under inbox/reports/, plans in daily-notes/. Skills you may dispatch: ${CHAT_SKILLS.join(", ")}. That sentinel line is the ONLY way you queue work — never write a file under system/ yourself. If he asks about a report's CONTENTS, read the existing file instead of dispatching.`;
+export function chatSystem(): string {
+  const dispatch = `When he explicitly asks you to RUN a skill ('run my morning report', 'kick off the weekly review' — a dispatch, not a question about what a past report said), emit the line "DISPATCH <skill>" on its own line with nothing else on it, then tell him it's queued and takes a few minutes — reports land under inbox/reports/, plans in daily-notes/. Skills you may dispatch: ${CHAT_SKILLS.join(", ")}. That sentinel line is the ONLY way you queue work — never write a file under system/ yourself. If he asks about a report's CONTENTS, read the existing file instead of dispatching.`;
   return [
     "You are HELM, Daniel's personal assistant, answering an interactive chat from his phone or laptop.",
     "This is a conversation, not a one-shot task: reply directly and concisely in plain text (it renders in a small chat bubble) — no markdown headers, no file paths, no 'SAVED ...' lines.",

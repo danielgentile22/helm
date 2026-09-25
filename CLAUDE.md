@@ -46,10 +46,7 @@ render + (re)install them with `scripts/install-launchd.sh`.
 1. Prod build: `npx next build`
 2. Restart local HUD: `launchctl kickstart -k gui/$(id -u)/com.helm.hud`
    (kickstart `com.helm.runner` / `com.helm.voice` too if you touched them)
-3. Fly VM: `fly deploy -a <app> && ./scripts/smoke-fly.sh` — the machine's
-   real app name lives in `docs/fly-deploy.local.md` (gitignored);
-   tailnet-only (see docs/fly-deploy.md)
-4. Verify live: `curl -sf http://localhost:3107 >/dev/null` (HUD health
+3. Verify live: `curl -sf http://localhost:3107 >/dev/null` (HUD health
    probe; voice: `http://127.0.0.1:3108/health`)
 
 ## Project facts
@@ -79,15 +76,8 @@ render + (re)install them with `scripts/install-launchd.sh`.
 - The Mac HUD binds **127.0.0.1 only** (`-H 127.0.0.1` in com.helm.hud.plist
   and the manual command above). Never bind 0.0.0.0 — /api/queue feeds the
   runner's `claude -p --dangerously-skip-permissions`.
-- The vault's `.stignore` (Mac vault root + written by entrypoint.sh on the
-  Fly VM) keeps `system/queue/` and `system/runs/` OUT of Syncthing — synced
+- The vault's `.stignore` keeps `system/queue/` and `system/runs/` OUT of Syncthing — synced
   peers must never be able to enqueue runner work. Don't delete it.
-- The Fly image sets `CHAT_ONLY=1`: middleware.ts 404s every **mutating** API
-  request (POST/PUT/PATCH/DELETE) except `/api/chat`. Safe reads (GET/HEAD) pass
-  so the tailnet phone renders every tab read-only; the write surface still can't
-  reach the runner. Gate is method-based — adding a new write route needs no
-  middleware edit, but a route that mutates on GET would slip through, so don't
-  write one.
 
 ## Load-bearing couplings (break one and voice quietly misroutes)
 

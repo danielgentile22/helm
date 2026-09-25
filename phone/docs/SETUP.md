@@ -14,7 +14,7 @@ always-on desktop. Every step is safe to repeat.
 ## 2. Install
 
 ```
-cd ~/Projects/helm2
+cd ~/Projects/helm/phone
 npm ci
 npm run build:client
 cp .env.example .env
