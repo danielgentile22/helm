@@ -122,15 +122,8 @@ eq(stripDispatch("It's queued.\nDISPATCH morning-report\n"), "It's queued.", "se
 eq(stripDispatch("DISPATCH morning-report"), "", "reply that is only a sentinel → empty (route shows '(no reply)')");
 eq(stripDispatch("plain reply, no sentinel"), "plain reply, no sentinel", "reply without a sentinel is untouched");
 
-// (b) the CHAT_ONLY prompt variant carries NO queue/dispatch contract
-{
-  const chatOnly = chatSystem(true);
-  check(!chatOnly.includes("DISPATCH"), "CHAT_ONLY prompt does not teach the DISPATCH sentinel");
-  check(!chatOnly.includes("system/queue/"), "CHAT_ONLY prompt does not teach the queue file contract");
-  check(chatOnly.includes("Mac"), "CHAT_ONLY prompt points him at the Mac to dispatch");
-  const normal = chatSystem(false);
-  check(normal.includes("DISPATCH"), "normal prompt DOES teach the DISPATCH sentinel");
-}
+// the prompt teaches the DISPATCH sentinel
+check(chatSystem().includes("DISPATCH"), "prompt teaches the DISPATCH sentinel")
 
 console.log(failed === 0 ? `\nAll chat checks pass.` : `\n${failed} chat check(s) failed.`);
 process.exit(failed ? 1 : 0);

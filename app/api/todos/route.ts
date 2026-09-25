@@ -15,8 +15,7 @@ import {
 // POST /api/todos {action:"add", text}     — append an open item
 // POST /api/todos {action:"toggle", index, text, done} — check/uncheck
 // Fixed vault path — no user-supplied path, so no traversal surface (unlike
-// /api/report). Writes require X-HELM-KEY like every state-changing route;
-// CHAT_ONLY middleware already 404s this on the Fly VM.
+// /api/report). Writes require X-HELM-KEY like every state-changing route.
 // ---------------------------------------------------------------------------
 
 export const dynamic = "force-dynamic";

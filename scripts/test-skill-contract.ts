@@ -151,7 +151,7 @@ async function run(): Promise<void> {
   // 6. Chat dispatch (issue #43): every skill CHAT_SYSTEM offers must be one
   //    the runner accepts — same drift guard as the deck/voice couplings.
   const { CHAT_SKILLS, chatSystem } = await import("../lib/chat");
-  const sys = chatSystem(false);
+  const sys = chatSystem();
   for (const skill of CHAT_SKILLS) {
     if (!ALLOWED_SKILLS.has(skill)) fail(`chat offers "${skill}" but it is not in ALLOWED_SKILLS`);
     else if (!sys.includes(skill)) fail(`CHAT_SKILLS lists "${skill}" but chatSystem never names it`);
