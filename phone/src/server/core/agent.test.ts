@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { setImmediate as tick } from "node:timers/promises";
+import { homedir } from "node:os";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { CanUseTool, ModelInfo, Options, PermissionResult, SDKMessage, SDKUserMessage, SlashCommand as SdkSlashCommand } from "@anthropic-ai/claude-agent-sdk";
 import { LIMITS } from "../../shared/protocol";
@@ -434,11 +435,19 @@ test("user tool_result blocks map to tool.finished, string or block content, wit
 });
 
 test("error result maps to turn.ended {error} with scrubbed message", async () => {
-  const [ev] = await turnEvents([], result({ subtype: "error_during_execution", is_error: true, errors: ["boom at /Users/danielgentile/x\n    at fn (file.js:1:1)"], usage: {} }));
+  const home = homedir();
+  const [ev] = await turnEvents([], result({ subtype: "error_during_execution", is_error: true, errors: [`boom at ${home}/x, ran in ${home}\n    at fn (file.js:1:1)`], usage: {} }));
   assert.equal(ev?.kind, "turn.ended");
   if (ev?.kind !== "turn.ended") return;
   assert.equal(ev.outcome, "error");
-  assert.equal(ev.error, "boom at ~/x");
+  assert.equal(ev.error, "boom at ~/x, ran in ~");
+});
+
+test("the scrub leaves a longer sibling of the home path alone", async () => {
+  const sibling = `${homedir()}gentile/x`;
+  const [ev] = await turnEvents([], result({ subtype: "error_during_execution", is_error: true, errors: [`boom at ${sibling}`], usage: {} }));
+  if (ev?.kind !== "turn.ended") return assert.fail("expected turn.ended");
+  assert.equal(ev.error, `boom at ${sibling}`);
 });
 
 test("unknown message types produce nothing", async () => {
