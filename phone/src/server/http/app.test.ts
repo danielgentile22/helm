@@ -48,7 +48,10 @@ test("auth doors: 401 without credentials, 401 on a bad key, 503 when unconfigur
   const token = new URL(enroll.url).searchParams.get("token")!;
   const reg = await open(`/auth/webauthn/register/options?enroll=${token}`, { method: "POST", body: JSON.stringify({ label: "iphone" }), headers: { "content-type": "application/json" } });
   assert.equal(reg.status, 200);
-  assert.equal((await open(`/auth/webauthn/register/options?enroll=${token}`, { method: "POST" })).status, 401, "enroll token is one-shot");
+  const spent = await open(`/auth/webauthn/register/options?enroll=${token}`, { method: "POST" });
+  assert.equal(spent.status, 401, "enroll token is one-shot");
+  assert.deepEqual(await spent.json(), { error: "this enrollment link was already used or has expired; ask the Mac for a new one" }, "a spent link says so, not that a key is missing");
+  assert.deepEqual(await (await open("/auth/webauthn/register/options", { method: "POST" })).json(), { error: "missing API key" }, "no token and no key still asks for the key");
   await s.cleanup();
 
   const closed = await buildStack(undefined, undefined, { apiKey: undefined });

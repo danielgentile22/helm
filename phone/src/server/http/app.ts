@@ -155,7 +155,10 @@ export function buildApp(deps: AppDeps): { fetch: (req: Request) => Promise<Resp
   const enrollGate = (c: Context): Response | null => {
     const token = c.req.query("enroll");
     if (token && deps.enroll.consume(token)) return null;
-    const r = checkApiKey(c.req.header(API_KEY_HEADER) ?? null, deps.auth.apiKey);
+    const key = c.req.header(API_KEY_HEADER) ?? null;
+    // A phone on a spent or stale link never holds the key, so "missing API key" would send it looking for one.
+    if (token && key === null) return fail(c, 401, "this enrollment link was already used or has expired; ask the Mac for a new one");
+    const r = checkApiKey(key, deps.auth.apiKey);
     return r.ok ? null : fail(c, r.status, r.error);
   };
 
