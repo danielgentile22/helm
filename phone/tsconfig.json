@@ -1,0 +1,1 @@
+{ "compilerOptions": { "strict": true, "noEmit": true, "target": "ES2023", "module": "ESNext", "moduleResolution": "Bundler", "types": ["node", "svelte"], "lib": ["ES2023","DOM"], "skipLibCheck": true }, "include": ["src"] }
