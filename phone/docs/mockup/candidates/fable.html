@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Amber Gutter</title>
+<style>
+/* ---------- page chrome (not part of the direction) ---------- */
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;max-width:100%;overflow-x:hidden}
+body{font:15px/1.45 -apple-system,system-ui,"Helvetica Neue",sans-serif;background:#2a2622;color:#e8e0d2;padding:16px 16px 64px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#b8ab99;margin:40px 0 12px}
+p.lede{margin:0 0 16px;color:#b8ab99;max-width:60ch}
+.page-mono{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px}
+.toggle{display:inline-flex;border:1px solid #4a423a;border-radius:8px;overflow:hidden;margin:8px 0 16px}
+.toggle button{background:#332e29;color:#e8e0d2;border:0;padding:8px 14px;font:inherit;cursor:pointer}
+.toggle button[aria-pressed=true]{background:#f2a93b;color:#1a1408;font-weight:600}
+table.tokens{border-collapse:collapse;font-size:12px;width:100%;max-width:1100px}
+table.tokens th,table.tokens td{text-align:left;padding:5px 8px;border-bottom:1px solid #443c34;vertical-align:top}
+table.tokens th{color:#b8ab99;font-weight:600}
+.sw{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;margin-right:6px;border:1px solid rgba(255,255,255,.15)}
+.tok-wrap{overflow-x:auto}
+.gallery{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
+.frame{flex:0 0 auto;width:390px;max-width:100%}
+.frame .cap{font-size:12px;color:#b8ab99;margin:0 0 6px;font-family:ui-monospace,"SF Mono",Menlo,monospace}
+body[data-show=light] .frame[data-theme=dark]{display:none}
+body[data-show=dark] .frame[data-theme=light]{display:none}
+.wide-wrap{overflow-x:auto;max-width:100%;padding-bottom:8px}
+.wide{width:1100px}
+
+/* ---------- direction tokens ---------- */
+.t{
+  --gutter:28px;
+  --r-s:4px;--r-m:10px;--r-l:16px;--r-pill:999px;
+  --d-micro:120ms;--d-ui:200ms;--d-sheet:320ms;
+  --e-out:cubic-bezier(.2,.7,.2,1);--e-spring:cubic-bezier(.34,1.3,.5,1);
+  --fs-meta:11px;--fs-cap:12px;--fs-code:13px;--fs-body:15px;--fs-title:17px;--fs-h:20px;
+  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--s6:32px;
+}
+.t[data-theme=light]{
+  --bg:#f4eee2;--surface:#fbf8f1;--sunk:#ebe3d2;--ink:#1f1a14;--ink2:#6b6157;--line:#dcd2bf;
+  --amber:#c27a12;--amber-ink:#8a4d05;--amber-soft:#f5e2bf;--amber-glow:rgba(194,122,18,.35);
+  --add:#2457a8;--add-bg:#e2ebf9;--del:#9a4f00;--del-bg:#f8e3c8;--code-bg:#ece4d1;
+  --steel:#4f6b7c;
+}
+.t[data-theme=dark]{
+  --bg:#14110d;--surface:#1c1813;--sunk:#0e0c09;--ink:#ece3d2;--ink2:#a3968a;--line:#2e2720;
+  --amber:#f2a93b;--amber-ink:#f2a93b;--amber-soft:#3a2810;--amber-glow:rgba(242,169,59,.45);
+  --add:#8ab8ff;--add-bg:#172338;--del:#f0a35a;--del-bg:#3a230f;--code-bg:#0e0c09;
+  --steel:#8fb0c4;
+}
+.t{color:var(--ink);background:var(--bg);font-family:-apple-system,system-ui,"Helvetica Neue",sans-serif;font-size:var(--fs-body);line-height:1.45;-webkit-font-smoothing:antialiased}
+.t .mono,.t code,.t pre,.t kbd{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-code)}
+.t svg{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.15em;flex:none}
+
+/* phone shell */
+.phone{width:390px;max-width:100%;height:790px;border-radius:38px;border:1px solid var(--line);overflow:hidden;position:relative;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+.phone.short{height:auto;border-radius:var(--r-l)}
+.phone.tall{height:auto}
+.phone.short .screen{min-height:0}
+.notch{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 28px;font-size:var(--fs-cap);font-weight:600;color:var(--ink2)}
+.screen{flex:1;display:flex;flex-direction:column;min-height:0;position:relative}
+.hbar{height:34px;flex:none;display:flex;align-items:flex-end;justify-content:center;padding-bottom:8px}
+.hbar i{display:block;width:134px;height:5px;border-radius:3px;background:var(--ink);opacity:.35}
+
+/* header */
+.hdr{display:flex;align-items:center;gap:var(--s2);padding:6px var(--s3) 8px;flex:none;border-bottom:1px solid var(--line);background:var(--bg)}
+.hdr .title{flex:1;min-width:0;font-weight:600;font-size:var(--fs-title);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hdr .brand{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-weight:700;letter-spacing:.02em}
+.hdr .brand b{color:var(--amber-ink)}
+.ib{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:var(--r-m);color:var(--ink);background:transparent;border:0;font:inherit}
+.ib svg{width:20px;height:20px}
+.btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border-radius:var(--r-m);border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:14px;font-weight:600}
+.btn.pri{background:var(--amber);border-color:var(--amber);color:#1a1408}
+.split{display:inline-flex}
+.split .btn:first-child{border-radius:var(--r-m) 0 0 var(--r-m)}
+.split .btn:last-child{border-radius:0 var(--r-m) var(--r-m) 0;border-left:1px solid rgba(0,0,0,.18);padding:0 8px}
+
+/* context gauge */
+.gauge{display:inline-flex;align-items:center;gap:6px;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-meta);color:var(--ink2)}
+.gauge .ring{width:22px;height:22px;border-radius:50%;background:conic-gradient(var(--amber) calc(var(--pct)*1%),var(--sunk) 0);position:relative;flex:none}
+.gauge .ring::after{content:"";position:absolute;inset:4px;border-radius:50%;background:var(--bg)}
+@keyframes fill{from{--pct:0}}
+
+/* status bar */
+.status{display:flex;align-items:center;gap:8px;padding:4px var(--s3);font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-meta);background:var(--amber-soft);color:var(--amber-ink);border-bottom:1px solid var(--line);flex:none}
+.status .bar{flex:1;height:3px;border-radius:2px;background:var(--line);overflow:hidden}
+.status .bar i{display:block;height:100%;width:64%;background:var(--amber)}
+.spin{animation:spin 1.1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* scroll body */
+.body{flex:1;overflow-y:auto;overflow-x:hidden;min-height:0;position:relative}
+
+/* ---------- thread list ---------- */
+.group{margin-top:var(--s2)}
+.ghead{display:flex;align-items:center;gap:8px;padding:10px var(--s3) 6px;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-cap);color:var(--ink2)}
+.ghead .path{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
+.ghead .live{display:inline-flex;align-items:center;gap:6px;color:var(--amber-ink);font-weight:600}
+.ghead .plus{width:26px;height:26px;border-radius:var(--r-s);display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);color:var(--ink2)}
+.row{display:grid;grid-template-columns:var(--gutter) 1fr auto;padding:10px var(--s3) 10px 0;border-top:1px solid var(--line);align-items:start;gap:0 6px;background:var(--bg)}
+.row.running{background:var(--surface)}
+.row .g{display:flex;justify-content:center;padding-top:3px;color:var(--ink2)}
+.row .g svg{width:16px;height:16px}
+.row .ttl{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .sub{display:flex;gap:10px;align-items:center;font-size:var(--fs-cap);color:var(--ink2);margin-top:2px}
+.row .state{display:inline-flex;align-items:center;gap:4px;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-meta);text-transform:lowercase}
+.row .now{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-cap);color:var(--amber-ink);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .now::before{content:"$ ";color:var(--ink2)}
+.row .time{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-meta);color:var(--ink2);padding-top:3px}
+.row.running .g{color:var(--amber-ink)}
+.filter{padding:var(--s4) var(--s3);text-align:center;font-size:var(--fs-cap);color:var(--ink2)}
+.filter span{border-bottom:1px dashed var(--ink2)}
+
+/* pulse: running */
+.pulse{position:relative;display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--amber)}
+.pulse::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid var(--amber);animation:ring 1.6s var(--e-out) infinite;opacity:0}
+@keyframes ring{0%{transform:scale(.5);opacity:.9}100%{transform:scale(1.5);opacity:0}}
+.g .pulse{width:8px;height:8px;margin-top:4px}
+
+/* ---------- log ---------- */
+.log{padding:var(--s2) 0 var(--s5)}
+.blk{display:grid;grid-template-columns:var(--gutter) minmax(0,1fr);padding:6px var(--s3) 6px 0;position:relative}
+.blk .g{display:flex;justify-content:center;align-items:flex-start;padding-top:3px;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-code);color:var(--ink2);line-height:1.45;user-select:none}
+.blk .c{min-width:0}
+.blk.prompt{background:var(--surface);border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:var(--s2) 0}
+.blk.prompt .g{color:var(--amber-ink);font-weight:700}
+.blk.prompt .c{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-code);white-space:pre-wrap;word-break:break-word}
+.origin{display:inline-block;font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:1px 6px;border-radius:var(--r-s);background:var(--amber-soft);color:var(--amber-ink);margin-bottom:4px;font-weight:700}
+.blk.think .c{font-size:var(--fs-cap);color:var(--ink2);display:flex;align-items:center;gap:6px}
+.blk.think .g{color:var(--steel)}
+.md h3{font-size:var(--fs-title);margin:6px 0 4px;font-weight:700}
+.md p{margin:4px 0 8px}
+.md ul{margin:0 0 8px;padding-left:20px}
+.md li{margin:2px 0}
+.md code{background:var(--code-bg);padding:1px 5px;border-radius:var(--r-s);font-size:.9em}
+.md a{color:var(--amber-ink);text-decoration:underline;text-underline-offset:2px}
+.codeblk{position:relative;background:var(--code-bg);border:1px solid var(--line);border-radius:var(--r-m);margin:6px 0 10px;overflow:hidden}
+.codeblk .lang{display:flex;justify-content:space-between;align-items:center;padding:4px 10px;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-meta);color:var(--ink2);border-bottom:1px solid var(--line)}
+.codeblk .copy{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:var(--r-s);padding:2px 7px;font:inherit;font-family:inherit;font-size:var(--fs-meta)}
+.codeblk pre{margin:0;padding:8px 10px;overflow-x:auto;line-height:1.5}
+.k{color:var(--amber-ink)}.s{color:var(--steel)}.cm{color:var(--ink2);font-style:italic}
+.act{border:1px solid var(--line);border-radius:var(--r-m);background:var(--surface);overflow:hidden;margin:4px 0}
+.act .sum{display:flex;align-items:center;gap:8px;padding:7px 10px;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-cap);color:var(--ink)}
+.act .sum .dur{margin-left:auto;color:var(--ink2)}
+.act .rows{border-top:1px dashed var(--line)}
+.act .tr{display:flex;align-items:center;gap:8px;padding:5px 10px;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-cap);color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.act .tr .cat{width:34px;color:var(--ink2);text-transform:uppercase;font-size:10px;letter-spacing:.06em;flex:none}
+.act .tr .arg{overflow:hidden;text-overflow:ellipsis}
+.act .tr.live{color:var(--amber-ink);background:var(--amber-soft);animation:slidein var(--d-ui) var(--e-out) both}
+.act .tr.live .cat{color:var(--amber-ink)}
+.act .tr.live .arg::after{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--amber);margin-left:8px;vertical-align:middle;animation:blink 1s steps(2,jump-none) infinite}
+@keyframes slidein{from{transform:translateY(-100%);opacity:0}to{transform:none;opacity:1}}
+@keyframes blink{50%{opacity:.2}}
+.diff{border:1px solid var(--line);border-radius:var(--r-m);overflow:hidden;margin:6px 0 10px;background:var(--code-bg)}
+.diff .fh{display:flex;gap:8px;align-items:center;padding:5px 10px;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-meta);color:var(--ink2);border-bottom:1px solid var(--line);background:var(--surface)}
+.diff .fh b{color:var(--ink);font-weight:600}
+.diff .scroll{overflow-x:auto}
+.diff table{border-collapse:collapse;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px;line-height:1.5;min-width:100%}
+.diff td{padding:0 8px;white-space:pre}
+.diff td.n{color:var(--ink2);text-align:right;width:32px;user-select:none;padding-right:4px}
+.diff td.m{width:14px;padding:0 2px;text-align:center;user-select:none;font-weight:700}
+.diff tr.add td{background:var(--add-bg)}
+.diff tr.add td.m{color:var(--add)}
+.diff tr.del td{background:var(--del-bg)}
+.diff tr.del td.m{color:var(--del)}
+.diff tr.del td:last-child{text-decoration:line-through;text-decoration-color:var(--del);text-decoration-thickness:1px}
+.stream .caret{display:inline-block;width:8px;height:1.05em;vertical-align:-.15em;margin-left:2px;border-radius:2px;background:var(--amber);animation:caret 1s var(--e-out) infinite}
+@keyframes caret{0%,100%{opacity:1}50%{opacity:.15}}
+.jump{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--r-pill);background:var(--ink);color:var(--bg);font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-cap);font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.3)}
+.endline{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-cap);color:var(--ink2);display:flex;gap:6px;align-items:center}
+
+/* ---------- composer ---------- */
+.comp{flex:none;border-top:1px solid var(--line);background:var(--bg);padding:8px var(--s3) 6px;position:relative}
+.qa{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;scrollbar-width:none}
+.qa::-webkit-scrollbar{display:none}
+.chip{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border-radius:var(--r-pill);border:1px solid var(--line);background:var(--surface);font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-cap);color:var(--ink);white-space:nowrap;flex:none}
+.chip.amber{background:var(--amber-soft);border-color:var(--amber);color:var(--amber-ink);font-weight:700}
+.chip.stop{border-color:var(--ink);font-weight:700}
+.chip .x{width:16px;height:16px;border-radius:50%;background:var(--line);display:inline-flex;align-items:center;justify-content:center;margin-right:-4px}
+.chip .x svg{width:10px;height:10px}
+.thumb{width:56px;height:56px;border-radius:var(--r-m);border:1px solid var(--line);position:relative;flex:none;overflow:hidden}
+.thumb .x{position:absolute;top:3px;right:3px;width:18px;height:18px;border-radius:50%;background:var(--ink);color:var(--bg);display:flex;align-items:center;justify-content:center}
+.thumb .x svg{width:10px;height:10px}
+.editor{display:grid;grid-template-columns:36px 1fr 40px;gap:6px;align-items:end}
+.ta{min-height:40px;max-height:140px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--surface);padding:9px 10px;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-code);color:var(--ink);line-height:1.4;white-space:pre-wrap;word-break:break-word}
+.ta .ph{color:var(--ink2)}
+.ta .cmd{display:inline-block;background:var(--amber-soft);color:var(--amber-ink);border-radius:var(--r-s);padding:0 5px;font-weight:700;margin-right:4px}
+.send{width:40px;height:40px;border-radius:var(--r-m);border:0;background:var(--amber);color:#1a1408;display:inline-flex;align-items:center;justify-content:center;transition:border-radius var(--d-ui) var(--e-spring),background var(--d-ui)}
+.send svg{width:20px;height:20px;stroke-width:2.2}
+.send.stopping{border-radius:50%;background:var(--ink);color:var(--bg)}
+.send.stopping svg{fill:currentColor;stroke:none;width:14px;height:14px}
+.helper{display:flex;justify-content:space-between;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:10px;color:var(--ink2);padding:6px 2px 0}
+.helper kbd{font-size:10px;border:1px solid var(--line);border-radius:3px;padding:0 4px}
+
+/* popover and sheet */
+.pop{position:absolute;left:var(--s3);right:var(--s3);bottom:calc(100% + 4px);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);box-shadow:0 10px 30px rgba(0,0,0,.25);overflow:hidden;animation:popin var(--d-ui) var(--e-spring) both}
+@keyframes popin{from{transform:translateY(6px) scale(.98);opacity:0}}
+.pop .it{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;padding:8px 12px;border-top:1px solid var(--line);align-items:baseline}
+.pop .it:first-child{border-top:0}
+.pop .it.sel{background:var(--amber-soft)}
+.pop .nm{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-code);font-weight:700;color:var(--amber-ink)}
+.pop .nm em{font-style:normal;color:var(--ink2);font-weight:400}
+.pop .ds{grid-column:1/-1;font-size:var(--fs-cap);color:var(--ink2)}
+.pop .hint{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-meta);color:var(--ink2)}
+.sheet{background:var(--surface);border:1px solid var(--line);border-bottom:0;border-radius:var(--r-l) var(--r-l) 0 0;padding:8px var(--s3) 0;animation:sheetup var(--d-sheet) var(--e-out) both;box-shadow:0 -10px 30px rgba(0,0,0,.2)}
+@keyframes sheetup{from{transform:translateY(24px);opacity:0}}
+.grab{width:36px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 8px}
+.sheet .sh{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.sheet .sh .st{font-weight:700;font-size:var(--fs-title);flex:1}
+.search{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:var(--r-m);background:var(--sunk);color:var(--ink2);font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-code);margin-bottom:6px}
+.search span{color:var(--ink)}
+.sk{display:grid;grid-template-columns:1fr auto;gap:0 10px;padding:9px 0;border-top:1px solid var(--line)}
+.sk .nm{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-code);font-weight:700;color:var(--amber-ink)}
+.sk .src{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:10px;color:var(--ink2);letter-spacing:.06em;text-transform:uppercase;padding-top:3px}
+.sk .ds{grid-column:1/-1;font-size:var(--fs-cap);color:var(--ink2)}
+.sk .ds b{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-weight:400;color:var(--ink)}
+
+/* ---------- settings ---------- */
+.sect{padding:var(--s4) var(--s3) 0}
+.sect h4{margin:0 0 6px;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-meta);letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);font-weight:700}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);overflow:hidden}
+.sr{display:flex;align-items:center;gap:10px;padding:11px 12px;border-top:1px solid var(--line);min-height:44px}
+.sr:first-child{border-top:0}
+.sr .l{flex:1;min-width:0}
+.sr .l small{display:block;font-size:var(--fs-cap);color:var(--ink2)}
+.sr .v{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-cap);color:var(--ink2);display:inline-flex;gap:5px;align-items:center;white-space:nowrap}
+.sr .v.on{color:var(--amber-ink);font-weight:700}
+.seg{display:flex;background:var(--sunk);border-radius:var(--r-m);padding:3px;gap:3px}
+.seg span{flex:1;text-align:center;padding:6px 0;border-radius:7px;font-size:14px;color:var(--ink2)}
+.seg span.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.sw2{width:44px;height:26px;border-radius:13px;background:var(--amber);position:relative;flex:none}
+.sw2::after{content:"";position:absolute;top:3px;left:21px;width:20px;height:20px;border-radius:50%;background:#fff}
+.about{padding:var(--s5) var(--s3);text-align:center;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:var(--fs-meta);color:var(--ink2);line-height:1.8}
+
+/* ---------- two-pane ---------- */
+.two{display:grid;grid-template-columns:340px 1fr;height:1040px;border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+.two > .pane{display:flex;flex-direction:column;min-height:0;min-width:0}
+.two > .pane:first-child{border-right:1px solid var(--line)}
+.two .row.sel{box-shadow:inset 3px 0 0 var(--amber)}
+.two .log{max-width:760px}
+
+@media (prefers-reduced-motion:reduce){
+  .t *,.t *::before,.t *::after{animation-duration:0s!important;animation-iteration-count:1!important;transition-duration:0s!important}
+  .t .stream .caret{opacity:1}
+  .t .pulse::after{display:none}
+}
+</style>
+</head>
+<body data-show="both">
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></symbol>
+  <symbol id="i-idle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" stroke-dasharray="3 3"/></symbol>
+  <symbol id="i-done" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></symbol>
+  <symbol id="i-err" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></symbol>
+  <symbol id="i-orph" viewBox="0 0 24 24"><path d="M9 15l-2 2a3.5 3.5 0 0 1-5-5l3-3a3.5 3.5 0 0 1 5 0M15 9l2-2a3.5 3.5 0 0 1 5 5l-3 3a3.5 3.5 0 0 1-5 0"/><path d="M4 4l16 16"/></symbol>
+  <symbol id="i-sync" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-14 5.3M4 12a8 8 0 0 1 14-5.3"/><path d="M4 19v-4h4M20 5v4h-4"/></symbol>
+  <symbol id="i-off" viewBox="0 0 24 24"><path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 11a3.5 3.5 0 0 0 1 7z"/><path d="M3 3l18 18"/></symbol>
+  <symbol id="i-arch" viewBox="0 0 24 24"><path d="M3 5h18v4H3zM5 9v10h14V9M10 13h4"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18" cy="12" r="1.2"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M8 10l4 4 4-4"/></symbol>
+  <symbol id="i-chevr" viewBox="0 0 24 24"><path d="M10 8l4 4-4 4"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="M20 12l-8.5 8.5a5 5 0 0 1-7-7L13 5a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3L5 14h6l-1 7 9-12h-6z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="14" r="4"/><path d="M11 11l9-9M16 6l2 2M13 9l2 2"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></symbol>
+  <symbol id="i-lap" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></symbol>
+  <symbol id="i-cam" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+</svg>
+
+<h1>Amber Gutter</h1>
+<p class="lede">One hue, one structural device. The whole log is a single ruled column with a 28 px gutter on the left that carries a glyph for every kind of line, exactly the way a terminal prompt margin does. Amber phosphor on warm black in the dark, iron-gall ink on paper in the light. Nothing in the app is ever red or green.</p>
+
+<div class="toggle" role="group" aria-label="Theme">
+  <button data-set="light">Light</button>
+  <button data-set="dark">Dark</button>
+  <button data-set="both" aria-pressed="true">Show both</button>
+</div>
+
+<h2>Tokens</h2>
+<div class="tok-wrap">
+<table class="tokens">
+  <tr><th>Color</th><th>Light</th><th>Dark</th><th>Used for</th></tr>
+  <tr><td>bg</td><td><i class="sw" style="background:#f4eee2"></i>#f4eee2</td><td><i class="sw" style="background:#14110d"></i>#14110d</td><td>page ground</td></tr>
+  <tr><td>surface</td><td><i class="sw" style="background:#fbf8f1"></i>#fbf8f1</td><td><i class="sw" style="background:#1c1813"></i>#1c1813</td><td>cards, prompt lines, running rows, sheets</td></tr>
+  <tr><td>sunk</td><td><i class="sw" style="background:#ebe3d2"></i>#ebe3d2</td><td><i class="sw" style="background:#0e0c09"></i>#0e0c09</td><td>segmented tracks, search fields, gauge track</td></tr>
+  <tr><td>ink</td><td><i class="sw" style="background:#1f1a14"></i>#1f1a14 (14.6:1)</td><td><i class="sw" style="background:#ece3d2"></i>#ece3d2 (14.9:1)</td><td>body text</td></tr>
+  <tr><td>ink2</td><td><i class="sw" style="background:#6b6157"></i>#6b6157 (5.2:1)</td><td><i class="sw" style="background:#a3968a"></i>#a3968a (7.4:1)</td><td>meta, times, gutter glyphs</td></tr>
+  <tr><td>line</td><td><i class="sw" style="background:#dcd2bf"></i>#dcd2bf</td><td><i class="sw" style="background:#2e2720"></i>#2e2720</td><td>rules, borders</td></tr>
+  <tr><td>amber</td><td><i class="sw" style="background:#c27a12"></i>#c27a12</td><td><i class="sw" style="background:#f2a93b"></i>#f2a93b</td><td>fills: send, pulse, caret, gauge, toggles</td></tr>
+  <tr><td>amber-ink</td><td><i class="sw" style="background:#8a4d05"></i>#8a4d05 (5.4:1)</td><td><i class="sw" style="background:#f2a93b"></i>#f2a93b (9.4:1)</td><td>amber as text: prompt glyph, live rows, links, command names</td></tr>
+  <tr><td>amber-soft</td><td><i class="sw" style="background:#f5e2bf"></i>#f5e2bf</td><td><i class="sw" style="background:#3a2810"></i>#3a2810</td><td>tinted backgrounds: status bar, live tool row, selected item, command chip</td></tr>
+  <tr><td>steel</td><td><i class="sw" style="background:#4f6b7c"></i>#4f6b7c</td><td><i class="sw" style="background:#8fb0c4"></i>#8fb0c4</td><td>thinking glyph, string literals in code</td></tr>
+  <tr><td>add / add-bg</td><td><i class="sw" style="background:#2457a8"></i>#2457a8 on <i class="sw" style="background:#e2ebf9"></i>#e2ebf9</td><td><i class="sw" style="background:#8ab8ff"></i>#8ab8ff on <i class="sw" style="background:#172338"></i>#172338</td><td>diff added lines (blue, with a + marker)</td></tr>
+  <tr><td>del / del-bg</td><td><i class="sw" style="background:#9a4f00"></i>#9a4f00 on <i class="sw" style="background:#f8e3c8"></i>#f8e3c8</td><td><i class="sw" style="background:#f0a35a"></i>#f0a35a on <i class="sw" style="background:#3a230f"></i>#3a230f</td><td>diff removed lines (amber, with a − marker and strikethrough)</td></tr>
+  <tr><th>Type</th><th colspan="3">SF for prose, SF Mono for anything the machine said or you typed</th></tr>
+  <tr><td>scale</td><td colspan="3" class="page-mono">meta 11 · caption 12 · code 13 · body 15 · title 17 · heading 20. Line height 1.45 prose, 1.5 code.</td></tr>
+  <tr><th>Space</th><td colspan="3" class="page-mono">4 · 8 · 12 · 16 · 24 · 32. Gutter 28. Horizontal page inset 12.</td></tr>
+  <tr><th>Radii</th><td colspan="3" class="page-mono">4 chips and inline code · 10 cards, code blocks, buttons · 16 sheets · pill 999</td></tr>
+  <tr><th>Motion</th><td colspan="3" class="page-mono">micro 120ms · ui 200ms · sheet 320ms. Ease out cubic-bezier(.2,.7,.2,1). Spring cubic-bezier(.34,1.3,.5,1) for send↔stop and popover. Pulse ring 1.6s, caret 1s, live dot 1s steps(2). All zeroed under prefers-reduced-motion.</td></tr>
+</table>
+</div>
+
+<h2>1 · Thread list</h2>
+<div class="gallery" data-tpl="tpl-list"></div>
+
+<h2>2 · Thread, running turn (reconnecting bar shown)</h2>
+<div class="gallery" data-tpl="tpl-thread"></div>
+
+<h2>3 · Settings</h2>
+<div class="gallery" data-tpl="tpl-settings"></div>
+
+<h2>4 · Composer states</h2>
+<div class="gallery" data-tpl="tpl-c-idle"></div>
+<div class="gallery" data-tpl="tpl-c-run" style="margin-top:24px"></div>
+<div class="gallery" data-tpl="tpl-c-slash" style="margin-top:24px"></div>
+<div class="gallery" data-tpl="tpl-c-skills" style="margin-top:24px"></div>
+<div class="gallery" data-tpl="tpl-c-attach" style="margin-top:24px"></div>
+
+<h2>5 · Laptop, two panes above 900 px</h2>
+<div class="gallery" data-tpl="tpl-wide" data-wide></div>
+
+<!-- ============ templates ============ -->
+
+<template id="tpl-list">
+<div class="phone t"><div class="notch"><span>9:41</span><span>◐ ◔ ▮</span></div>
+<div class="screen">
+  <div class="hdr">
+    <div class="title brand">helm<b>_</b></div>
+    <button class="ib" aria-label="Settings"><svg><use href="#i-gear"/></svg></button>
+    <span class="split"><button class="btn pri"><svg><use href="#i-plus"/></svg>New</button><button class="btn pri" aria-label="New thread options"><svg><use href="#i-chev"/></svg></button></span>
+  </div>
+  <div class="body">
+    <div class="group">
+      <div class="ghead"><span class="path">~/Projects/helm2</span><span class="live"><span class="pulse"></span>1 running</span><span class="plus"><svg><use href="#i-plus"/></svg></span></div>
+      <div class="row running"><div class="g"><span class="pulse"></span></div><div><div class="ttl">Design direction arena</div><div class="sub"><span class="state"><svg><use href="#i-play"/></svg>running</span></div><div class="now">Edit src/client/app.css</div></div><div class="time">now</div></div>
+      <div class="row"><div class="g"><svg><use href="#i-done"/></svg></div><div><div class="ttl">Hide push button when enrolled</div><div class="sub"><span class="state"><svg><use href="#i-done"/></svg>done</span></div></div><div class="time">2h</div></div>
+      <div class="row"><div class="g"><svg><use href="#i-idle"/></svg></div><div><div class="ttl">Effort levels and defaults</div><div class="sub"><span class="state"><svg><use href="#i-idle"/></svg>idle</span></div></div><div class="time">yday</div></div>
+    </div>
+    <div class="group">
+      <div class="ghead"><span class="path">~/Projects/Vault</span><span class="plus"><svg><use href="#i-plus"/></svg></span></div>
+      <div class="row"><div class="g"><svg><use href="#i-err"/></svg></div><div><div class="ttl">Morning report for Sep 11</div><div class="sub"><span class="state"><svg><use href="#i-err"/></svg>error</span><span>turn failed after 4m</span></div></div><div class="time">6h</div></div>
+      <div class="row"><div class="g"><svg><use href="#i-done"/></svg></div><div><div class="ttl">Reconcile project registry</div><div class="sub"><span class="state"><svg><use href="#i-done"/></svg>done</span></div></div><div class="time">Tue</div></div>
+    </div>
+    <div class="group">
+      <div class="ghead"><span class="path">~/Projects/pstack</span><span class="plus"><svg><use href="#i-plus"/></svg></span></div>
+      <div class="row"><div class="g"><svg><use href="#i-orph"/></svg></div><div><div class="ttl">Arena cross-judge pool</div><div class="sub"><span class="state"><svg><use href="#i-orph"/></svg>orphaned</span><span>server restarted</span></div></div><div class="time">Mon</div></div>
+      <div class="row"><div class="g"><svg><use href="#i-idle"/></svg></div><div><div class="ttl">Skill doctor pass</div><div class="sub"><span class="state"><svg><use href="#i-idle"/></svg>idle</span></div></div><div class="time">Aug 30</div></div>
+    </div>
+    <div class="filter"><span><svg><use href="#i-arch"/></svg> show 4 archived</span></div>
+  </div>
+  <div class="hbar"><i></i></div>
+</div></div>
+</template>
+
+<template id="tpl-thread">
+<div class="phone tall t"><div class="notch"><span>9:41</span><span>◐ ◔ ▮</span></div>
+<div class="screen">
+  <div class="hdr">
+    <button class="ib" aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <div class="title">Design direction arena</div>
+    <span class="gauge"><span class="ring" style="--pct:31"></span>62k/200k</span>
+    <button class="ib" aria-label="More"><svg><use href="#i-more"/></svg></button>
+  </div>
+  <div class="status"><svg class="spin"><use href="#i-sync"/></svg>reconnecting · replaying 412/640<span class="bar"><i></i></span></div>
+  <div class="body">
+    <div class="log">
+      <div class="blk prompt"><div class="g">❯</div><div class="c"><span class="origin">phone</span>
+Read the brief, then produce three directions. Keep the gutter idea from last time and make cost disappear.</div></div>
+      <div class="blk think"><div class="g">∴</div><div class="c"><svg><use href="#i-chevr"/></svg>thinking · 4s · collapsed</div></div>
+      <div class="blk"><div class="g">·</div><div class="c md">
+        <h3>What changes in the log</h3>
+        <p>Every line kind gets a gutter glyph: <code>❯</code> for what you typed, <code>$</code> for tool activity, <code>±</code> for a diff. Prose stays in San Francisco.</p>
+        <ul><li>Prompt lines render literally, never as markdown</li><li>Thinking collapses once the first text arrives</li><li>Turn duration lives on the activity block</li></ul>
+        <div class="codeblk"><div class="lang">ts<button class="copy"><svg><use href="#i-copy"/></svg>copy</button></div><pre><span class="k">export function</span> coalesce(lines: ToolLine[]): Activity {
+  <span class="k">const</span> by = group(lines, l =&gt; category(l.tool));
+  <span class="k">return</span> { summary: describe(by), current: lines.at(-1) }; <span class="cm">// tail is live</span>
+}</pre></div>
+      </div></div>
+      <div class="blk"><div class="g">$</div><div class="c">
+        <div class="act">
+          <div class="sum"><svg><use href="#i-chevr"/></svg>read 6 files, ran 2 commands, edited 3 files<span class="dur">1m 12s</span></div>
+          <div class="rows">
+            <div class="tr"><span class="cat">edit</span><span class="arg">Edit src/client/app.css</span></div>
+            <div class="tr live"><span class="cat">run</span><span class="arg">Bash npm test -- --filter fold</span></div>
+          </div>
+        </div>
+      </div></div>
+      <div class="blk"><div class="g">±</div><div class="c">
+        <div class="diff">
+          <div class="fh"><b>src/client/app.css</b><span>+2 −1</span></div>
+          <div class="scroll"><table>
+            <tr><td class="n">41</td><td class="m"> </td><td>.row {</td></tr>
+            <tr class="del"><td class="n">42</td><td class="m">−</td><td>  grid-template-columns: 1fr auto;</td></tr>
+            <tr class="add"><td class="n">42</td><td class="m">+</td><td>  grid-template-columns: var(--gutter) 1fr auto;</td></tr>
+            <tr class="add"><td class="n">43</td><td class="m">+</td><td>  border-top: 1px solid var(--line); /* rule, not bubble, one per row */</td></tr>
+            <tr><td class="n">44</td><td class="m"> </td><td>}</td></tr>
+          </table></div>
+        </div>
+      </div></div>
+      <div class="blk stream"><div class="g">·</div><div class="c md"><p>Tests pass on the fold. Next I will wire the summary counts into the thread list so the running row can show<span class="caret"></span></p></div></div>
+    </div>
+    <div class="jump"><svg><use href="#i-down"/></svg>3 new</div>
+  </div>
+  <div class="comp">
+    <div class="qa"><span class="chip stop"><svg><use href="#i-stop"/></svg>stop</span><span class="chip">opus</span><span class="chip">effort high</span></div>
+    <div class="editor"><button class="ib" aria-label="Attach"><svg><use href="#i-clip"/></svg></button><div class="ta"><span class="ph">Message (folds into the running turn)</span></div><button class="send stopping" aria-label="Stop"><svg><use href="#i-stop"/></svg></button></div>
+  </div>
+  <div class="hbar"><i></i></div>
+</div></div>
+</template>
+
+<template id="tpl-settings">
+<div class="phone t"><div class="notch"><span>9:41</span><span>◐ ◔ ▮</span></div>
+<div class="screen">
+  <div class="hdr"><button class="ib" aria-label="Back"><svg><use href="#i-back"/></svg></button><div class="title">Settings</div></div>
+  <div class="body">
+    <div class="sect"><h4>Theme</h4><div class="seg"><span>System</span><span class="on">Light</span><span>Dark</span></div></div>
+    <div class="sect"><h4>Notifications</h4><div class="card">
+      <div class="sr"><svg><use href="#i-bell"/></svg><div class="l">Push<small>Fires only when no screen is attached</small></div><span class="v on"><svg><use href="#i-done"/></svg>enabled</span><span class="sw2"></span></div>
+    </div></div>
+    <div class="sect"><h4>Passkeys</h4><div class="card">
+      <div class="sr"><svg><use href="#i-phone"/></svg><div class="l">iPhone 16 Pro<small>enrolled Aug 14</small></div><span class="v"><svg><use href="#i-key"/></svg>this device</span></div>
+      <div class="sr"><svg><use href="#i-lap"/></svg><div class="l">MacBook Air<small>enrolled Aug 14</small></div><span class="v"><svg><use href="#i-key"/></svg>active</span></div>
+    </div></div>
+    <div class="sect"><h4>New thread defaults</h4><div class="card">
+      <div class="sr"><div class="l">Model</div><span class="v">claude-opus-4-8</span><svg><use href="#i-chevr"/></svg></div>
+      <div class="sr"><div class="l">Effort</div><span class="v">high</span><svg><use href="#i-chevr"/></svg></div>
+      <div class="sr"><div class="l">Working directory</div><span class="v">~/Projects/helm2</span><svg><use href="#i-chevr"/></svg></div>
+    </div></div>
+    <div class="about">helm 2.0.0 · build 6420061<br>mac-mini.tail3f2a.ts.net</div>
+  </div>
+  <div class="hbar"><i></i></div>
+</div></div>
+</template>
+
+<template id="tpl-c-idle">
+<div class="phone short t"><div class="screen">
+  <div class="comp">
+    <div class="qa"><span class="chip">opus</span><span class="chip">effort high</span><span class="chip"><svg><use href="#i-bolt"/></svg>skills</span></div>
+    <div class="editor"><button class="ib" aria-label="Attach"><svg><use href="#i-clip"/></svg></button><div class="ta"><span class="ph">Message</span></div><button class="send" aria-label="Send"><svg><use href="#i-send"/></svg></button></div>
+    <div class="helper"><span>idle</span><span><kbd>return</kbd> newline · <kbd>⌘</kbd><kbd>return</kbd> send</span></div>
+  </div>
+</div></div>
+</template>
+
+<template id="tpl-c-run">
+<div class="phone short t"><div class="screen">
+  <div class="comp">
+    <div class="qa"><span class="chip stop"><svg><use href="#i-stop"/></svg>stop</span><span class="chip">opus</span><span class="chip">effort high</span><span class="chip"><svg><use href="#i-bolt"/></svg>skills</span></div>
+    <div class="editor"><button class="ib" aria-label="Attach"><svg><use href="#i-clip"/></svg></button><div class="ta">Also check the fold tests<span class="caret" style="display:none"></span></div><button class="send stopping" aria-label="Stop"><svg><use href="#i-stop"/></svg></button></div>
+    <div class="helper"><span><span class="pulse" style="width:6px;height:6px"></span>&nbsp;running · send morphs into stop</span><span>sends fold into the turn</span></div>
+  </div>
+</div></div>
+</template>
+
+<template id="tpl-c-slash">
+<div class="phone short t"><div class="screen" style="padding-top:170px">
+  <div class="comp">
+    <div class="pop">
+      <div class="it sel"><span class="nm">/grill<em>-with-docs</em></span><span class="hint">&lt;plan&gt;</span><span class="ds">Stress-test a plan against the repo docs before building</span></div>
+      <div class="it"><span class="nm">/grill<em>ing</em></span><span class="hint"></span><span class="ds">Interrogate a plan or design relentlessly</span></div>
+      <div class="it"><span class="nm">/grill<em>-lite</em></span><span class="hint">&lt;question&gt;</span><span class="ds">Three hard questions, no more</span></div>
+    </div>
+    <div class="qa"><span class="chip">opus</span><span class="chip">effort high</span><span class="chip"><svg><use href="#i-bolt"/></svg>skills</span></div>
+    <div class="editor"><button class="ib" aria-label="Attach"><svg><use href="#i-clip"/></svg></button><div class="ta">/grill<span class="caret" style="display:inline-block;width:2px;background:var(--ink);animation:none"></span></div><button class="send" aria-label="Send"><svg><use href="#i-send"/></svg></button></div>
+    <div class="helper"><span>3 of 41 commands</span><span>↑↓ pick · <kbd>tab</kbd> fill</span></div>
+  </div>
+</div></div>
+</template>
+
+<template id="tpl-c-skills">
+<div class="phone short t"><div class="screen" style="padding-top:24px;background:color-mix(in srgb,var(--ink) 30%,var(--bg))">
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="sh"><span class="st">Skills</span><span class="chip"><svg><use href="#i-sync"/></svg>reload</span><button class="ib" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+    <div class="search"><svg><use href="#i-search"/></svg><span>rev</span>iew…</div>
+    <div class="sk"><span class="nm">/code-review</span><span class="src">user</span><span class="ds">Review changes since a fixed point on Standards and Spec axes</span></div>
+    <div class="sk"><span class="nm">/deep-review</span><span class="src">user</span><span class="ds">Exhaustive multi-agent review of a whole codebase</span></div>
+    <div class="sk"><span class="nm">/interrogate</span><span class="src">user</span><span class="ds">Multi-model adversarial review <b>&lt;target&gt;</b></span></div>
+    <div class="sk"><span class="nm">/review-mockup</span><span class="src">project</span><span class="ds">Open the arena HTML on the phone and file findings</span></div>
+    <div class="helper" style="padding:8px 2px 10px"><span>4 of 41 · ~/Projects/helm2</span><span>tap to insert as chip</span></div>
+  </div>
+</div></div>
+</template>
+
+<template id="tpl-c-attach">
+<div class="phone short t"><div class="screen">
+  <div class="comp">
+    <div class="qa">
+      <span class="thumb" style="background:linear-gradient(135deg,var(--amber-soft),var(--steel))"><span class="x"><svg><use href="#i-x"/></svg></span></span>
+      <span class="thumb" style="background:linear-gradient(200deg,var(--sunk),var(--amber))"><span class="x"><svg><use href="#i-x"/></svg></span></span>
+      <span class="chip"><svg><use href="#i-file"/></svg>fold.test.ts<span class="x"><svg><use href="#i-x"/></svg></span></span>
+      <span class="chip amber">/grill-with-docs<span class="x"><svg><use href="#i-x"/></svg></span></span>
+    </div>
+    <div class="editor"><button class="ib" aria-label="Attach"><svg><use href="#i-clip"/></svg></button><div class="ta"><span class="cmd">/grill-with-docs</span><span class="ph">&lt;plan&gt;</span></div><button class="send" aria-label="Send"><svg><use href="#i-send"/></svg></button></div>
+    <div class="helper"><span>2 images · 1 file · 1 command</span><span><svg><use href="#i-cam"/></svg> camera · paste to attach</span></div>
+  </div>
+</div></div>
+</template>
+
+<template id="tpl-wide">
+<div class="wide t">
+  <div class="two">
+    <div class="pane" data-fill="list"></div>
+    <div class="pane" data-fill="thread"></div>
+  </div>
+</div>
+</template>
+
+<script>
+(function(){
+  var themes=['light','dark'];
+  function clone(id){var t=document.getElementById(id);return t.content.firstElementChild.cloneNode(true)}
+  function screenOf(id){var p=clone(id).querySelector('.screen');p.querySelectorAll('.notch,.hbar').forEach(function(n){n.remove()});return p}
+  document.querySelectorAll('.gallery[data-tpl]').forEach(function(gal){
+    var id=gal.dataset.tpl;
+    themes.forEach(function(th){
+      var f=document.createElement('div');f.className='frame';f.dataset.theme=th;
+      var cap=document.createElement('p');cap.className='cap';cap.textContent=id.replace('tpl-','')+' · '+th;
+      var node;
+      if(gal.hasAttribute('data-wide')){
+        f.className='frame';f.style.width='100%';
+        var wrap=document.createElement('div');wrap.className='wide-wrap';
+        node=clone(id);
+        var l=screenOf('tpl-list'),t=screenOf('tpl-thread');
+        l.querySelector('.row.running').classList.add('sel');
+        t.querySelector('.hdr .ib').remove();
+        t.querySelector('.status').remove();
+        node.querySelector('[data-fill=list]').appendChild(l);
+        node.querySelector('[data-fill=thread]').appendChild(t);
+        wrap.appendChild(node);f.appendChild(cap);f.appendChild(wrap);
+      } else {
+        node=clone(id);f.appendChild(cap);f.appendChild(node);
+      }
+      node.setAttribute('data-theme',th);
+      gal.appendChild(f);
+    });
+  });
+  document.querySelectorAll('.toggle button').forEach(function(b){
+    b.addEventListener('click',function(){
+      document.body.dataset.show=b.dataset.set;
+      document.querySelectorAll('.toggle button').forEach(function(x){x.setAttribute('aria-pressed',x===b)});
+    });
+  });
+  document.addEventListener('click',function(e){
+    var c=e.target.closest('.copy');if(!c)return;
+    var old=c.innerHTML;c.textContent='copied';setTimeout(function(){c.innerHTML=old},900);
+  });
+})();
+</script>
+</body>
+</html>
