@@ -157,7 +157,7 @@ by hand, or seed a sample to demo the tile.
   row opens the report overlay.
 - **Chat tab** — typed conversation with the same router/brain; the voice
   transcript is a Documents row (open it to read, "reset transcript ×" to
-  clear). For chat from your phone, see [`phone/`](phone/).
+  clear). For chat from your phone, see [`chat/`](chat/).
 
 ## Security
 

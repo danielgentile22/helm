@@ -6,7 +6,7 @@
 ^(models\.json|README\.md|CLAUDE\.md|AGENTS\.md|CONTEXT\.md|LICENSE|\.gitignore|\.gitattributes)$
 
 # Personal or runtime material that must never land, even inside an allowed folder.
-!(^|/)\.env($|\.)
+!(^|/)\.env($|\.(?!example$))
 !(^|/)runs?/.*\.(json|jsonl|md)$
 !(^|/)memory\.jsonl$
 !(^|/)turns/
