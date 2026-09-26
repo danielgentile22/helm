@@ -16,3 +16,7 @@ dashboard/dist/
 voice/.venv/
 voice/*.onnx
 voice/*.bin
+
+# Local agent tooling state
+.claude/
+.conductor/

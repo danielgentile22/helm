@@ -34,7 +34,7 @@ test("a known tool whose named field is missing still falls back to a string fie
 
 test("the argument is collapsed, home-shortened and cut to 80 chars", () => {
   assert.equal(toolSummary("Bash", { command: "  git   log\n  --oneline " }).arg, "git log --oneline");
-  assert.equal(toolSummary("Read", { file_path: "/Users/daniel/Projects/helm2/src/a.ts" }).arg, "~/Projects/helm2/src/a.ts");
+  assert.equal(toolSummary("Read", { file_path: "/Users/you/Projects/app/src/a.ts" }).arg, "~/Projects/app/src/a.ts");
   assert.equal(toolSummary("Read", { file_path: "/home/daniel/src/a.ts" }).arg, "~/src/a.ts");
   assert.equal(toolSummary("Bash", { command: "cp /Users/a/x /home/b/y" }).arg, "cp ~/x ~/y");
   assert.equal(toolSummary("Bash", { command: "x".repeat(200) }).arg.length, 80);

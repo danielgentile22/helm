@@ -271,7 +271,7 @@ export function toSlashCommands(raw: unknown, hide: ReadonlySet<string>): readon
   return out;
 }
 
-/** The home directory as a whole path segment: `/Users/dan` must not match inside `/Users/daniel`. */
+/** The home directory as a whole path segment: `/Users/sam` must not match inside `/Users/samantha`. */
 function homePath(): RegExp {
   const escaped = homedir().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`${escaped}(?![\\w.-])`, "g");
