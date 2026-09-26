@@ -14,8 +14,8 @@
 
 set -u
 VAULT="${HELM_VAULT_ROOT:-$HOME/Vault}"
-HOME_STATE="$STATE/backup"
 STATE="${HELM_STATE:-$HOME/.helm}"
+HOME_STATE="$STATE/backup"
 STATUS="$STATE/status/backup.json"
 CONF="$HOME_STATE/target"
 LAST="$HOME_STATE/last-success"
