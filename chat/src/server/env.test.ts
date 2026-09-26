@@ -9,8 +9,8 @@ test("parseDotenv handles comments, quotes, and export prefixes", () => {
 });
 
 test("loadEnv fills defaults, expands ~, and names the missing key", () => {
-  const env = loadEnv({ ...base, HELM_HOME: "~/.helm2" });
-  assert.ok(env.HELM_HOME.startsWith("/") && env.HELM_HOME.endsWith("/.helm2"));
+  const env = loadEnv({ ...base, HELM_HOME: "~/.helm" });
+  assert.ok(env.HELM_HOME.startsWith("/") && env.HELM_HOME.endsWith("/.helm"));
   assert.equal(env.HELM_PORT, 8420);
   assert.equal(env.HELM_SESSION_HOURS, 12);
   assert.equal(env.HELM_API_KEY, undefined, "unset key stays undefined so auth fails closed");

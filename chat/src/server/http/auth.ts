@@ -11,7 +11,7 @@
  * Everything under /api passes through authenticate. Static assets and the
  * two WebAuthn login endpoints do not. Registration needs the API key or a
  * one-shot enrollment token the server printed on the Mac. WebAuthn state
- * (the credential list, sessions) lives in ~/.helm2/auth/, atomic-written.
+ * (the credential list, sessions) lives in ~/.helm/auth/, atomic-written.
  *
  * Security is only these two doors plus Tailscale. No per-route policy, by design.
  */

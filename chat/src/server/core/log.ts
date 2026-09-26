@@ -3,7 +3,7 @@
  * Seq is minted. Everything else in the server is either a producer that
  * calls append() or a projection that calls read()/subscribe().
  *
- * File: ~/.helm2/threads/<threadId>/events.jsonl, one ThreadEvent per line.
+ * File: ~/.helm/threads/<threadId>/events.jsonl, one ThreadEvent per line.
  *
  * Invariants
  *   I1. Within a generation, seq is contiguous from 1. append() assigns

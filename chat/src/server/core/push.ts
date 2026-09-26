@@ -5,7 +5,7 @@
  * because a rule denial arrives as an opened-and-answered pair; a
  * notification for a question nobody can answer would be noise.
  *
- * Subscriptions live in ~/.helm2/push/subscriptions.json keyed by endpoint,
+ * Subscriptions live in ~/.helm/push/subscriptions.json keyed by endpoint,
  * written atomically. A 404/410 from the push service deletes the entry.
  * VAPID keys come from .env (HELM_VAPID_PUBLIC / HELM_VAPID_PRIVATE / HELM_VAPID_SUBJECT).
  *
