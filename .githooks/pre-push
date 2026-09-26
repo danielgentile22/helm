@@ -1,0 +1,3 @@
+#!/bin/sh
+# See guard.py. $1 is the remote name; the ref list arrives on stdin.
+exec python3 "$(git rev-parse --show-toplevel)/.githooks/guard.py" push "$1"
