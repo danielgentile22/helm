@@ -1,0 +1,13 @@
+# The voice server's runtime. CPU only: no CUDA wheels, no onnxruntime-gpu.
+fastapi
+uvicorn
+websockets
+numpy
+soundfile
+faster-whisper
+kokoro-onnx
+onnxruntime
+
+# Hands-free wake is opt-in and off by default, so wakeword.py imports
+# openwakeword and sounddevice lazily inside the listener thread. Install
+# them by hand if you ever set WAKE_WORD=on.

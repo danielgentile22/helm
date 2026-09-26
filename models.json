@@ -1,0 +1,91 @@
+{
+  "_comment": "Single source of truth for which model and effort each skill and routine runs at. The runner reads this to build claude -p invocations; the dashboard Skills Deck renders cards straight from it. Prose policy for agents lives in ~/.claude/CLAUDE.md and pstack-models.md.",
+  "policy": {
+    "models": ["sonnet", "opus", "fable"],
+    "forbidden_models": ["haiku"],
+    "effort": ["low", "medium", "high"],
+    "forbidden_effort": ["xhigh", "max"],
+    "why": "Haiku is never used. Effort above high overthinks per step and produces bloated diffs at higher cost. The source video's XHIGH values are out of policy and must not be copied in.",
+    "tie_break": "When axes conflict for anything that ships: intelligence, then taste, then cost."
+  },
+  "defaults": {
+    "model": "opus",
+    "effort": "medium",
+    "why": "Opus is abundant on the Pro plan and handles clear-spec work unsupervised.",
+    "applies_to": "Every skill and routine with no entry below. This file records deviations, not an inventory: 7 of the 70 installed skills have an entry and the other 63 run at these defaults. Absence means default, never 'helm does not run this'."
+  },
+  "skills": {
+    "resume-tailor": {
+      "model": "opus",
+      "effort": "high",
+      "why": "Writes as Daniel for outside readers. Taste and voice matter more than speed."
+    },
+    "know-it": {
+      "model": "opus",
+      "effort": "high",
+      "why": "Deep codebase analysis feeding interview preparation. Wrong depth here wastes hours of study."
+    },
+    "update-vault": {
+      "model": "sonnet",
+      "effort": "low",
+      "why": "Mechanical: run a scanner, diff against notes, report drift."
+    },
+    "impeccable": {
+      "model": "fable",
+      "effort": "high",
+      "why": "User-facing design needs taste at the top of the scale."
+    },
+    "deep-review": {
+      "model": "opus",
+      "effort": "high",
+      "why": "Review work, per the standing model policy."
+    },
+    "research": {
+      "model": "opus",
+      "effort": "medium",
+      "why": "Reading legwork against primary sources. Volume over subtlety."
+    },
+    "voice-todo": {
+      "model": "opus",
+      "effort": "medium",
+      "why": "Judgment over a sentence against the vault. A wrong department costs more than a few seconds."
+    }
+  },
+  "routines": {
+    "integrity-check": {
+      "model": "sonnet",
+      "effort": "low",
+      "schedule": "daily 07:00",
+      "why": "Verifying that paths exist is close to mechanical. Runs every day, so cost compounds.",
+      "writes": "nothing when everything passes"
+    },
+    "capture": {
+      "model": null,
+      "effort": null,
+      "schedule": "every 30m",
+      "why": "Deterministic producers. Reading a note and reading git is not a judgment task; HELM measured 689 of 712 headless Claude runs reproducing a deterministic transform (HELM ADR 0008).",
+      "writes": "~/.helm/status/agenda.json and projects.json every run"
+    },
+    "backup": {
+      "model": null,
+      "effort": null,
+      "schedule": "daily 09:00 and on mount",
+      "why": "The vault has no remote, so a local snapshot is its only copy. Pure code: a git bundle, two tarballs and a timestamp. It runs whenever a volume mounts and does nothing unless the backup drive is the one that appeared.",
+      "writes": "the folder named in ~/.helm/backup/target, ~/.helm/backup, and ~/.helm/status/backup.json"
+    }
+  },
+  "services": {
+    "dashboard": {
+      "command": ["dashboard/serve.py", "--no-open"],
+      "throttle_s": 15,
+      "why": "The dashboard is only worth having if it is already answering. launchd starts it at login and restarts it if it exits, so nothing has to be remembered before looking at the day.",
+      "writes": "~/.helm/logs/com.helm.dashboard.out and .err"
+    },
+    "voice": {
+      "command": ["voice/.venv/bin/python", "voice/server.py"],
+      "throttle_s": 30,
+      "why": "Hold Space only works while the speech models are warm, and they take about half a minute to load. launchd starts the process at login and restarts it if it exits, so the dashboard's talk indicator reads idle rather than offline. Thirty seconds between restarts, because each attempt loads 1.6 GB.",
+      "writes": "~/.helm/logs/com.helm.voice.out and .err"
+    }
+  }
+}

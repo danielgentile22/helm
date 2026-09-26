@@ -1,0 +1,9 @@
+{
+  "_comment": "The worker runs in a service worker global, not a window. DOM and WebWorker cannot share one program, so the worker entry is checked here and excluded from tsconfig.json. The policy module is pure and is checked by both. The policy test belongs to the window side, which is where node --test runs it.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "WebWorker"],
+    "types": []
+  },
+  "include": ["src/sw.ts", "src/lib/sw/policy.ts"]
+}

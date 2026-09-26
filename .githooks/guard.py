@@ -33,7 +33,7 @@ SECRETS = [
     ("Slack token", r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),
     ("Google API key", r"\bAIza[0-9A-Za-z_-]{35}\b"),
     ("private key", r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-    ("assigned secret", r"(?i)\b(api[_-]?key|secret|token|password|passwd)\b\s*[:=]\s*['\"][^'\"\s]{20,}['\"]"),
+    ("assigned secret", r"(?i)\b(api[_-]?key|secret|token|password|passwd)\b\s*[:=]\s*['\"][A-Za-z0-9_+/=.-]{20,}['\"]"),
 ]
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}")
 EMAIL_OK = re.compile(r"@((.*\.)?example\.(com|org|net)|.*\.(test|invalid|example|local)|users\.noreply\.github\.com|anthropic\.com)$", re.I)

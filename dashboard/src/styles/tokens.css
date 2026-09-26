@@ -1,0 +1,48 @@
+/* OBSERVATORY, pruned to what the pressure map uses. Every colour the dashboard may use,
+   and nothing else. One warm token (near) for what is due soon, one cool token (far) for
+   an event, --unstable the one reserved alarm hue and --stable its healthy counterpart;
+   none carries meaning without a shape, a word or a position beside it.
+
+   The greys are a wider ramp than before: bone for what is read, dim bone at about 9:1 on
+   a cell for its label, faint bone at about 5.5:1 for structure, deep ash at about 4:1 on
+   a plane and 3.2:1 on a lit one for what is done or quiet. The planes sit one visible
+   step apart. */
+:root{
+  --void:        #06070b;
+  --void-2:      #0c0e15;
+  --plane:       #1b2130;
+  --plane-lit:   #283144;
+  --plane-hot:   #384560;
+
+  --bone:        #eeebe3;
+  --bone-dim:    #bcc2cd;
+  --bone-faint:  #9399a6;
+  --rule:        #1f2533;
+
+  --near:        #ffb445;
+  --far:         #7fd4e8;
+  --unstable:    #ff7a52;
+  --stable:      #a2d5a3;
+  --ash-deep:    #787e8d;
+
+  --focus:       #c9a7ff;
+
+  /* Two faces, two voices. What Daniel wrote (a todo, a directive, a department) is set in
+     Instrument Sans; what the system says about it (a date, a count, a reason, a keycap) in
+     JetBrains Mono. Both are self-hosted, so the phone gets the same page as the desk. */
+  --sans: "Instrument Sans", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "JetBrainsMono Nerd Font", "JetBrainsMono NFM", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+@font-face{
+  font-family:"Instrument Sans";
+  src:url("./fonts/instrument-sans-latin-standard-normal.woff2") format("woff2-variations");
+  font-weight:400 700; font-stretch:75% 100%; font-style:normal; font-display:swap;
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face{
+  font-family:"JetBrains Mono";
+  src:url("./fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2-variations");
+  font-weight:100 800; font-style:normal; font-display:swap;
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
