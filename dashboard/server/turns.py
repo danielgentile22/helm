@@ -159,12 +159,15 @@ def registry_entry() -> tuple[str, str]:
 
 
 def command(transcript: str, now: datetime) -> list[str]:
-    """The headless argv. The skill reads the vault for itself; the prompt carries only the
-    sentence and the clock, because a spoken "tomorrow" has no meaning without one."""
+    """The headless argv. The skill reads the vault for itself; the prompt carries the sentence,
+    the clock, because a spoken "tomorrow" has no meaning without one, and the vault root, so
+    the run reads the vault the todo editor writes (a fixture's copy included) without having
+    to resolve it through a shell it is not allowed."""
     model, effort = registry_entry()
     zone = getattr(now.tzinfo, "key", None) or now.tzname() or ""
     prompt = (f"/{SKILL}\n"
               f"now: {now.strftime('%Y-%m-%d %H:%M %A')} ({zone})\n"
+              f"vault: {common.VAULT}\n"
               f"transcript: {transcript}")
     return [CLAUDE_BIN, "-p", prompt, "--model", model, "--effort", effort,
             "--permission-mode", PERMISSION_MODE,
