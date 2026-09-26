@@ -1,0 +1,25 @@
+{
+  "name": "helm-dashboard",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run check && vite build",
+    "preview": "vite preview",
+    "check": "npm run check:loops && npm run test && npm run check:sw && svelte-check --tsconfig ./tsconfig.json",
+    "check:loops": "node scripts/check-loops.mjs",
+    "check:sw": "tsc -p tsconfig.sw.json",
+    "icons": "node scripts/make-icons.mjs",
+    "test": "node --import tsx --test \"src/lib/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.0.0",
+    "@types/node": "^22.20.3",
+    "svelte": "^5.57.0",
+    "svelte-check": "^4.0.0",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.0",
+    "vite": "^8.0.0"
+  }
+}

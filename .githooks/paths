@@ -3,7 +3,7 @@
 
 ^(chat|dashboard|runner|voice|demo-vault|archive/hud|docs|\.githooks|\.github)/
 ^skills/(update-vault|voice-todo)/
-^(models\.json|README\.md|CLAUDE\.md|AGENTS\.md|CONTEXT\.md|LICENSE|\.gitignore|\.gitattributes)$
+^(models\.json|README\.md|CLAUDE\.md|AGENTS\.md|CONTEXT\.md|LICENSE|\.gitignore|\.gitattributes|\.env\.example)$
 
 # Personal or runtime material that must never land, even inside an allowed folder.
 !(^|/)\.env($|\.(?!example$))

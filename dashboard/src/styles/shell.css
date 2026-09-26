@@ -1,0 +1,638 @@
+/* The dashboard frame. A header, then the pressure map: four department boxes in their
+   corners, each as tall as what it holds, with the room left over pooled once as the week.
+   Colours come from tokens.css only, and no state is carried by hue alone. Two faces: the
+   page is set in --mono, the system's voice, and everything Daniel wrote (a todo, a
+   directive, a department) is set in --sans. */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%; touch-action:manipulation}
+body{
+  background:var(--void); color:var(--bone);
+  font-family:var(--mono); font-size:14px; line-height:1.45; overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--plane-hot); color:var(--bone)}
+html{caret-color:var(--focus); scrollbar-color:var(--plane-hot) transparent}
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--focus); outline-offset:2px; border-radius:3px}
+button{font:inherit; color:inherit; background:none; border:0; padding:0; cursor:pointer; text-align:left}
+
+/* minmax(0, 1fr) so a header whose content is wider than the window cannot widen the one
+   column and push the map's right side off screen; the header shrinks instead */
+.page{position:fixed; inset:0; display:grid; grid-template-rows:48px 1fr; grid-template-columns:minmax(0, 1fr)}
+header{
+  display:flex; align-items:center; gap:22px; padding:0 20px;
+  border-bottom:1px solid var(--rule); font-size:12px;
+  letter-spacing:.02em; color:var(--bone-dim);
+}
+header > *{flex:none}
+header .mark{color:var(--bone); letter-spacing:.24em; font-size:12px}
+header .spacer{flex:1 1 0}
+header .warn{color:var(--unstable)}
+header .warn::before{content:"\25B2"; font-size:9px; margin-right:6px}
+/* the day in one line after the mark: the date, then the counts in words. Late wears the
+   triangle beside the alarm hue, as the warnings do. */
+header .today{display:flex; align-items:baseline; gap:8px; flex:none; white-space:nowrap; font-variant-numeric:tabular-nums}
+header .today .date{color:var(--bone-faint); margin-right:6px}
+header .today .count{display:flex; align-items:baseline; gap:8px}
+header .today .late{color:var(--unstable)}
+header .today .late::before{content:"\25B2"; font-size:9px; margin-right:6px}
+header .today .sep, header .today .quiet{color:var(--bone-faint)}
+
+/* start here: the board's strongest pull named in one line. The title gives way and the
+   directive drops whole below, so the label and the reason stay whole as the window narrows. */
+/* The start line takes nearly all of a squeeze, so the talk state beside the health line
+   keeps its words until the start line is down to its label. */
+header > .talk{flex:0 1 auto}
+.start-here{display:flex; align-items:baseline; gap:8px; min-width:0; flex:0 1000 auto; overflow:hidden; white-space:nowrap; font-size:12px; color:var(--bone-faint)}
+.start-here b{flex:none; font-weight:500; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--bone-faint)}
+.start-here .g{flex:none; color:var(--bone-dim)}
+.start-here .t{min-width:4ch; overflow:hidden; text-overflow:ellipsis; font-family:var(--sans); font-size:15px; font-weight:560; color:var(--bone)}
+.start-here .d{flex:none; color:var(--bone-faint)}
+.start-here .w{flex:none; color:var(--bone-dim); font-variant-numeric:tabular-nums}
+.start-here.soon .w{color:var(--near)}
+.start-here.event .g{color:var(--far)}
+.start-here.late .g, .start-here.late .w{color:var(--unstable)}
+.start-here kbd{flex:none; align-self:center; padding:0 4px; color:var(--bone-faint)}
+.start-here:hover .t{text-decoration:underline; text-decoration-color:var(--bone-faint); text-underline-offset:3px}
+/* a narrow desktop window drops the header's lesser parts whole, least useful first, rather
+   than cutting them mid word: the directive, then the counts, then the date. The start line
+   itself only ever shortens its title. */
+@media (max-width: 1100px){ header .start-here .d{display:none} }
+@media (max-width: 960px){ header .today .count{display:none} }
+@media (max-width: 820px){ header .today{display:none} }
+/* the same thing marked on the map: a word in the reason slot and a rule down the row's edge,
+   amber, or the alarm hue when the thing is late. The word is caps with no border, so it
+   does not read as a key to press. */
+.row.start{box-shadow:inset 2px 0 0 var(--near)}
+.row.start.late{box-shadow:inset 2px 0 0 var(--unstable)}
+.start-tag{font-size:11px; font-weight:500; letter-spacing:.14em; text-transform:uppercase; color:var(--bone-dim); margin-left:6px}
+
+kbd{
+  font-size:11px; line-height:16px; color:var(--bone-dim); font-family:var(--mono);
+  border:1px solid var(--plane-lit); border-radius:3px; padding:0 5px; margin:0 2px;
+}
+
+/* the map: the four corners, each as tall as what it holds, in reading order. Work and Chess
+   hang from the header, the week follows them as tall as its busiest column (--want, from
+   Week.svelte), Projects and Life follow the week, and the height nobody needs falls below
+   them at the page's foot. When the boxes need more than the screen the band gives way to
+   its floor and the map scrolls, rather than cutting a row. */
+.map{
+  position:relative; min-height:0; overflow-x:hidden; overflow-y:auto;
+  display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows:auto minmax(108px, var(--want, 108px)) auto;
+  grid-template-areas:"work chess" "band band" "projects life";
+  align-content:start;
+  column-gap:32px; padding:16px 24px 18px;
+  scrollbar-width:thin; scrollbar-color:var(--plane-hot) transparent;
+}
+.map .empty{grid-column:1 / -1; grid-row:1 / -1; display:grid; place-items:center; color:var(--bone-faint); font-size:12px}
+.dept[data-dept="Work"]{grid-area:work}
+.dept[data-dept="Chess"]{grid-area:chess}
+.dept[data-dept="Projects"]{grid-area:projects}
+.dept[data-dept="Life"]{grid-area:life}
+.map .band{grid-area:band; min-height:0; padding:26px 0 22px}
+.map.zoomed{grid-template-columns:minmax(0, 1fr); grid-template-rows:auto; grid-template-areas:none}
+.map.zoomed .dept{grid-area:auto}
+
+/* a department: its name in the human voice, the key that zooms it, the rail of everything
+   it holds with the same pull in words, and the "+" that opens quick add in it */
+.dept{position:relative; min-width:0; align-self:start; cursor:pointer; container:dept / inline-size}
+.dh{
+  display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; min-height:30px;
+  padding-bottom:8px; margin-bottom:10px; border-bottom:1px solid var(--rule);
+}
+.dh h2{font-family:var(--sans); font-size:20px; font-weight:620; letter-spacing:-.01em; line-height:1.1; color:var(--bone)}
+.dh kbd{margin:0}
+.dh .pull{display:flex; align-items:center; gap:10px; min-width:0}
+.dh .n{font-size:12px; letter-spacing:.02em; color:var(--bone-dim); white-space:nowrap}
+.dh .n.alarm{color:var(--unstable)}
+.dh .n.alarm::before{content:"\25B2"; font-size:9px; margin-right:6px}
+.dept.quiet .dh h2{color:var(--bone-faint)}
+.dept.quiet .dh .n{color:var(--bone-faint)}
+.dh .plus{
+  margin-left:auto; width:28px; height:28px; display:grid; place-items:center; flex:none;
+  font-size:16px; line-height:1; color:var(--bone-faint); border-radius:3px; text-align:center;
+}
+.dh .plus:hover{color:var(--bone); background:var(--plane-lit)}
+.dh .back{font-size:12px; color:var(--bone-faint); white-space:nowrap}
+.dh .back:hover{color:var(--bone)}
+.dh .plus + .back{margin-left:4px}
+
+/* the rail: the pull as a length, one segment per open thing on the board's one scale
+   (--ppp pixels per unit). The words beside it say what the colours say. */
+.rail{display:inline-flex; align-items:center; gap:2px; flex:none; max-width:min(240px, 55cqi); overflow:hidden}
+/* the floor keeps the shortest segment a bar, wider than it is tall, and never a dot */
+.rail i{display:block; flex:none; height:4px; width:max(8px, calc(var(--pull) * var(--ppp, 14) * 1px)); border-radius:1px; background:color-mix(in srgb, var(--bone-faint) 75%, transparent)}
+.rail i.late{background:var(--unstable)}
+.rail i.soon{background:var(--near)}
+.rail i.event{background:var(--far)}
+.dh .rail i{height:6px}
+
+/* a department's directives: one takes the whole width; more are two balanced columns, read
+   down the first and then the second, which is the order j walks them. Columns rather than a
+   grid, so a tall cell beside a short one leaves no hole. Below 560px wide, one column. */
+.cells{display:flex; flex-direction:column; gap:10px}
+.cells.multi{display:block; columns:2; column-gap:10px}
+.cells.multi > .cell{break-inside:avoid; margin-bottom:10px}
+/* starred directives with nothing queued: slim lines after the cells that hold something */
+.cells.idle{gap:6px}
+.cells + .cells.idle{margin-top:10px}
+.cells.multi + .cells.idle{margin-top:0}
+@container dept (width < 560px){ .cells.multi{columns:1} }
+.map.zoomed .cells.multi{columns:3 340px}
+
+/* a directive: a raised plane as tall as its lead and its rows. A tier 1 or 2 cell steps up
+   to lit plane, and tier 1 carries a lit top edge as well: the surface is the third way the
+   cell says how hard it pulls, after its lead's size and its rail. */
+.cell{position:relative; min-width:0; padding:11px 14px 10px; background:var(--plane); border-radius:4px; cursor:default}
+.cell.t2{background:var(--plane-lit)}
+.cell.t1{background:var(--plane-lit); box-shadow:inset 0 1px 0 color-mix(in srgb, var(--bone) 12%, transparent)}
+.cell.done{background:none; box-shadow:inset 0 0 0 1px var(--rule)}
+.ch{display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 8px; min-width:0}
+.ch h3{font-family:var(--sans); font-size:15px; font-weight:600; line-height:1.25; color:var(--bone-dim); min-width:0; overflow-wrap:anywhere}
+.cell.t1 .ch h3, .cell.t2 .ch h3{color:var(--bone)}
+.cell.done .ch h3{color:var(--bone-faint)}
+/* a starred directive with nothing queued (ADR 0020): no fill, no rail, no hue, a dashed
+   ring that reads as a slot waiting for a todo rather than as finished work. Quieter than
+   any cell that holds something; a click or its "+" opens quick add under it. */
+.cell.idle{background:none; box-shadow:none; border:1px dashed color-mix(in srgb, var(--plane-hot) 80%, transparent); padding:5px 6px 5px 13px; cursor:pointer}
+.cell.idle .ch{align-items:center; flex-wrap:nowrap}
+.cell.idle .ch h3{color:var(--bone-faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.cell.idle .none{margin-left:auto; font-size:12px; letter-spacing:.02em; color:var(--bone-faint); white-space:nowrap}
+.cell.idle .plus{
+  width:28px; height:28px; display:grid; place-items:center; flex:none;
+  font-size:16px; line-height:1; color:var(--bone-faint); border-radius:3px; text-align:center;
+}
+.cell.idle:hover{border-color:var(--plane-hot)}
+.cell.idle:hover .ch h3{color:var(--bone-dim)}
+.cell.idle .plus:hover, .cell.idle:hover .plus{color:var(--bone); background:var(--plane-lit)}
+.star{display:inline-flex; align-items:center; gap:3px; flex:none; font-size:11px; color:var(--bone-faint); font-variant-numeric:tabular-nums}
+.star svg{width:10px; height:10px; fill:currentColor; position:relative; top:1px}
+.sr{position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap}
+.cell .pr{display:flex; align-items:center; gap:10px; margin-left:auto; min-height:16px; min-width:0; align-self:center}
+.cell .pr .rail{flex-shrink:1; min-width:12px}
+.cell .pr .words{font-size:12px; letter-spacing:.02em; color:var(--bone-faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0}
+.cell .pr .words.alarm{color:var(--unstable)}
+.cell .pr .words.alarm::before{content:"\25B2"; font-size:9px; margin-right:6px}
+
+/* the lead: the thing this directive would start with, set at its tier's size. The tick and
+   the glyph sit on the title's first line whatever size it is. */
+.cell .lead{margin:10px 0 0}
+.lead.t1{--fs:28px; --lead-lh:32px; --fw:580; --ls:-.016em; --fx:88%}
+.lead.t2{--fs:22px; --lead-lh:27px; --fw:560; --ls:-.01em; --fx:92%}
+.lead.t3{--fs:17px; --lead-lh:22px; --fw:540; --ls:-.004em; --fx:100%}
+.cell .lead .row{--lh:var(--lead-lh)}
+.cell .lead .row .body{display:block}
+.cell .lead .row .t{font-size:var(--fs); font-weight:var(--fw); font-stretch:var(--fx); letter-spacing:var(--ls); color:var(--bone)}
+.cell .lead.t1 .row .g{font-size:14px}
+.cell .lead .row .w{display:block; margin-top:3px; line-height:18px; color:var(--bone-dim)}
+.cell .lead .row.soon .w{color:var(--near)}
+.cell .lead .row.late .t, .cell .lead .row.late .w{color:var(--unstable)}
+.cell .lead .row.event .w{color:var(--far)}
+
+/* the lead's detail: the drawer's first lines under the lead, at the title's indent. Notes
+   in the human voice, the rest in the system voice. */
+.cell > .detail{margin:6px 0 0 43px; display:flex; flex-direction:column; gap:6px; min-width:0}
+.detail .notes{
+  font-family:var(--sans); font-size:14.5px; line-height:1.45; color:var(--bone-dim); white-space:pre-line;
+  display:-webkit-box; -webkit-box-orient:vertical; overflow:hidden;
+}
+.detail .fact{font-size:11px; color:var(--bone-faint); font-variant-numeric:tabular-nums; letter-spacing:.02em}
+.detail ul{list-style:none}
+.detail li{font-family:var(--sans); font-size:14px; line-height:1.45; color:var(--bone-dim); padding-left:22px; text-indent:-22px}
+.detail li .cb{display:inline-block; width:22px; text-indent:0; color:var(--bone-faint); font-family:var(--mono)}
+.detail li.ok{color:var(--bone-faint); text-decoration:line-through}
+.detail .pred{font-size:12px; color:var(--bone-faint)}
+.detail .pred.ok{color:var(--near)}
+.detail .pred.ok::before{content:"\25A0"; margin-right:6px; font-size:9px}
+
+/* the other rows, strongest first, then the done ones */
+.cell .rows{margin-top:6px; display:flex; flex-direction:column}
+.cell .lead + .rows, .cell .detail + .rows{margin-top:10px; padding-top:6px; border-top:1px solid color-mix(in srgb, var(--bone) 7%, transparent)}
+/* a row's subtask progress: a square and a count beside its reason, in the system voice */
+.row .w .sp{margin-left:6px; color:var(--bone-faint)}
+.row.rest .w .sp{color:var(--ash-deep)}
+
+/* rows: a tick, a glyph, then the title and its reason sharing a line while both fit. A long
+   title wraps and the reason drops under it, so nothing is cut short. */
+.row{
+  --lh:19px;
+  position:relative; display:grid; grid-template-columns:15px 16px minmax(0, 1fr); align-items:start; gap:8px;
+  padding:3px 4px; margin:0 -4px; border-radius:3px;
+  transition:background .15s ease-out;
+}
+.row .tick, .row .g, .row .cb{height:var(--lh); display:flex; align-items:center; justify-content:center}
+.row .body{display:flex; flex-wrap:wrap; justify-content:space-between; align-items:baseline; column-gap:14px; min-width:0}
+.row .t{
+  font-family:var(--sans); font-size:14.5px; font-weight:450; line-height:var(--lh); color:var(--bone-dim);
+  flex:0 1 auto; min-width:0; overflow-wrap:anywhere;
+}
+.row .w{font-size:12px; line-height:var(--lh); color:var(--bone-faint); font-variant-numeric:tabular-nums; letter-spacing:.02em; white-space:nowrap; flex:none}
+.row:hover, .row.lit{background:color-mix(in srgb, var(--plane-lit) 70%, transparent)}
+/* a lit cell is already lit plane, so its rows light one step further up */
+.cell.t1 .row:hover, .cell.t1 .row.lit, .cell.t2 .row:hover, .cell.t2 .row.lit{background:color-mix(in srgb, var(--plane-hot) 70%, transparent)}
+.row .g{font-size:12px; color:var(--bone-dim)}
+.row.hot .t{color:var(--bone)}
+.row.hot .w{color:var(--bone-dim)}
+.row.soon .w{color:var(--near)}
+.row.late .t, .row.late .g, .row.late .w{color:var(--unstable)}
+.row.rest .t, .row.rest .g, .row.rest .w{color:var(--ash-deep)}
+.row.event .g{color:var(--far)}
+.row .tick{position:relative; cursor:pointer}
+/* the tick's hit area reaches past its box, to 44px square on the phone */
+.row .tick::after{content:""; position:absolute; inset:-4px -6px}
+.row input[type=checkbox]{
+  appearance:none; width:12px; height:12px; margin:0; display:block;
+  border:1px solid var(--bone-faint); border-radius:2px; background:none; cursor:pointer;
+}
+.row input[type=checkbox]:hover{border-color:var(--bone)}
+.row input[type=checkbox]:checked{background:var(--bone-dim); border-color:var(--bone-dim)}
+.row input[type=checkbox]:focus-visible{outline:2px solid var(--focus); outline-offset:2px}
+/* the keyboard's row: a violet rule down its left edge and a pointer in the cell's margin,
+   so it reads without the hue. Violet is keyboard focus, which is all this is. */
+.row.cursor{background:color-mix(in srgb, var(--plane-lit) 70%, transparent); box-shadow:inset 2px 0 0 var(--focus)}
+.cell.t1 .row.cursor, .cell.t2 .row.cursor{background:color-mix(in srgb, var(--plane-hot) 70%, transparent)}
+.row.cursor::before{
+  content:"\25B8"; position:absolute; left:-12px; top:3px; height:var(--lh);
+  display:flex; align-items:center; font-size:16px; line-height:1; color:var(--focus);
+}
+/* ticked and waiting out its undo window: struck through and quiet, the box already filled */
+.row.waiting .t{text-decoration:line-through}
+.row.waiting .t, .row.waiting .g, .row.waiting .w,
+.cell .lead .row.waiting .t, .cell .lead .row.waiting .w{color:var(--ash-deep)}
+/* "ready" is a word and a filled square, never a colour on its own */
+.ready{font-size:11px; letter-spacing:.1em; color:var(--near)}
+.ready::before{content:"\25A0"; margin-right:4px; font-size:9px}
+
+/* the densities Map steps through when the board is taller than the screen: rows on one
+   line, then leads a step smaller. A cut title keeps its whole text in its title attribute
+   and in the drawer. */
+.map.d1 .cell .rows .row .body, .map.d2 .cell .rows .row .body{flex-wrap:nowrap}
+.map.d1 .cell .rows .row .t, .map.d2 .cell .rows .row .t{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.map.d1 .cell > .detail, .map.d2 .cell > .detail{display:none}
+.map.d2 .lead.t1{--fs:24px; --lead-lh:28px}
+.map.d2 .lead.t2{--fs:19px; --lead-lh:24px}
+.map.d2 .lead.t3{--fs:16px; --lead-lh:21px}
+
+/* the week: between the two rows, as tall as its busiest column plus a small floor. Its days
+   are columns ruled top and side; a run of empty days folds into one column that names the
+   span. Today sits on a bone rule even when clear, and what is late on an alarm one with its
+   triangle, counted by department where the map already shows it. A crowded board squeezes
+   the band toward its floor, and each column then shows what fits, then "+N more". */
+.week{min-width:0}
+.week:not(.flow){height:100%; display:flex; flex-direction:column; gap:16px; overflow:hidden}
+.week:not(.flow) .days{flex:1 1 auto; min-height:0; grid-template-rows:minmax(0, 1fr); column-gap:0}
+.week:not(.flow) .day{padding:9px 12px 0; border-left:1px solid color-mix(in srgb, var(--plane-hot) 55%, transparent)}
+.week:not(.flow) .day:first-child{padding-left:0; border-left:0}
+.week:not(.flow) .day.today, .week:not(.flow) .day.late{padding-top:8px}
+.wh{display:flex; align-items:baseline; flex-wrap:wrap; gap:6px 18px}
+.wh h2{font-family:var(--sans); font-size:15px; font-weight:600; color:var(--bone-dim)}
+.wh .facts{font-size:12px; letter-spacing:.02em; color:var(--bone-faint)}
+.week.calm .wh{flex-direction:column; align-items:flex-start; gap:8px}
+.wh .big{font-family:var(--sans); font-size:30px; font-weight:560; letter-spacing:-.02em; line-height:1.15; color:var(--bone)}
+.wh .sub{font-size:12px; letter-spacing:.02em; color:var(--bone-faint); display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px}
+.wh .sub .nx{font-family:var(--sans); font-size:15px; font-weight:500; letter-spacing:0; color:var(--bone)}
+.wh .sub .nx:hover{text-decoration:underline; text-decoration-color:var(--bone-faint); text-underline-offset:4px}
+.wh .sub .d{color:var(--bone-dim)}
+.days{list-style:none; display:grid; grid-template-columns:var(--tpl); column-gap:12px}
+.day{min-width:0; border-top:1px solid var(--plane-hot); padding-top:9px}
+.day.today{border-top:2px solid var(--bone); padding-top:8px}
+.day.late{border-top:2px solid var(--unstable); padding-top:8px}
+.dl{display:flex; align-items:baseline; gap:8px; height:21px; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--bone-dim); white-space:nowrap}
+.dl .c{color:var(--bone-faint); letter-spacing:0; font-variant-numeric:tabular-nums}
+.day.today .dl{color:var(--bone)}
+.day.late .dl{color:var(--unstable)}
+.day.late .dl::before{content:"\25B2"; font-size:9px; letter-spacing:0}
+.day.late .dl .c{color:var(--unstable)}
+.day.none .dl{color:var(--bone-faint)}
+.day ul{list-style:none}
+.wi{
+  display:flex; align-items:baseline; gap:7px; min-width:0; height:24px;
+  padding:3px 5px; margin:0 -5px; border-radius:3px; width:calc(100% + 10px);
+}
+.wi .g{flex:none; font-size:11px; color:var(--bone-faint)}
+.wi.event .g{color:var(--far)}
+.wi .t{font-family:var(--sans); font-size:14px; line-height:18px; color:var(--bone-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:0 1 auto}
+.wi .tm{flex:none; margin-left:auto; font-size:11px; color:var(--bone-faint); font-variant-numeric:tabular-nums}
+.wi.late .g, .wi.late .t{color:var(--unstable)}
+.wi:hover, .wi.lit{background:color-mix(in srgb, var(--plane-lit) 70%, transparent)}
+.wi:hover .t{color:var(--bone)}
+/* a roomy week: the title may take two lines and the item says where it is filed */
+.week.roomy .wi{height:auto; display:grid; grid-template-columns:auto minmax(0, 1fr) auto; column-gap:7px; padding:5px 5px 6px}
+.week.roomy .wi .t{white-space:normal; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2}
+.week.roomy .wi .wh-at{grid-column:2 / -1; font-size:11px; letter-spacing:.02em; color:var(--bone-faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.week.roomy .day li + li{margin-top:4px}
+.day .more, .day .clear{font-size:11px; letter-spacing:.02em; color:var(--bone-faint); padding:4px 0}
+/* a folded run of empty days: its label may break between its first and last day */
+.day.span .dl{flex-wrap:wrap; height:auto; min-height:21px; row-gap:0; column-gap:.6em}
+.day.span .dl span{white-space:nowrap}
+/* a late count points at rows already on the map: the system's words, so the mono */
+.wi.count .t{font-family:var(--mono); font-size:12px; letter-spacing:.02em}
+.wi.count .g{font-size:9px; align-self:center}
+
+/* the drawer: the one thing that floats, over the map's right edge */
+.drawer{
+  position:absolute; right:0; top:48px; bottom:0; width:420px; z-index:5; overflow:auto;
+  padding:24px 26px; transform:translateX(100%); transition:transform .25s ease-out;
+  background:color-mix(in srgb, var(--void-2) 92%, transparent); backdrop-filter:blur(8px);
+  border-left:1px solid var(--plane-lit);
+  box-shadow:0 12px 32px -10px color-mix(in srgb, var(--void) 95%, transparent);
+}
+.drawer.on{transform:none}
+/* the scrim exists only on the phone, where the drawer is a sheet over the page */
+.scrim{display:none}
+.drawer .kind{font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--bone-faint)}
+.drawer h2{font-family:var(--sans); font-size:24px; font-weight:580; letter-spacing:-.014em; color:var(--bone); margin:8px 0 6px; line-height:1.2}
+/* the heading takes focus when the drawer opens so the title is read out; it is not a
+   control, so it wears no ring. The open drawer is the sign of where focus is. */
+.drawer:focus-visible, .drawer h2:focus-visible{outline:none}
+/* the legend: each mark or key beside its words, the marks in the hues they wear on the map */
+.drawer .legend{display:grid; grid-template-columns:72px minmax(0, 1fr); gap:7px 14px; align-items:baseline; margin-top:14px; font-size:12px; letter-spacing:.02em}
+.drawer .legend dt{color:var(--bone-dim); white-space:nowrap}
+.drawer .legend dd{color:var(--bone-dim)}
+.drawer .legend dt.late{color:var(--unstable)}
+.drawer .legend dt.event{color:var(--far)}
+.drawer .legend dt.cursor{color:var(--focus)}
+.drawer .legend dt .rail{vertical-align:middle}
+.drawer .legend dt .start-tag{margin-left:0}
+.drawer .legend kbd{display:inline-block; margin:0}
+.drawer h3{margin-top:22px; font-size:11px; font-weight:500; letter-spacing:.14em; text-transform:uppercase; color:var(--bone-faint)}
+.drawer .reason{font-size:12px; color:var(--bone-dim)}
+.drawer .reason.soon{color:var(--near)}
+.drawer .reason.alarm{color:var(--unstable)}
+.drawer .notes{font-family:var(--sans); font-size:15px; line-height:1.5; color:var(--bone-dim); margin-top:14px; white-space:pre-line}
+.drawer .subs{list-style:none; margin:10px 0 0}
+.drawer .subs li{padding:2px 0; font-family:var(--sans); font-size:15px; color:var(--bone-dim)}
+.drawer .subs li .cb{font-family:var(--mono); color:var(--bone-faint); margin-right:8px}
+.drawer .subs li.ok{color:var(--bone-faint); text-decoration:line-through}
+.drawer .pred{margin-top:12px; font-size:12px; color:var(--bone-faint)}
+.drawer .pred.ok{color:var(--near)}
+.drawer .path{margin-top:16px; font-size:11px; color:var(--ash-deep)}
+.drawer .verbs{margin-top:18px; font-size:12px; color:var(--bone-faint); display:flex; gap:14px}
+.drawer .verbs button{color:var(--bone-dim)}
+/* the edit form: the drawer's own lines turned into fields, a small label over each */
+.drawer .edit{display:flex; flex-direction:column; gap:14px; margin-top:12px}
+.drawer .edit label{display:flex; flex-direction:column; gap:5px}
+.drawer .edit label > span:first-child{font-size:11px; font-weight:500; letter-spacing:.14em; text-transform:uppercase; color:var(--bone-faint)}
+.drawer .edit .pair{display:flex; gap:8px}
+.drawer .edit input, .drawer .edit select{
+  font:inherit; font-size:13px; color:var(--bone); background:var(--plane);
+  border:1px solid var(--plane-lit); border-radius:3px; padding:6px 8px; min-width:0; color-scheme:dark;
+}
+.drawer .edit label:first-child input{font-family:var(--sans); font-size:16px; font-weight:500}
+.drawer .edit .pair input{flex:1}
+.drawer .edit input:focus-visible, .drawer .edit select:focus-visible{outline:none; border-color:var(--focus)}
+.drawer .edit input::placeholder{color:var(--ash-deep)}
+.drawer .edit .problem{font-size:12px; color:var(--unstable)}
+.drawer .edit .problem::before{content:"\25B2"; font-size:9px; margin-right:6px}
+.drawer .edit .verbs{margin-top:4px}
+.drawer .edit button[disabled]{color:var(--bone-faint); cursor:default}
+
+/* quick add: one line in the header's middle while it is open. The field is human text,
+   what it will write is the system voice beside it, and a failed write is the alarm hue
+   with its triangle. */
+.quick{flex:1; min-width:0; display:flex; align-items:center; gap:12px}
+.quick .chip{font-size:11px; font-weight:500; letter-spacing:.22em; text-transform:uppercase; color:var(--bone-faint); white-space:nowrap}
+/* the directive a starred cell's "+" opened the field under: what Daniel wrote, so the sans */
+.quick .chip-d{font-family:var(--sans); font-size:14px; font-weight:560; letter-spacing:0; text-transform:none; color:var(--bone-dim)}
+.quick input{
+  flex:1 1 32ch; min-width:14ch; max-width:64ch;
+  font:inherit; font-family:var(--sans); font-size:15px; letter-spacing:0; color:var(--bone); background:var(--plane);
+  border:1px solid var(--plane-lit); border-radius:3px; padding:4px 8px; color-scheme:dark;
+}
+.quick input:focus-visible{outline:none; border-color:var(--focus)}
+.quick input::placeholder{color:var(--ash-deep)}
+.quick .parse{flex:0 1 auto; min-width:0; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.quick .parse.ok{color:var(--bone-dim)}
+.quick .parse.faint{color:var(--bone-faint)}
+.quick .parse.alarm{color:var(--unstable)}
+.quick .parse.alarm::before{content:"\25B2"; font-size:9px; margin-right:6px}
+
+/* capture health: one line in the header, the four source flags on hover or on focus */
+.sources{position:relative}
+.sources .health{
+  font-size:12px; letter-spacing:.02em;
+  background:none; border:0; padding:0; cursor:default; color:var(--bone-faint);
+}
+.sources .health.ok{color:var(--stable)}
+.sources .health.ok .s::before{content:"\2713"}
+.sources .health.bad{color:var(--unstable)}
+.sources .health.bad .s::before{content:"\2715"}
+.sources .health .s{margin-right:6px}
+/* the flags sit flat on a plane with a hairline, not lifted: nothing floats but the drawer.
+   Closed they are hidden, not just transparent, so a screen reader does not read them; the
+   visibility waits out the fade on the way closed and flips at once on the way open. */
+.sources .drop{
+  position:absolute; z-index:10; top:calc(100% + 9px); right:0;
+  opacity:0; visibility:hidden; transform:translateY(-4px); pointer-events:none;
+  transition:opacity .12s ease-out, transform .12s ease-out, visibility 0s linear .12s;
+  background:var(--plane); border:1px solid var(--plane-lit); border-radius:4px; padding:8px 11px;
+  display:flex; flex-direction:column; gap:3px; white-space:nowrap;
+}
+.sources:hover .drop, .sources:focus-within .drop, .sources.open .drop{
+  opacity:1; visibility:visible; transform:translateY(0); pointer-events:auto; transition-delay:0s;
+}
+.flag{font-size:11px; letter-spacing:.04em; color:var(--bone-faint)}
+.flag .s{margin-right:5px}
+.flag.fresh .s::before{content:"\25CB"}
+.flag.stale{color:var(--bone-dim)}
+.flag.stale .s::before{content:"\25D1"}
+.flag.failed{color:var(--unstable)}
+.flag.failed .s::before{content:"\25B2"}
+.flag.never{color:var(--bone-dim)}
+.flag.never .s::before{content:"\25A1"}
+
+/* the undo window, inline in the header in the start line's place: the newest waiting tick,
+   how many wait behind it, and the seconds before it is written. It gives way as the start
+   line does, by shortening its title, so it never widens the page. */
+.undo{display:flex; align-items:baseline; gap:8px; min-width:0; flex:0 1000 auto; overflow:hidden; color:var(--bone-faint); white-space:nowrap}
+.undo .s{font-size:9px}
+.undo .l{font-family:var(--sans); font-size:14px; color:var(--bone-dim); min-width:4ch; max-width:48ch; overflow:hidden; text-overflow:ellipsis}
+.undo .w, .undo .more, .undo button, .undo .left{flex:none}
+.undo button{color:var(--bone-dim)}
+.undo .left{font-variant-numeric:tabular-nums}
+/* the keys the map answers to, whenever the header has room: the system voice at its
+   quietest, and the first thing the header drops. The room is the spacer, grown from zero,
+   so it only ever holds what the rest leaves over. Its empty first item takes the line, and
+   keys too wide for what is left wrap onto a second line that the room's height clips. */
+header .room{flex:1 1 0; min-width:0; height:18px; overflow:hidden; display:flex; flex-wrap:wrap; align-items:center}
+header .room::before{content:""; flex:1 0 0; height:18px}
+.keys{font-size:11px; color:var(--bone-faint); white-space:nowrap}
+.keys kbd{padding:0 4px}
+
+/* push to talk: the microphone's state as a word and a shape, in the header beside the keys.
+   Offline is quiet rather than loud, because the voice process being down is not an alarm. */
+.talk{display:flex; align-items:baseline; gap:12px; min-width:0}
+.talk .state{font-size:12px; letter-spacing:.02em; color:var(--bone-faint); white-space:nowrap}
+.talk .s{margin-right:6px; font-size:9px}
+.talk.idle .s{display:none}
+.talk.listening .state{color:var(--bone)}
+.talk.listening .s::before{content:"\25CF"}
+.talk.transcribing .state{color:var(--bone-dim)}
+.talk.transcribing .s::before{content:"\25CB"}
+.talk.working .state{color:var(--bone)}
+.talk.working .s::before{content:"\25D0"}
+.talk.speaking .state{color:var(--bone)}
+.talk.speaking .s::before{content:"\25B6"}
+.talk.offline .state{color:var(--ash-deep)}
+.talk.offline .s::before{content:"\2715"}
+.talk.failed .state{color:var(--unstable); max-width:52ch; overflow:hidden; text-overflow:ellipsis}
+.talk.failed .s::before{content:"\25B2"}
+.talk .heard{
+  font-size:11px; letter-spacing:.02em; color:var(--bone-dim);
+  min-width:0; max-width:64ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.talk .heard b{font-weight:500; font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--bone-faint); margin-right:5px}
+.talk .heard b:not(:first-child){margin-left:10px}
+/* the rows a turn wrote, inside the one truncating line, told apart by a rule rather than a
+   hue. The title attribute carries the whole list when the line runs out. */
+.talk .heard .wrote{margin-left:10px; padding-left:10px; border-left:1px solid var(--plane-lit)}
+
+/* while a turn is in flight: the glyph breathes and a short line sweeps the header's bottom
+   rule, so the run reads from across the room. The sweep stopping is the done signal. */
+header{position:relative}
+header:has(.talk.transcribing, .talk.working)::after, .bar-talk:has(.talk.transcribing, .talk.working)::before{
+  content:""; position:absolute; left:0; bottom:-1px; width:28%; height:2px;
+  background:linear-gradient(90deg, transparent, var(--bone), transparent);
+  animation:sweep 1.8s ease-in-out infinite; pointer-events:none;
+}
+.bar-talk{position:relative}
+.bar-talk:has(.talk.transcribing, .talk.working)::before{top:-1px; bottom:auto}
+.talk.transcribing .s, .talk.working .s{display:inline-block; animation:breathe 1.6s ease-in-out infinite}
+@keyframes sweep{from{transform:translateX(-100%)} to{transform:translateX(358%)}}
+@keyframes breathe{0%,100%{opacity:1} 50%{opacity:.25}}
+
+@media (prefers-reduced-motion: reduce){
+  .drawer, .row, .strip .bar, .ptt, .scrim{transition:none}
+  /* no sweep: the whole rule lights up and stays lit until the turn lands */
+  header:has(.talk.transcribing, .talk.working)::after,
+  .bar-talk:has(.talk.transcribing, .talk.working)::before{animation:none; width:100%; background:var(--bone)}
+  .talk.transcribing .s, .talk.working .s{animation:none}
+  .bar-talk:has(.talk.transcribing, .talk.working) .ptt .s{animation:none}
+}
+
+/* the phone: the map becomes four stacked pages on a swipeable track, the drawer a bottom
+   sheet, and the space bar a thumb-sized button under everything. */
+@media (max-width: 700px){
+  /* the status bar and camera island overlap the top edge when installed, so the header
+     grows by the inset and its content sits below it */
+  .page{grid-template-rows:calc(48px + env(safe-area-inset-top)) auto 1fr auto}
+  /* min-width:0 or the line's unbroken title widens the page's one grid column past the screen */
+  .startline{min-width:0}
+  .startline .start-here{width:100%; padding:9px 16px; border-bottom:1px solid var(--rule)}
+  .startline .start-here .d{display:none}
+  header.phone{gap:14px; padding:env(safe-area-inset-top) 16px 0}
+  kbd{display:none}
+  header .warn{display:none}
+  /* the undo line takes the spacer's room and no more, so a long title gives way first
+     instead of widening the page: contained, its text adds nothing to the header's width */
+  header.phone:has(.undo) .spacer{display:none}
+  header.phone .undo{flex:1 1 0; contain:inline-size; overflow:hidden; gap:8px}
+  /* the struck row already says done, so the phone keeps the title and drops the words */
+  header.phone .undo .more, header.phone .undo .w{display:none}
+
+  /* the health line is a dot on the phone, and its drop opens on a tap */
+  .sources .health .l{display:none}
+  .sources .health .s{margin:0}
+  .sources .health .s::before{content:"\25CF"}
+
+  .strip{display:flex; align-items:center; gap:6px}
+  .strip .bar{
+    position:relative; height:3px; border-radius:2px; background:var(--bone-faint);
+    padding:0; transition:width .25s ease-out;
+  }
+  .strip .bar.on{background:var(--bone)}
+  .strip .bar.late{background:var(--unstable)}
+  /* the week's tab: seven ticks, one per day, a fixed length because it carries no pull */
+  .strip .bar.wk{width:26px; background:repeating-linear-gradient(90deg, var(--bone-faint) 0 2px, transparent 2px 4px)}
+  .strip .bar.wk.on{background:repeating-linear-gradient(90deg, var(--bone) 0 2px, transparent 2px 4px)}
+  .strip .name{font-family:var(--sans); font-size:14px; font-weight:600; line-height:1; color:var(--bone); margin:0 4px 0 2px}
+  /* a 3px bar is not a tap target, so the hit area is grown without moving the mark */
+  .strip .bar::before{content:""; position:absolute; inset:-20px -3px}
+
+  .track{
+    display:flex; overflow-x:auto; overflow-y:hidden; scroll-snap-type:x mandatory;
+    overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; scrollbar-width:none;
+  }
+  .track::-webkit-scrollbar{display:none}
+  .leaf{
+    flex:0 0 100%; scroll-snap-align:start; min-width:0; overflow-y:auto; overscroll-behavior-y:contain;
+    display:flex; flex-direction:column;
+  }
+
+  /* a page: the department as tall as it holds; any room left over falls below it */
+  .dept.flow{padding:16px 16px 4px; cursor:default; flex:none; align-self:stretch}
+  .dept.flow .dh{margin-bottom:12px}
+  .dept.flow .dh h2{font-size:22px}
+  .dept.flow .cells{gap:8px}
+  .dept.flow .cell{padding:12px 14px 10px}
+  .dept.flow .cell.idle{padding:6px 4px 6px 14px}
+  .dept.flow .cell.idle .plus{width:44px; height:44px; font-size:18px}
+  /* thumbs: every row is a 44px line, and its tick's hit area fills it */
+  .row{padding:12px 4px 13px}
+  .row.cursor::before{top:12px}
+  .row .tick::after{inset:-13px -15px}
+  .cell .rows .row + .row{border-top:1px solid color-mix(in srgb, var(--bone) 5%, transparent)}
+  .cell .lead{margin-top:8px}
+  .cell > .detail{margin-left:43px}
+  .lead.t1{--fs:26px; --lead-lh:31px}
+
+  /* the week's own page: its head sits where a department's name does */
+  .week.flow{padding:16px 16px 20px; display:flex; flex-direction:column; gap:14px}
+  .week.flow .wh{padding-bottom:8px; border-bottom:1px solid var(--rule)}
+  .week.flow .wh h2{font-size:22px; font-weight:620; letter-spacing:-.01em; line-height:1.1; color:var(--bone)}
+  .week.flow .wh .big{font-size:24px}
+  .week.flow .days{grid-template-columns:minmax(0, 1fr); row-gap:10px}
+  .week.flow .day{border-top:0; padding-top:0}
+  .week.flow .day .dc{display:grid; grid-template-columns:78px minmax(0, 1fr); column-gap:8px}
+  .week.flow .day.today, .week.flow .day.late{border-top:0; padding-top:0}
+  .week.flow .dl{height:44px; align-items:center}
+  .week.flow .day.span .dl{flex-direction:column; justify-content:center; align-items:flex-start; line-height:1.3}
+  .week.flow .wi{height:44px; align-items:center}
+  .week.flow .day .clear{padding:0; line-height:44px}
+
+  .drawer{
+    position:fixed; top:auto; right:0; left:0; bottom:0; width:auto; max-height:80dvh; z-index:20;
+    transform:translateY(100%); border-left:0; border-top:1px solid var(--plane-lit);
+    border-radius:8px 8px 0 0; padding:20px 20px calc(20px + env(safe-area-inset-bottom));
+  }
+  .drawer.on{transform:none}
+  .drawer .verbs{gap:6px; margin-left:-10px}
+  .drawer .verbs button{min-height:44px; padding:0 10px}
+  .scrim{
+    display:block; position:fixed; inset:0; z-index:15;
+    background:color-mix(in srgb, var(--void) 55%, transparent); border:0; padding:0;
+  }
+
+  .bar-talk{
+    display:grid; justify-items:center; gap:10px;
+    padding:10px 16px calc(12px + env(safe-area-inset-bottom)); border-top:1px solid var(--rule);
+  }
+  .bar-talk .talk{flex-direction:column; align-items:center; gap:4px; max-width:100%}
+  .bar-talk .talk .heard{max-width:100%}
+  /* the talk button stays centred and the add button sits beside it */
+  .thumbs{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:18px; width:100%}
+  .thumbs .ptt{grid-column:2}
+  .thumbs .plus{
+    justify-self:start; width:44px; height:44px; display:grid; place-items:center;
+    border:1px solid var(--plane-hot); border-radius:3px; background:var(--plane);
+    font-size:18px; color:var(--bone-dim);
+  }
+  /* the field stacks above the talk line, full width, what it will write under it; 16px so
+     the phone does not zoom in on focus */
+  .bar-talk .quick{width:100%; flex-wrap:wrap; gap:6px 10px}
+  .bar-talk .quick input{flex:1 1 0; max-width:none; min-width:0; font-size:16px; padding:8px 10px}
+  .bar-talk .quick .parse{flex-basis:100%; white-space:normal}
+  .ptt{
+    width:64px; height:64px; border-radius:50%; border:1px solid var(--plane-hot);
+    background:var(--plane); display:grid; place-items:center; touch-action:none;
+    -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+    transition:background .15s ease-out;
+  }
+  .ptt.hot{background:var(--bone); border-color:var(--bone)}
+  .ptt .s{font-size:18px; color:var(--bone-dim)}
+  .ptt .s::before{content:"\25CF"}
+  .ptt.hot .s{color:var(--void)}
+  .bar-talk:has(.talk.transcribing, .talk.working) .ptt .s{display:inline-block; animation:breathe 1.6s ease-in-out infinite}
+}

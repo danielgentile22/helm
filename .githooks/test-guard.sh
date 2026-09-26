@@ -34,6 +34,7 @@ expect block "env file with a suffix"               try chat/.env.local "X=1"
 expect pass  "env example file"                     try chat/.env.example "X="
 expect block "run record"                           try docs/runs/2026.json "{}"
 expect block "Anthropic key"                        try docs/f.md "key sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123" # guard:allow
+expect pass  "code that mentions a token"           try docs/g0.md "{ token: \"requestAnimationFrame(\", owner: null }"
 expect block "private key"                          try docs/g.md "-----BEGIN OPENSSH PRIVATE KEY-----" # guard:allow
 expect block "real email"                           try docs/h.md "mail someone@gmail.com" # guard:allow
 expect pass  "example email"                        try docs/i.md "mail someone@example.com"

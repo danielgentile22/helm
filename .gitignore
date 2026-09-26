@@ -8,3 +8,11 @@ node_modules/
 # generated review artifacts (contain machine-local paths)
 docs/audits/
 docs/fly-deploy.local.md
+
+# Engine: local config, build output, the voice server's venv and model weights
+.env
+__pycache__/
+dashboard/dist/
+voice/.venv/
+voice/*.onnx
+voice/*.bin
