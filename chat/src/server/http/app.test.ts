@@ -84,7 +84,8 @@ test("threads: models from the live catalog, create is idempotent on a client id
   const patched = await s.api("PATCH", `/api/threads/${THREAD}`, { title: "Renamed", effort: "low" });
   assert.equal(patched.status, 200);
   assert.equal(((await patched.json()) as ThreadConfig).title, "Renamed");
-  assert.equal((await s.api("PATCH", `/api/threads/${THREAD}`, { effort: "max" })).status, 200);
+  assert.equal((await s.api("PATCH", `/api/threads/${THREAD}`, { effort: "high" })).status, 200);
+  assert.equal((await s.api("PATCH", `/api/threads/${THREAD}`, { effort: "max" })).status, 400, "effort is capped at high");
   assert.equal((await s.api("PATCH", `/api/threads/${THREAD}`, { effort: "ultra" })).status, 400);
   assert.equal((await s.api("GET", `/api/threads/${uuid(9)}`)).status, 404);
 
@@ -290,7 +291,8 @@ test("parsers: send, create, patch", () => {
     assert.equal(r.ok && r.value.threadId, undefined, `malformed thread id ${String(bad)} is replaced, not rejected`);
   }
   for (const bad of ["", "abc", "x".repeat(41), 42, undefined]) assert.equal(parseSend({ clientMsgId: bad, text: "x" }).ok, false, `message id ${String(bad)} is a 400`);
-  assert.equal(parseCreateThread({ model: "m1", effort: "max" }, catalog, "/d").ok, true);
+  assert.equal(parseCreateThread({ model: "m1", effort: "high" }, catalog, "/d").ok, true);
+  assert.equal(parseCreateThread({ model: "m1", effort: "max" }, catalog, "/d").ok, false);
   assert.equal(parseCreateThread({ model: "m1", effort: "ultra" }, catalog, "/d").ok, false);
   assert.equal(parseCreateThread({ model: "m1", cwd: "relative" }, catalog, "/d").ok, false);
   assert.equal(parseCreateThread({ model: "zzz" }, catalog, "/d").ok, false);
@@ -463,7 +465,7 @@ test("settings: defaults on first read, patches round-trip across a restart, bad
   assert.equal(await bad({ colour: "dark" }), "unknown field: colour");
   assert.equal(await bad({ theme: "neon" }), "theme must be one of system, light, dark");
   assert.equal(await bad({ defaultModel: "claude-haiku-4-5-20251001" }), "defaultModel is not in the live catalog");
-  assert.equal(await bad({ defaultEffort: "ultra" }), "defaultEffort must be one of low, medium, high, xhigh, max");
+  assert.equal(await bad({ defaultEffort: "ultra" }), "defaultEffort must be one of low, medium, high");
   assert.equal(await bad({ defaultCwd: "relative/path" }), "defaultCwd must be an absolute path");
   assert.equal(await bad({ defaultCwd: join(s.home, "work", "nope") }), "defaultCwd is not an existing directory");
   assert.equal(await bad({ defaultPermissionMode: "yolo" }), "defaultPermissionMode must be one of ask, bypass");

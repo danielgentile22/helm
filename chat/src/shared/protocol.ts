@@ -88,9 +88,14 @@ export interface ModelChoice {
  */
 export const MODEL_POLICY_DENY: readonly RegExp[] = [/haiku/i, /^default$/];
 
-/** Every level Claude Code knows. The catalog offers the subset each model supports. */
+/**
+ * Every level Claude Code knows, so a thread recorded at any of them still parses.
+ * EFFORTS is what the picker offers and the server accepts: the standing rule caps
+ * effort at "high", because higher levels overthink each step at more cost. The
+ * catalog offers the subset of these each model supports.
+ */
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
-export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"];
+export const EFFORTS: readonly Effort[] = ["low", "medium", "high"];
 export const DEFAULT_EFFORT: Effort = "medium";
 
 /**

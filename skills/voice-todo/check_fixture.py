@@ -27,7 +27,7 @@ from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-OTTO = HERE.parents[1]
+ENGINE = HERE.parents[1]
 FIXTURE = HERE / "fixture.json"
 TIMEOUT_S = 90
 
@@ -39,7 +39,7 @@ NOTHING_TO_DO = "Nothing to do there"
 def copy_vault() -> tuple[Path, Path]:
     root = Path(tempfile.mkdtemp(prefix="voice-todo-fixture-"))
     dest = root / "Vault"
-    shutil.copytree(OTTO / "Vault", dest, symlinks=True)
+    shutil.copytree(ENGINE / "Vault", dest, symlinks=True)
     return root, dest
 
 
@@ -130,8 +130,8 @@ def main(argv: list[str]) -> int:
     # `common.VAULT` and `run_command`'s env both read the environment, the first at import
     # time, so the copy has to be in place before turns is imported.
     os.environ["HELM_VAULT_ROOT"] = str(vault)
-    sys.path[:0] = [str(OTTO / "dashboard" / "server"), str(OTTO / "runner"),
-                    str(OTTO / "runner" / "producers")]
+    sys.path[:0] = [str(ENGINE / "dashboard" / "server"), str(ENGINE / "runner"),
+                    str(ENGINE / "runner" / "producers")]
     import turns  # noqa: E402
 
     now = turns.local_now()
