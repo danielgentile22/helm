@@ -958,6 +958,14 @@ class AuthTest(unittest.TestCase):
         self.assertEqual(self.knock("POST", "/auth/login/verify",
                                     {"challengeId": again["challengeId"], "credential": stranger}).status, 401)
 
+    def test_with_no_tailnet_name_the_page_is_still_told_it_is_in(self) -> None:
+        """No door means no passkey rows, but the page asks /auth/me before drawing the board.
+        A 404 there left a loopback-only install stuck on the sign-in gate."""
+        table = routes.table(None)
+        self.assertEqual(json.loads(app.dispatch(request("GET", "/auth/me"), table, None).body),
+                         {"via": "loopback", "authenticated": True, "enrolled": False})
+        self.assertEqual(app.dispatch(request("GET", "/auth/login/options"), table, None).status, 404)
+
     def test_the_auth_rows_are_open_but_a_loopback_visitor_is_simply_in(self) -> None:
         for path in ("/auth/login/options", "/auth/me"):
             self.assertEqual(app.reach_of(request("GET", path), self.table), "open")

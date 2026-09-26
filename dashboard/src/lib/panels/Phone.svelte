@@ -67,7 +67,7 @@
 
 <div class="page">
   <header class="phone">
-    <span class="mark">ENGINE</span>
+    <span class="mark">HELM</span>
     <div class="strip" role="tablist">
       {#each board.views as view (view.dept)}
         <button

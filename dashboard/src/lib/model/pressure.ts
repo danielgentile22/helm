@@ -16,7 +16,7 @@ export function dueSoon(p: Pressure): boolean {
   return p.soon;
 }
 
-/** How much a starred directive multiplies the pull of everything filed under it (ADR 0007:
+/** How much a starred directive multiplies the pull of everything filed under it (ADR 0014:
  *  the ranked priorities are stars). Chosen so a late todo on the first directive (3 x 1.6 =
  *  4.8) outranks any late unstarred one (capped at 4.5), and one due today on it (4.16)
  *  outranks a freshly late side-project chore (3). The directive itself never escalates:
@@ -88,7 +88,7 @@ export type Placed = { thing: Thing; phase: Phase; pressure: Pressure };
 
 /** A directive under a department, or the department's unfiled things. A starred directive
  *  with nothing filed under it has no things at all: it is drawn as a quiet cell that says
- *  "nothing queued", and pulls nothing (ADR 0007, ADR 0020). */
+ *  "nothing queued", and pulls nothing (ADR 0014, ADR 0027). */
 export type Directive = {
   name: string | null;
   things: Placed[];

@@ -1,6 +1,6 @@
 """One spoken sentence, from the transcript to the todo helm wrote, as a record on disk.
 
-The dashboard owns nothing (ADR 0008), so a turn is a file under `~/.helm/voice/turns/`,
+The dashboard owns nothing (ADR 0015), so a turn is a file under `~/.helm/voice/turns/`,
 written atomically, and every route here reads or replaces that file. The file is the whole
 state: a client that reloads mid run polls the id and picks the turn back up.
 

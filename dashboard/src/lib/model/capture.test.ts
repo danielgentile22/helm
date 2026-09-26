@@ -11,7 +11,7 @@ const TZ = "America/New_York";
 const NOW = ms(Date.parse("2026-09-23T10:00:00-04:00"));
 
 const KNOWN: Known = {
-  Work: ["Consulting", "Job search"],
+  Work: ["Consulting", "Launch"],
   Chess: ["1.e4 e5 course", "Camps", "Coaching"],
   Projects: ["Compiler", "orbit"],
   Life: ["Cars", "Health", "Home office", "Lisbon trip"],

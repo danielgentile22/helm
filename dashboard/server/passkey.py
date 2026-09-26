@@ -1,6 +1,6 @@
 """The verification half of a WebAuthn passkey ceremony, for one user and one key type.
 
-Python standard library only (ADR 0014), so the pieces a passkey library would supply are
+Python standard library only (ADR 0021), so the pieces a passkey library would supply are
 here: unpadded base64url, a CBOR reader narrow enough to read an attestation object and a
 COSE key, and P-256 ECDSA verification over plain integers. Nothing here signs, so the
 integer arithmetic runs against a public key only and constant time does not apply.

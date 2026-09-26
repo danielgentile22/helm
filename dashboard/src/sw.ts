@@ -30,7 +30,7 @@ async function networkFirst(request: Request, key: string): Promise<Response> {
   } catch (unreachable) {
     // The server is not answering. The last good response is served as itself, stamps
     // intact, so the page reads it the way it reads a live one and classifies its age
-    // from `produced` (ADR 0013). Nothing here labels it.
+    // from `produced` (ADR 0020). Nothing here labels it.
     const cached = await cache.match(key);
     if (cached !== undefined) return cached;
     throw unreachable;

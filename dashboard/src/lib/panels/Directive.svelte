@@ -15,8 +15,8 @@
   type Props = { directive: Directive; dept: Department; solo?: boolean };
   const { directive, dept, solo = false }: Props = $props();
 
-  // A starred directive with nothing filed under it (ADR 0020). It is drawn so a priority
-  // with nothing queued is not invisible, but it never nags (ADR 0007): no rail, no pull, no
+  // A starred directive with nothing filed under it (ADR 0027). It is drawn so a priority
+  // with nothing queued is not invisible, but it never nags (ADR 0014): no rail, no pull, no
   // hue, quieter than any cell that holds a todo. A click anywhere on it, or its "+", opens
   // quick add already filed under it.
   const idle = $derived(directive.things.length === 0 && directive.name !== null);

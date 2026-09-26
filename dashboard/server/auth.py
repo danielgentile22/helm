@@ -1,4 +1,4 @@
-"""The passkey door for the tailnet (ADR 0009): one registered passkey or more, a session
+"""The passkey door for the tailnet (ADR 0016): one registered passkey or more, a session
 cookie minted by a WebAuthn assertion, and the enrollment token that lets the first passkey
 in. The ceremonies themselves are verified in `passkey.py`; this file is the state around
 them and the routes that drive it.

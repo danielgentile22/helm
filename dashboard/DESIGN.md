@@ -187,16 +187,16 @@ The dashboard is one screen that answers one question when Daniel sits down: wha
 should I work on. The four departments (Work, Chess, Projects, Life) hold their four
 corners, Work and Chess hanging from the header, the week under them, Projects and Life
 under the week. Each department, and each directive inside it (a thread of work such as
-Job search or the 1.e4 e5 course), is exactly as tall as what it holds, and so is the
+Launch or the 1.e4 e5 course), is exactly as tall as what it holds, and so is the
 week between the rows. Pull is carried by the ink instead of the area: the size the
 directive's lead is set at, a rail whose length is the pull, and the lightness of the
 plane under the loudest cells. The height nobody needs falls to the page's foot, below
-the bottom row, as plain ground (ADR 0019).
+the bottom row, as plain ground (ADR 0026).
 
 Everything on the map is something Daniel wrote in the vault: a todo, a daily, an
-event, filed under a directive on a department note (ADR 0015). A directive heading may
+event, filed under a directive on a department note (ADR 0022). A directive heading may
 carry a star and a rank, and that rank multiplies the pull of everything under it
-(ADR 0020). Nothing is pulled from a calendar or a commit log. The map is a picture of
+(ADR 0027). Nothing is pulled from a calendar or a commit log. The map is a picture of
 his intentions, not a report on his obligations.
 
 The treemap this replaces sized boxes by area. With the five todos Daniel actually had,
@@ -295,7 +295,7 @@ it is spent on late work and on failures only.
 *Audit test:* every occurrence of `unstable` in `shell.css` sits on a `late`, `alarm`,
 `failed`, `warn` or `problem` class.
 
-**The Uncoloured Star Rule.** A starred directive is context, never a nag (ADR 0007).
+**The Uncoloured Star Rule.** A starred directive is context, never a nag (ADR 0014).
 Its mark is a shape and a digit in faint bone and never takes a hue.
 
 ## Typography
@@ -386,7 +386,7 @@ starts at 3 and climbs with age to 4.5. Due today is 2.6, tomorrow 2, within thr
 days 1.4, within the week 0.9, later 0.4. An event within three hours is 2.8. A daily
 is 0.7 until it is done, then nothing. An undated todo is 0.35. Every todo under a
 starred directive is multiplied by its rank: 1.6, 1.35, 1.15, or 1 when unstarred
-(ADR 0020). "Soon" is read off the date before the star, so a starred todo next month
+(ADR 0027). "Soon" is read off the date before the star, so a starred todo next month
 is never painted amber. Routines are background and never reach the map. A directive's
 pull is the sum of its things, a department's the sum of its directives.
 
@@ -610,7 +610,7 @@ faint bone, so a finished thread reads as finished rather than missing.
 
 ### Starred directive with nothing queued
 
-A starred directive with no open todos (ADR 0020) is one slim line after the
+A starred directive with no open todos (ADR 0027) is one slim line after the
 department's cells, across its width: no fill, a 1px dashed ring in hot plane at 80%
 (a slot waiting for a todo, not the solid ring of finished work), its name in the human
 face in faint bone, its star and rank as any starred cell shows them, "nothing queued" in
@@ -676,7 +676,7 @@ in the hues it wears on the map, then every key, on one screen, closed by `?` or
 
 ### Header
 
-The mark `ENGINE` in the mono at 0.24em, then the day in one line: the date and the tally
+The mark `HELM` in the mono at 0.24em, then the day in one line: the date and the tally
 in words ("4 late · 1 today", or "nothing due today"), late with its triangle. Then the
 start line, `first(views)` read out and never a second ranking: the caps word START,
 the thing's glyph, its title in the human face at 15px, its directive, its reason, and

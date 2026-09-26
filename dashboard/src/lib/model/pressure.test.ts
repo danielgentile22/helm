@@ -54,12 +54,12 @@ test("an event is hard within three hours, carries its time, and is gone once it
 
 test("a department view groups by directive, largest first, and sums in words", () => {
   const view = deptView(aModel([
-    box("todo", "late one", at(-2 * DAY_MS), { project: "Job search" }),
-    box("todo", "soon", at(DAY_MS), { project: "Job search" }),
+    box("todo", "late one", at(-2 * DAY_MS), { project: "Launch" }),
+    box("todo", "soon", at(DAY_MS), { project: "Launch" }),
     box("todo", "quiet", at(20 * DAY_MS), { project: "Day job" }),
     box("todo", "loose", null),
   ]), "Work", NOW);
-  assert.deepEqual(view.directives.map((d) => d.name), ["Job search", "Day job", null]);
+  assert.deepEqual(view.directives.map((d) => d.name), ["Launch", "Day job", null]);
   assert.equal(view.directives[0]?.lead?.thing.label, "late one");
   assert.equal(view.summary, "1 late, 1 due soon");
   assert.equal(view.late, 1);
@@ -118,18 +118,18 @@ test("a starred directive multiplies its todos' pull by its rank, and never its 
   assert.ok(far.value > 1.4 && !far.soon);
 });
 
-test("a late side-project chore cannot outrank the job search when the job search is as urgent", () => {
+test("a late side-project chore cannot outrank the launch when the launch is as urgent", () => {
   const chore = pressure(box("todo", "chore", at(-30 * DAY_MS)), NOW, TZ);
   const jobLate = pressure(box("todo", "job", at(-HOUR_MS * 20), { star: 1 }), NOW, TZ);
-  assert.ok(jobLate.value > chore.value, "any late job search todo beats the latest possible chore");
+  assert.ok(jobLate.value > chore.value, "any late launch todo beats the latest possible chore");
   const fresh = pressure(box("todo", "fresh chore", at(-HOUR_MS)), NOW, TZ);
   const jobToday = pressure(box("todo", "job today", at(3 * HOUR_MS), { star: 1 }), NOW, TZ);
-  assert.ok(jobToday.value > fresh.value, "due today on the job search beats a chore that just went late");
+  assert.ok(jobToday.value > fresh.value, "due today on the launch beats a chore that just went late");
   const view = deptView(aModel([
     box("todo", "chore", at(-HOUR_MS), { project: "Compiler" }),
-    box("todo", "apply", at(3 * HOUR_MS), { project: "Job search", star: 1 }),
+    box("todo", "apply", at(3 * HOUR_MS), { project: "Launch", star: 1 }),
   ]), "Work", NOW);
-  assert.deepEqual(view.directives.map((d) => [d.name, d.star]), [["Job search", 1], ["Compiler", null]]);
+  assert.deepEqual(view.directives.map((d) => [d.name, d.star]), [["Launch", 1], ["Compiler", null]]);
 });
 
 test("a starred directive with nothing under it gets a place after every real one, and pulls nothing", () => {
@@ -137,12 +137,12 @@ test("a starred directive with nothing under it gets a place after every real on
     ...aModel([box("todo", "far off", at(20 * DAY_MS), { project: "Day job", star: 2 })]),
     directives: [
       { dept: "Work", name: "Day job", star: 2 },
-      { dept: "Work", name: "Job search", star: 1 },
+      { dept: "Work", name: "Launch", star: 1 },
       { dept: "Chess", name: "Coaching", star: 3 },
     ],
   };
   const view = deptView(model, "Work", NOW);
-  assert.deepEqual(view.directives.map((d) => [d.name, d.things.length, d.star]), [["Day job", 1, 2], ["Job search", 0, 1]]);
+  assert.deepEqual(view.directives.map((d) => [d.name, d.things.length, d.star]), [["Day job", 1, 2], ["Launch", 0, 1]]);
   assert.equal(view.value, view.directives[0]?.value);
   assert.equal(view.open, 1);
 });

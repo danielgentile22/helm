@@ -11,7 +11,7 @@
 </script>
 
 <div class="gate">
-  <span class="mark">ENGINE</span>
+  <span class="mark">HELM</span>
   {#if gate.name === "checking"}
     <p class="hint">checking</p>
   {:else if gate.name === "enroll"}

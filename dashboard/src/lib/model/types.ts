@@ -1,5 +1,5 @@
 // The one model the whole page reads. Timestamps only, never a
-// duration and never a phase: `now` is an input to every reader (ADR 0013, ADR 0014).
+// duration and never a phase: `now` is an input to every reader (ADR 0020, ADR 0021).
 
 export type Department = "Work" | "Chess" | "Projects" | "Life";
 export const DEPARTMENTS: readonly Department[] = ["Work", "Chess", "Projects", "Life"];
@@ -19,12 +19,12 @@ export type Sub = { text: string; done: boolean };
  *  an event happens at a moment. */
 export type TodoKind = "todo" | "daily" | "event";
 
-/** A starred directive's rank, 1 the highest (ADR 0007). The three starred directives are
+/** A starred directive's rank, 1 the highest (ADR 0014). The three starred directives are
  *  the ranked priorities in CLAUDE.md; every todo filed under one carries its rank. */
 export type Star = 1 | 2 | 3;
 
 /** A starred directive heading as capture reports it, whether or not any todo sits under
- *  it (agenda.json's `directives`, ADR 0020). Only an empty one is drawn on its own: one
+ *  it (agenda.json's `directives`, ADR 0027). Only an empty one is drawn on its own: one
  *  with todos is already its cell. */
 export type StarredDirective = { dept: Department; name: string; star: Star };
 

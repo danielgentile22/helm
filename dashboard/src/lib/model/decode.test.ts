@@ -52,12 +52,12 @@ test("a star of 1, 2 or 3 is kept, and anything else reads as unstarred without 
 test("starred directives decode, and anything malformed reads as none without a throw", () => {
   const withDirectives = (directives: unknown): unknown => ({ ...(agendaWith("Work") as object), directives });
   const names = (directives: unknown): string[] => decode(withDirectives(directives), null).directives.map((d) => d.name);
-  assert.deepEqual(decode(withDirectives([{ dept: "Work", name: "Job search", star: 1 }]), null).directives,
-    [{ dept: "Work", name: "Job search", star: 1 }]);
+  assert.deepEqual(decode(withDirectives([{ dept: "Work", name: "Launch", star: 1 }]), null).directives,
+    [{ dept: "Work", name: "Launch", star: 1 }]);
   assert.deepEqual(names(undefined), []);
-  assert.deepEqual(names("Job search"), []);
-  assert.deepEqual(names({ dept: "Work", name: "Job search", star: 1 }), []);
+  assert.deepEqual(names("Launch"), []);
+  assert.deepEqual(names({ dept: "Work", name: "Launch", star: 1 }), []);
   assert.deepEqual(names([null, 7, { dept: "Finance", name: "Taxes", star: 1 }, { dept: "Work", name: "", star: 1 },
-    { dept: "Work", name: "Day job", star: 4 }, { dept: "Work", name: "Job search", star: 1 }]), ["Job search"]);
+    { dept: "Work", name: "Day job", star: 4 }, { dept: "Work", name: "Launch", star: 1 }]), ["Launch"]);
   assert.equal(decode(withDirectives([null]), null).dropped, 0);
 });

@@ -12,7 +12,7 @@
   // Life under them, each half a row) but nothing is sized by pull: every box is as tall as
   // what it holds. The week sits between the two rows and is as tall as its busiest column,
   // the bottom row follows it directly, and whatever height is left falls below the bottom
-  // row at the page's foot (ADR 0019, amended). CSS knows how tall the content is. The
+  // row at the page's foot (ADR 0026, amended). CSS knows how tall the content is. The
   // numbers the map hands down are the rail scale, so a unit of pull is the same length in
   // every rail, and the spare height the departments leave, so the week knows whether it has
   // room to be roomy.

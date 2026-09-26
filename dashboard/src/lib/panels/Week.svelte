@@ -11,7 +11,7 @@
   import type { ThingId } from "$lib/model/types";
 
   // The week across all four departments: what is late, then what lands on each of the next
-  // seven days. It is as tall as its busiest column and no taller (ADR 0019, amended): the
+  // seven days. It is as tall as its busiest column and no taller (ADR 0026, amended): the
   // map hands it `spare`, the height the departments leave, and it hands back `want`, the
   // height it needs. Runs of empty days fold into one column, and the late column counts
   // what the map already shows instead of listing it twice. On the best day (nothing late,
