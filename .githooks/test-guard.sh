@@ -30,6 +30,8 @@ expect block "denied regex term"                    try docs/e.md "open https://
 expect block "denied term in a file name"           try docs/frobnitz.md "hi"
 expect block "path outside the allow list"          try notes/x.md "hi"
 expect block "denied path inside an allowed folder" try chat/.env "X=1"
+expect block "env file with a suffix"               try chat/.env.local "X=1"
+expect pass  "env example file"                     try chat/.env.example "X="
 expect block "run record"                           try docs/runs/2026.json "{}"
 expect block "Anthropic key"                        try docs/f.md "key sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123" # guard:allow
 expect block "private key"                          try docs/g.md "-----BEGIN OPENSSH PRIVATE KEY-----" # guard:allow
