@@ -1,4 +1,4 @@
-# helm
+# HELM
 
 [![CI](https://github.com/danielgentile22/helm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/danielgentile22/helm/actions/workflows/ci.yml)
 
