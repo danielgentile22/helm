@@ -153,7 +153,7 @@ kbd{
 .ch h3{font-family:var(--sans); font-size:15px; font-weight:600; line-height:1.25; color:var(--bone-dim); min-width:0; overflow-wrap:anywhere}
 .cell.t1 .ch h3, .cell.t2 .ch h3{color:var(--bone)}
 .cell.done .ch h3{color:var(--bone-faint)}
-/* a starred directive with nothing queued (ADR 0020): no fill, no rail, no hue, a dashed
+/* a starred directive with nothing queued (ADR 0027): no fill, no rail, no hue, a dashed
    ring that reads as a slot waiting for a todo rather than as finished work. Quieter than
    any cell that holds something; a click or its "+" opens quick add under it. */
 .cell.idle{background:none; box-shadow:none; border:1px dashed color-mix(in srgb, var(--plane-hot) 80%, transparent); padding:5px 6px 5px 13px; cursor:pointer}

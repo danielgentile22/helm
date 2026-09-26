@@ -24,8 +24,8 @@ const things: Thing[] = [
   box("lisbon later", "Life", "Lisbon", at(20 * DAY_MS)),
   box("lisbon late", "Life", "Lisbon", at(-2 * DAY_MS)),
   box("stretch", "Work", "Health", null, true),
-  box("resume tomorrow", "Work", "Job search", at(DAY_MS)),
-  box("resume undated", "Work", "Job search", null),
+  box("resume tomorrow", "Work", "Launch", at(DAY_MS)),
+  box("resume undated", "Work", "Launch", null),
   box("tactics", "Chess", "Training", at(3 * DAY_MS)),
 ];
 const model: Model = { tz: TZ, produced: { agenda: NOW, projects: NOW }, things, directives: [], repos: [], sources: [], dropped: 0 };

@@ -1,5 +1,5 @@
 // The wire. Every response carries a Date header the clock takes its skew from, and every
-// failure arrives as one shape, `{"error": {"code", "detail"}}` (ADR 0014).
+// failure arrives as one shape, `{"error": {"code", "detail"}}` (ADR 0021).
 
 import { clock } from "./clock.svelte";
 import { action, isTurnPhase } from "./model/turn";

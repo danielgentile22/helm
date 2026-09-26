@@ -1,5 +1,5 @@
 // How many rows fit in a fixed height, pure. The map itself no longer measures boxes: a
-// department and a directive are as tall as their content (ADR 0019). The week band is the
+// department and a directive are as tall as their content (ADR 0026). The week band is the
 // one place a crowded board can squeeze, so each of its day columns asks this how many rows
 // it shows once it has less than it asked for.
 

@@ -2,7 +2,7 @@
   import type { Star } from "$lib/model/types";
 
   // A starred directive's mark: a small drawn star and its rank, in the system voice at its
-  // quietest. A directive is context, never a nag (ADR 0007), so it never takes a hue.
+  // quietest. A directive is context, never a nag (ADR 0014), so it never takes a hue.
   type Props = { rank: Star };
   const { rank }: Props = $props();
 </script>

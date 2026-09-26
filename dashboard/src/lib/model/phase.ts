@@ -1,5 +1,5 @@
 // Where a thing stands at a given `now`. Never stored, always computed, which is what
-// keeps the status files free of a phase that would be wrong a minute later (ADR 0013).
+// keeps the status files free of a phase that would be wrong a minute later (ADR 0020).
 
 import type { Ms, Phase, Thing } from "./types";
 

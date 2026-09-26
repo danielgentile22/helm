@@ -3,7 +3,7 @@
 //
 // The set is closed on purpose. Nothing here defers, queues or retries a write: a failed
 // toggle has to surface as a failed toggle, because a todo ticked minutes later by a
-// background process is worse than one that visibly did not tick (ADR 0014's write is a PUT
+// background process is worse than one that visibly did not tick (ADR 0021's write is a PUT
 // of desired state, and the person retrying it is the retry).
 
 /** cache-first: the cache wins outright. network-first: the network wins, and the last good
@@ -39,7 +39,7 @@ export function strategyFor(method: string, path: string): Strategy {
   if (path.startsWith("/assets/")) return "cache-first";
 
   // A snapshot read, and on failure the last successful one, served as itself with its own
-  // `produced` stamp intact. The client already classifies freshness at read time (ADR 0013),
+  // `produced` stamp intact. The client already classifies freshness at read time (ADR 0020),
   // so a cached snapshot arrives labelled by the machinery that exists rather than by a new
   // offline flag.
   if (SNAPSHOTS.has(path)) return "network-first";

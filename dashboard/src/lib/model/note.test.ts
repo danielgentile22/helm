@@ -12,7 +12,7 @@ test("the first sentence, with markdown marks stripped", () => {
 
 test("a leading heading or blank line is skipped, links keep their text", () => {
   assert.equal(noteLine("\n## Recap\n"), "Recap");
-  assert.equal(noteLine("See [the ADR](docs/adr/0005.md) first."), "See the ADR first.");
+  assert.equal(noteLine("See [the ADR](docs/adr/0012.md) first."), "See the ADR first.");
 });
 
 test("a long first sentence is cut with an ellipsis", () => {

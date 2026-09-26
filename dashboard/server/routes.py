@@ -1,7 +1,7 @@
 """Every route the dashboard answers, one row each, with the handler beside it.
 
-Four reads and three writes (ADR 0014). The reads hand back files that exist whether or not
-the dashboard is running (ADR 0008). One write flips a checkbox and one rewrites a todo's
+Four reads and three writes (ADR 0021). The reads hand back files that exist whether or not
+the dashboard is running (ADR 0015). One write flips a checkbox and one rewrites a todo's
 text, date or directive, both on a line the client already read and addressed by content id.
 The third adds a todo to a department note named by its department. No path crosses the wire.
 
@@ -301,7 +301,7 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", re.compile(r"^/(?!api/|auth/).*$"), "open", static),
     # Push to talk. The clip is recorded by the browser and the reply is played by it, so
     # neither is one machine's hardware; the phone holding the microphone is the point.
-    # The run behind a turn is one fixed skill on a transcript, not a shell (ADR 0018).
+    # The run behind a turn is one fixed skill on a transcript, not a shell (ADR 0025).
     Route("POST", re.compile(r"^/api/talk$"), "tailnet", voice.talk, voice.MAX_STT_BYTES),
     Route("GET", re.compile(r"^/api/speak$"), "tailnet", voice.speak),
     Route("GET", re.compile(r"^/api/voice/health$"), "tailnet", voice.voice_health),
@@ -313,7 +313,12 @@ ROUTES: tuple[Route, ...] = (
 def table(origin: "auth.Origin | None") -> tuple[Route, ...]:
     """The full table: the rows above plus the passkey rows when a tailnet name is configured.
     With no name there is no door, so the ceremony has no reason to exist and no origin to
-    verify against."""
+    verify against. The page still asks `/auth/me` before it draws anything, so that one
+    row stays and says what is true without a door: every visitor is on loopback, and in."""
     if origin is None:
-        return ROUTES
+        return ROUTES + (Route("GET", re.compile(r"^/auth/me$"), "open", loopback_me),)
     return ROUTES + auth.routes(origin)
+
+
+def loopback_me(request: Request, m: "re.Match[str]") -> Response:
+    return json_response({"via": "loopback", "authenticated": True, "enrolled": False})

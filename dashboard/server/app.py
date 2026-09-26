@@ -1,6 +1,6 @@
 """The dashboard's HTTP layer: request and response types, the route table's shape, and dispatch.
 
-Python standard library only, in process with the producers (ADR 0014), so the one write
+Python standard library only, in process with the producers (ADR 0021), so the one write
 reaches `todo_edit.set_done` as a function call with a typed error rather than a subprocess
 with an argv boundary around a client supplied id.
 
@@ -63,7 +63,7 @@ class Response:
 
 
 class ApiError(Exception):
-    """One error shape on the wire: `{"error": {"code", "detail"}}` (ADR 0014)."""
+    """One error shape on the wire: `{"error": {"code", "detail"}}` (ADR 0021)."""
 
     def __init__(self, status: int, code: str, detail: str) -> None:
         super().__init__(f"{status} {code}: {detail}")
@@ -189,7 +189,7 @@ def refuse_cross_site(request: Request, tailnet: Tailnet | None) -> None:
 
 def authorize(request: Request, reach: Reach, tailnet: Tailnet | None) -> Via:
     """The one gate, first statement of `dispatch`, so a route written today is already
-    behind it (ADR 0009). A `loopback` row never graduates, whatever is turned on around it:
+    behind it (ADR 0016). A `loopback` row never graduates, whatever is turned on around it:
     this function keeps refusing the tailnet door for those rows. A `tailnet` row over the
     tailnet needs a session the passkey ceremony minted; over loopback it needs nothing, the
     desktop is the machine the files are on. A write from another site is refused on either
@@ -319,7 +319,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return None
 
     def write(self, response: Response) -> None:
-        # The client takes its clock skew from Date, so every response carries one (ADR 0014).
+        # The client takes its clock skew from Date, so every response carries one (ADR 0021).
         response.headers.setdefault("Date", formatdate(usegmt=True))
         if response.stream is not None:
             response.headers["Transfer-Encoding"] = "chunked"
