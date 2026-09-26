@@ -7,8 +7,8 @@ A record is never edited to change its decision; a later record supersedes it.
 ## HELM 1 (0001 to 0009)
 
 The first version: a Node runner with a file queue, a three-tier voice router and a
-Next.js heads-up display. Its code is at the `helm1-final` tag and its display is in
-`archive/hud/`. The principles in 0003 (bind to loopback) and 0008 (deterministic
+Next.js heads-up display. Its code and its display are at the `helm1-final`
+tag. The principles in 0003 (bind to loopback) and 0008 (deterministic
 feeds over a model) still hold in the engine. These use the MADR format, with status
 and date in the frontmatter.
 

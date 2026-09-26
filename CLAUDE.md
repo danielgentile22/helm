@@ -41,7 +41,6 @@ Life sessions start in the vault, not here. Open this repo only to work on the e
 | `skills/` | `update-vault` and `voice-todo`, the two skills that operate a vault |
 | `models.json` | Model and effort per skill and routine, plus the routine schedules |
 | `demo-vault/` | A vault of fictional data |
-| `archive/hud/` | The HELM 1 display. Not built or tested; `helm1-final` runs it |
 
 ## Run and verify
 

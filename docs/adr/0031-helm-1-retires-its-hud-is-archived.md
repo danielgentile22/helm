@@ -19,3 +19,9 @@ then the dashboard is the only live desktop UI.
   means reopening that record, not reviving the file.
 - The HELM line on the resume and the README demo gif describe the HUD. Both get
   rewritten to describe what is live.
+
+## Update, 2026-09-26
+
+`archive/hud/` is removed from the tree. Nothing built, tested or ran it, and the
+`helm1-final` tag already holds the HUD exactly as it was. Check out the tag to read or
+run it.
