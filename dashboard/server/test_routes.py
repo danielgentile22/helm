@@ -1132,7 +1132,7 @@ class TurnTest(unittest.TestCase):
 
     def test_the_prompt_carries_the_transcript_and_the_run_carries_the_flags(self) -> None:
         """models.json decides the model and the effort, and the skill reads the vault for
-        itself, so the prompt is the sentence and the clock and nothing else."""
+        itself, so the prompt is the sentence, the clock and the vault root to read under."""
         turn_within(self, self.talk()["turn"], "done")
         argv = stub_argv()
         self.assertEqual(argv[1], "-p")
@@ -1140,6 +1140,7 @@ class TurnTest(unittest.TestCase):
         self.assertTrue(prompt.startswith("/voice-todo\n"), prompt)
         self.assertIn(f"transcript: {TRANSCRIPT}", prompt)
         self.assertIn("(America/New_York)", prompt)
+        self.assertIn(f"vault: {common.VAULT}", prompt)
 
         model, effort = turns.registry_entry()
         self.assertEqual(argv[argv.index("--model") + 1], model)

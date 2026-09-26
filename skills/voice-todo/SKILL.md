@@ -22,13 +22,13 @@ Typed as `/voice-todo <sentence>` the prompt has no `now:` line. Run `date "+%Y-
 
 ## Read set
 
-The vault root is `$HELM_VAULT_ROOT`, `~/Vault` by default. Read from there. When `HELM_VAULT_ROOT` is set, the todo editor writes into that copy instead, which is how `skills/voice-todo/check_fixture.py` keeps the real vault untouched; the copy starts identical, so the reads still hold.
+The vault root is the `vault:` line of the prompt. Read notes under it with Read, by absolute path. Never pass the root to a command: `capture.py` and `todo_edit.py` already use it. Run both exactly as written below, starting with `python3 runner/producers/`, with no environment prefix, no pipe, no `&&` and no redirect. The turn may run nothing else, so any other shape is refused. That is how `skills/voice-todo/check_fixture.py` runs against a copy of the demo vault while the real vault stays untouched. Typed as `/voice-todo <sentence>` with no `vault:` line, the root is `~/Vault`.
 
 Open these, and no more than these:
 
-- the four department notes, `Vault/Atlas/<D>/<D>.md` for Work, Projects, Chess and Life
-- `Vault/Atlas/Projects/_registry.md`, then only the project notes the sentence names or could be naming
-- only the people notes under `Vault/Atlas/People/` for a person the sentence names
+- the four department notes, `<vault>/Atlas/<D>/<D>.md` for Work, Projects, Chess and Life
+- `<vault>/Atlas/Projects/_registry.md`, then only the project notes the sentence names or could be naming
+- only the people notes under `<vault>/Atlas/People/` for a person the sentence names
 - the todo rows that step 1 prints
 
 Every extra note costs seconds and the whole turn has ninety. A sentence that names one project needs one project note.
@@ -88,7 +88,7 @@ Two cases write nothing and carry `"actions": []`:
 
 `now: 2026-09-22 21:04 Tuesday`, transcript `Priya wants the opening explorer finished and the share dialog copy fixed on Compiler by Friday`.
 
-Two commitments, one project note (`Vault/Atlas/Projects/Compiler.md`), department Projects, the `Compiler` directive heading already exists, Friday is 2026-09-25.
+Two commitments, one project note (`<vault>/Atlas/Projects/Compiler.md`), department Projects, the `Compiler` directive heading already exists, Friday is 2026-09-25.
 
 ```
 python3 runner/producers/todo_edit.py add Projects "Compiler: finish the opening explorer" --project Compiler --due 2026-09-25

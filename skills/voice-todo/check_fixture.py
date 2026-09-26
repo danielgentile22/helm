@@ -48,8 +48,11 @@ def copy_vault() -> tuple[Path, Path]:
 
 def restore(vault: Path) -> None:
     """The copy as it was before any case ran. Every sentence is graded against the same
-    vault, so a tick in case 2 cannot turn the edit in case 12 into an add."""
-    for argv in (["reset", "-q", "--hard"], ["clean", "-fdq"]):
+    vault, so a tick in case 2 cannot turn the edit in case 12 into an add. The todo editor
+    commits each write, so the reset goes to the copy's first commit, not to HEAD."""
+    base = subprocess.run(["git", "-C", str(vault), "rev-list", "--max-parents=0", "HEAD"],
+                          check=True, capture_output=True, text=True).stdout.split()[0]
+    for argv in (["reset", "-q", "--hard", base], ["clean", "-fdq"]):
         subprocess.run(["git", "-C", str(vault), *argv], check=True, capture_output=True)
 
 

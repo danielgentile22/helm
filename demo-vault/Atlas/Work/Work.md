@@ -18,7 +18,6 @@ The day job, the launch and interview prep. Router: `WORK.md` at the vault root.
 ### Launch ★1
 - [ ] Write the pricing page copy (due: 2026-10-02)
   Keep it to one screen. Priya has the numbers.
-- [ ] Apply to one role (daily)
 
 ### Day job ★2
 - [ ] Finish the first Day job training module (due: 2026-10-01)
