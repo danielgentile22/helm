@@ -4,7 +4,7 @@ A source is a function `(env, now) -> list[dict]`. `run_source` wraps it: on suc
 rows are written to `~/.helm/status/sources/<name>.json`; on failure the cached rows are
 kept and the failure is recorded beside them. The merged files copy each source's
 envelope verbatim, so a reader learns staleness from the artifact it already holds and
-never from a summary written by something else (ADR 0008).
+never from a summary written by something else (ADR 0015).
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 
 ENGINE = Path(__file__).resolve().parents[2]
 # Everything helm writes for its own use lives outside the repo and outside the vault
-# (ADR 0023): status files, logs, metrics, voice turns, credentials.
+# (ADR 0030): status files, logs, metrics, voice turns, credentials.
 STATE = Path(os.environ.get("HELM_STATE") or Path.home() / ".helm")
 STATUS = STATE / "status"
 SOURCES_DIR = STATUS / "sources"

@@ -5,7 +5,7 @@ The syntax, on `Vault/Atlas/<D>/<D>.md` under `## Todos`:
 
     ## Todos
 
-    ### Job search                              <- a directive: the todos below belong to it
+    ### Launch                              <- a directive: the todos below belong to it
     - [ ] tailor resume for the Acme posting (due: 2026-09-18)
       Two pages. Lead with the route rebuild.   <- an indented line is a note
       - [ ] read the PDF once                   <- an indented box is a subtask
@@ -40,7 +40,7 @@ Row contract:
      "done_when": {"predicate": str, "ok": bool | None, "checked": ISO, "detail": str} | None}
 
 A starred directive is also reported on its own, whether or not any todo sits under it, so
-a first priority with nothing queued is still on the map (ADR 0020). One row per starred
+a first priority with nothing queued is still on the map (ADR 0027). One row per starred
 `###` heading under `## Todos`, in the same list as the todos; capture lifts these out of
 `items` into agenda.json's top-level `directives`:
 
@@ -53,7 +53,7 @@ It has no `id` and no `text`: it is not a todo, and nothing may tick or edit it.
 Predicates are a table of (regex, checker). A checker that cannot run (gh down, path
 missing) returns ok None, and the row then keeps the prior result from the cached
 source file so a known true never flips to unknown. The producer never writes into
-the vault; a true predicate is reported, not ticked (ADR 0007).
+the vault; a true predicate is reported, not ticked (ADR 0014).
 
     pr merged <owner/repo>#<n>      gh pr view --json state; MERGED
     tree clean <path>               git status --porcelain empty
@@ -206,8 +206,8 @@ class Block:
 
 
 def directive_heading(title: str) -> tuple[str, int | None]:
-    """Pure. A ### title as its directive's name and star rank (ADR 0007, ADR 0020):
-    `Job search ★1` is the directive Job search, starred first. Every lookup by name goes
+    """Pure. A ### title as its directive's name and star rank (ADR 0014, ADR 0027):
+    `Launch ★1` is the directive Launch, starred first. Every lookup by name goes
     through here, so starring a heading never makes it a different directive."""
     m = STAR.search(title)
     return (title[:m.start()], int(m.group("rank"))) if m else (title, None)

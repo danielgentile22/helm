@@ -24,7 +24,7 @@ prints the line instead, since a ticked box is no longer a todo row) and re-merg
 `~/.helm/status/agenda.json` so the dashboard agrees at once. A predicate is
 validated against the four known shapes before anything is written. Nothing here
 addresses a line by path from a caller: the id is the address, and the path is
-whatever note the id resolves to (ADR 0008), which is also why `add` and `edit` refuse a
+whatever note the id resolves to (ADR 0015), which is also why `add` and `edit` refuse a
 text that is already a box on that note. A todo's block is the line plus the lines
 indented under it, delimited the way `sources/todos.parse_note` delimits them.
 """
