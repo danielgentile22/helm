@@ -6,7 +6,7 @@ tags: [work, demo]
 ---
 # Work
 
-The day job, the launch and interview prep. Router: `WORK.md` at the vault root.
+The day job, the launch and the team offsite. Router: `WORK.md` at the vault root.
 
 ## Overview
 - Software engineer at a mid-sized company, three months in.

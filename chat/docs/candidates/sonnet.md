@@ -22,7 +22,7 @@ const store = new ThreadStore({ root: "~/.helm2/state" });
 const supervisor = new SessionSupervisor({ store });
 
 // create a thread (directory picker on the phone supplies cwd)
-const thread = await store.createThread({ cwd: "/Users/danielgentile/Projects/Vault", model: "sonnet" });
+const thread = await store.createThread({ cwd: "/Users/you/Vault", model: "sonnet" });
 
 // send a turn — returns immediately, the turn runs in the background
 await supervisor.sendMessage(thread.id, { text: "summarize today's meetings", attachments: [] });

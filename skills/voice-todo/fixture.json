@@ -38,10 +38,10 @@
       "good_text": "Already on the Life list. No write, and the confirmation says so: \"That is already on the Life list\"."
     },
     {
-      "say": "I need to finish the interview prep site before the next screen",
+      "say": "I need to finish the team wiki site before the offsite",
       "dept": ["Work", "Projects"],
       "op": "add",
-      "good_text": "One row. Work owns interview prep, Projects owns the repo behind Vault/Atlas/Projects/Interview Readiness.md, and either reading is defensible. The confirmation has to name which it chose."
+      "good_text": "One row. Work owns the offsite, Projects owns the repo behind Vault/Atlas/Projects/Team Wiki.md, and either reading is defensible. The confirmation has to name which it chose."
     },
     {
       "say": "I want to apply to one role every morning",

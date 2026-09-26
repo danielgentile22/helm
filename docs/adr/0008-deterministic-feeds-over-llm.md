@@ -7,7 +7,7 @@ date: 2026-07-11
 
 ## Context and Problem Statement
 
-Data tiles (calendar agenda, GitHub activity, USCF rating, job applications)
+Data tiles (calendar agenda, GitHub activity, a chess rating, an application tracker)
 need fresh numbers on a schedule. The project already had a working pattern
 for background work — headless `claude -p` skills — and the agenda tile
 originally used it. Should data fetching be an AI skill?

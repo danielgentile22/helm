@@ -67,7 +67,7 @@ await helm.interrupt(threadId); // 204 whether or not a turn was running
 const dirs = await helm.browseDirs("~/Projects"); // { entries: [{name, path, hasClaudeMd}] }
 const t = await helm.createThread({
   threadId: crypto.randomUUID(),   // client-minted so create + first send can be retried safely
-  cwd: "/Users/danielgentile/Projects/Vault",
+  cwd: "/Users/you/Vault",
   model: "opus",
   effort: "high",
   title: null,                     // server titles it from the first turn
