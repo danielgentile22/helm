@@ -9,7 +9,7 @@ New repo at `~/Projects/helm2`. The existing `~/Projects/helm` stays untouched a
 largely abandoned; we salvage four small pieces from it (below) and rebuild the engine.
 
 ## Hard requirements (from the user, verbatim intent)
-1. **Vault is the default cwd.** `~/Projects/otto/Vault` is the single source of truth and never
+1. **Vault is the default cwd.** `~/Vault` is the single source of truth and never
    leaves the Mac. No copy on the phone, no upload, no cloud mirror, no git remote (the vault
    is a local-only git repo and must never get a remote, ever).
 2. **Full machine access.** The session must be able to leave the vault: sibling repos under
