@@ -12,23 +12,18 @@ jobs:
       - uses: actions/checkout@v4
       - run: .githooks/test-guard.sh
 
-  test:
+  chat:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: phone
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: phone/package-lock.json
       - run: npm ci
       - run: npm test
-        env:
-          # runner has no ~/.claude/.env; lib/config.ts fail-closes without a vault
-          VAULT_ROOT: ${{ github.workspace }}/demo-vault
-          HUD_TZ: America/New_York
-      - run: npx tsc --noEmit
-      # Catches build-breaking changes here instead of at `fly deploy`.
-      - run: npx next build
-        env:
-          VAULT_ROOT: ${{ github.workspace }}/demo-vault
-          HUD_TZ: America/New_York
+      - run: npm run typecheck

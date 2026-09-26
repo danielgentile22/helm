@@ -1,24 +1,10 @@
 node_modules/
 .DS_Store
-.next/
-out/
-.env*.local
 *.tsbuildinfo
-next-env.d.ts
 .playwright-cli/
 .playwright-mcp/
-logs/
-voice-server/.venv/
-voice-server/*.onnx
-voice-server/*.bin
-voice-server/samples/
-voice-server/__pycache__/
-feeds/__pycache__/
-runner/runner.log*
-runner/runner.pid
-.helm-config.json
+.cate/
 
 # generated review artifacts (contain machine-local paths)
 docs/audits/
 docs/fly-deploy.local.md
-.cate/
