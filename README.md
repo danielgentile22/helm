@@ -12,6 +12,16 @@ it.
 
 *The dashboard against `demo-vault/`, a vault of fictional data.*
 
+<p>
+  <img src="docs/dashboard-drawer.png" alt="A todo's detail drawer open beside the map" width="49%">
+  <img src="docs/dashboard-quick-add.png" alt="Quick add, opened with n, taking a new todo" width="49%">
+</p>
+<p>
+  <img src="docs/dashboard-phone.png" alt="The dashboard at phone width, one department per screen, with hold to talk" width="30%">
+</p>
+
+*A todo's detail drawer, quick add (press `n`), and the same page at phone width.*
+
 ## What runs
 
 - **Helm Chat** (`chat/`). A phone web app that drives Claude Code sessions on the
@@ -34,6 +44,40 @@ it.
   mounted.
 
 ## Three homes
+
+```mermaid
+flowchart LR
+  subgraph ways["Three ways in"]
+    D["Dashboard<br/>browser on the Mac"]
+    C["Helm Chat<br/>phone, over the tailnet"]
+    T["Talk<br/>hold Space and speak"]
+  end
+
+  subgraph engine["Engine: this repo"]
+    DS["dashboard server<br/>:8642"]
+    CS["Helm Chat server<br/>:8420"]
+    VS["voice server<br/>:3108"]
+    R["routines<br/>launchd"]
+    CC["Claude Code"]
+  end
+
+  V[("Vault<br/>notes, todos, decisions")]
+  S[("~/.helm<br/>threads, credentials, status, logs")]
+
+  D --> DS
+  T --> DS
+  DS -- "speech to text, text to speech" --> VS
+  DS -- "headless voice-todo run" --> CC
+  C --> CS
+  CS -- "Agent SDK sessions" --> CC
+  CC -- "reads and edits" --> V
+  DS -- "reads todos, ticks and adds them" --> V
+  DS -- "reads status" --> S
+  CS -- "event logs, passkeys" --> S
+  CS -- "mirrors finished chats" --> V
+  R -- "capture reads" --> V
+  R -- "writes status" --> S
+```
 
 | Home | Holds | Rule |
 |---|---|---|
@@ -71,8 +115,8 @@ routes into loopback-only, tailnet and open by endpoint. The records are in
 ## Decisions
 
 `docs/adr/` holds 34 architecture decision records. 0001 to 0009 are from HELM 1, the
-earlier version whose heads-up display is kept in `archive/hud/` and runs from the
-`helm1-final` tag. 0010 onward cover the engine as it runs today.
+earlier version, whose code and heads-up display live at the `helm1-final` tag. 0010
+onward cover the engine as it runs today.
 
 ## Tests
 
