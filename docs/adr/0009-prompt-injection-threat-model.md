@@ -14,7 +14,7 @@ web-search and write reports into the vault
 brain is instructed to write intent files into `system/queue/`
 ([lib/chat.ts](../../lib/chat.ts)). A hostile web page summarized into a
 report, read back as context by a later session, could try to steer that
-session — classic indirect prompt injection.
+session. That is classic indirect prompt injection.
 [ADR 0005](0005-syncthing-cannot-enqueue-work.md) closes the *transport*
 path (a synced peer writing queue files); this ADR records the decision
 about the *content* path.
@@ -33,7 +33,7 @@ single-user system: the HUD binds loopback only
 ([ADR 0005](0005-syncthing-cannot-enqueue-work.md)), and every skill the
 runner will execute is allowlisted with model-proposed skills outside
 `ALLOWED_SKILLS` rejected. A successful injection can at worst distort
-report prose or waste a run — it cannot open a new write surface or reach
+report prose or waste a run. It cannot open a new write surface or reach
 another user.
 
 Reevaluation triggers: **any multi-user surface, or any write path that
@@ -63,5 +63,5 @@ sanitize/quarantine option stops being optional.
 ### Never re-read model output
 
 * Good: closes the loop completely.
-* Bad: removes the product — the HUD's core loop is reading back the
+* Bad: removes the product, since the HUD's core loop is reading back the
   reports the agent wrote.

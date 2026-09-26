@@ -8,7 +8,7 @@ date: 2026-07-11
 ## Context and Problem Statement
 
 [ADR 0003](0003-loopback-only-bind.md) means the phone can't reach the Mac
-HUD. A Fly.io VM on the tailnet runs the same app for remote use — but it
+HUD. A Fly.io VM on the tailnet runs the same app for remote use, but it
 must never become a write path into the Mac runner. How is the remote
 deployment's capability cut down?
 
@@ -28,7 +28,7 @@ Chosen: **method-based gate**. The VM runs the identical image with
 The perimeter line that matters is reads vs. writes, not a route allowlist:
 a GET never touches the queue, so it can never reach the Mac runner. Gating
 on HTTP method means the phone renders every tab read-only and new write
-routes are covered automatically — no middleware edit to forget.
+routes are covered automatically, with no middleware edit to forget.
 
 ### Consequences
 
@@ -47,7 +47,7 @@ routes are covered automatically — no middleware edit to forget.
 ### Route allowlist
 
 * Good: explicit.
-* Bad: **this was the first implementation and it was rejected in use** — it
+* Bad: **this was the first implementation and it was rejected in use**. It
   404'd reads too, which left the remote tabs hollow while the write surface
   it was meant to remove still existed. Every new route also meant a
   middleware edit to forget.

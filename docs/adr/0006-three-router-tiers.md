@@ -24,22 +24,22 @@ happens when the deciding model is down?
 Chosen: **the tier ladder**. Tier 1 dispatches a known skill to the queue,
 tier 2 answers instantly from a vault snapshot, tier 3 hands off to a
 background `claude -p` session ([lib/router.ts](../../lib/router.ts)). Three
-engines can do the routing — a local Ollama model, Claude Haiku, or a
-deterministic rules engine — and the model engines degrade to rules on any
+engines can do the routing (a local Ollama model, Claude Haiku, or a
+deterministic rules engine), and the model engines degrade to rules on any
 error.
 
 Most utterances are "run the morning report" (tier 1, milliseconds) or
 "what's in the queue" (tier 2, answered from files already on disk) and
 shouldn't pay for a 30-second background AI session. The rules fallback
-means voice keeps working offline and when both model engines are down —
-degraded to exact phrases, but never dead. Model output is distrusted: a
+means voice keeps working offline and when both model engines are down.
+It degrades to exact phrases, but it is never dead. Model output is distrusted: a
 tier-1 route naming a skill outside `ALLOWED_SKILLS` is rejected and
 re-routed rather than executed.
 
 ### Consequences
 
 * Three engines to keep behaviorally aligned, and the rules engine is a pile
-  of regexes with the fragility that implies —
+  of regexes with the fragility that implies.
   [scripts/test-router.ts](../../scripts/test-router.ts) sweeps utterances
   across all of them.
 
@@ -54,7 +54,7 @@ suite's), 2026-07-11, Apple Silicon, local Ollama:
 | `qwen3:4b` (local) | 16/16 | 12/16 | 15/16 | 1404ms | 3094ms |
 
 The 4 misses were all tier confusion (chitchat and snapshot questions routed
-to tier 1/3), never an unsafe skill dispatch — and one utterance answered
+to tier 1/3), never an unsafe skill dispatch, and one utterance answered
 correctly but self-classified as tier 1. This is exactly why model-proposed
 skills are validated against `ALLOWED_SKILLS` and why
 [scripts/test-router.ts](../../scripts/test-router.ts) sweeps the rules
@@ -81,4 +81,4 @@ tokens); the rules engine is exercised directly by the test suite.
 ### Rules only
 
 * Good: deterministic, free, offline.
-* Bad: exact phrases only — tier 3 (open-ended asks) can't exist.
+* Bad: exact phrases only, so tier 3 (open-ended asks) can't exist.

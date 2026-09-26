@@ -16,15 +16,15 @@ write routes authenticate a single local user?
 
 * A shared secret sent as a custom header
 * Session cookies
-* No auth — trust the loopback bind
+* No auth: trust the loopback bind
 
 ## Decision Outcome
 
 Chosen: **shared-key custom header**. Every state-changing route requires an
 `X-HELM-KEY` header matching `HELM_API_KEY`. If no key is configured, writes
-return 503 — not open access ([lib/auth.ts](../../lib/auth.ts)).
+return 503, not open access ([lib/auth.ts](../../lib/auth.ts)).
 
-A custom header defeats CSRF — cross-origin JS can't attach one without a
+A custom header defeats CSRF: cross-origin JS can't attach one without a
 CORS preflight, and same-origin policy stops it from reading the key off
 `/api/key`. Fail-closed matters because "no key configured" is exactly the
 state a fresh clone is in; defaulting to open would make the most common
@@ -45,7 +45,7 @@ allocation.
 ### Shared-key custom header
 
 * Good: CSRF-proof by construction; stateless; trivial to send from curl.
-* Bad: one secret, no identity, no revocation granularity — fine for exactly
+* Bad: one secret, no identity, no revocation granularity. Fine for exactly
   one user.
 
 ### Session cookies

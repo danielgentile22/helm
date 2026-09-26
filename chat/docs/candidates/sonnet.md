@@ -1,4 +1,4 @@
-# Helm 2.0 — candidate design (sonnet)
+# Helm 2.0: candidate design (sonnet)
 
 ## Problem
 
@@ -24,7 +24,7 @@ const supervisor = new SessionSupervisor({ store });
 // create a thread (directory picker on the phone supplies cwd)
 const thread = await store.createThread({ cwd: "/Users/you/Vault", model: "sonnet" });
 
-// send a turn — returns immediately, the turn runs in the background
+// send a turn; returns immediately, the turn runs in the background
 await supervisor.sendMessage(thread.id, { text: "summarize today's meetings", attachments: [] });
 
 // phone opens SSE, optionally resuming from a cursor it already has
@@ -40,7 +40,7 @@ await supervisor.interrupt(thread.id);
 
 `GET /api/threads/:id/events?cursor=123` is the SSE route: it calls `log.replay({from:123})`
 then `log.subscribe()`, writing both to the response with no code path difference between "replay"
-and "live" from the client's perspective — same event shape, same cursor field.
+and "live" from the client's perspective: same event shape, same cursor field.
 
 ## Shape
 
@@ -50,13 +50,13 @@ The event log is the source of truth; everything else (thread metadata, "is a tu
 is a *projection* derived by folding the log, never a second thing that must stay in sync
 (per single-source-of-truth). See `event-log.ts` and `thread.ts`.
 
-- `ThreadId`, `EventSeq` (branded `number`, monotonic per thread starting at 1) — encodes
+- `ThreadId`, `EventSeq` (branded `number`, monotonic per thread starting at 1). Encodes
   "cursors are per-thread integers, not global, not timestamps" in the type instead of a comment.
-- `ThreadEvent` — a discriminated union tagged `type`. Kinds: `user_message`, `assistant_text`,
+- `ThreadEvent`: a discriminated union tagged `type`. Kinds: `user_message`, `assistant_text`,
   `assistant_tool_call`, `assistant_tool_result`, `turn_started`, `turn_completed`,
-  `turn_interrupted`, `turn_error`, `thread_created`. No `partial_text` delta events in v1 — see
-  Tradeoffs.
-- `Thread` — id, cwd, model, reasoning effort, sdk `agentSessionId` (for `--resume`), `status`
+  `turn_interrupted`, `turn_error`, `thread_created`. No `partial_text` delta events in v1 (see
+  Tradeoffs).
+- `Thread`: id, cwd, model, reasoning effort, sdk `agentSessionId` (for `--resume`), `status`
   (`idle | running`), timestamps. `status` and `agentSessionId` are folded from the log at load
   time by `foldThreadState`, not stored independently, so a torn metadata file can never disagree
   with the log (per single-source-of-truth; this directly fixes the old sidecar-tear failure
@@ -66,7 +66,7 @@ is a *projection* derived by folding the log, never a second thing that must sta
 
 One file per thread: `state/threads/<id>/events.jsonl`, one JSON object per line, written with
 `appendFileSync` (an OS-level atomic append for a single write() under ~4KB, which every event
-line is). No `atomicWrite.ts` write-temp-then-rename here — that pattern protects a
+line is). No `atomicWrite.ts` write-temp-then-rename here. That pattern protects a
 whole-file-replace against a torn read; JSONL append needs the opposite property (partial trailing
 writes are recoverable by truncating to the last newline), so `EventLog.open()` scans backward
 from EOF for a trailing incomplete line and truncates it before assigning the next seq. This is
@@ -78,7 +78,7 @@ apply repeatedly (per make-operations-idempotent): opening the same log twice al
 `EventLog` keeps the last N events (default 500) in an in-memory ring alongside a byte-offset
 index for the rest, so `replay({from})` for a recent cursor never touches disk, and a full replay
 from 0 (a fresh phone) streams the file directly. Cursor is `EventSeq`, assigned by the log itself
-at append time (callers never choose a seq), so two writers can never collide on one — this is
+at append time (callers never choose a seq), so two writers can never collide on one. This is
 also why only the supervisor is allowed to hold a log's append handle (see below).
 
 ```ts
@@ -94,12 +94,12 @@ class EventLog {
 ### Session supervisor: one writer per thread, ever
 
 `claude --resume` (and the Agent SDK's equivalent session resume) is not safe to drive from two
-concurrent callers — this is the one fact from the old `lib/chat.ts` comment that this design
+concurrent callers. This is the one fact from the old `lib/chat.ts` comment that this design
 treats as load-bearing, generalized from "one HTTP request in flight" to "one live SDK query loop
 per thread, period." The supervisor is a process-wide singleton map `ThreadId -> RunningTurn`,
 in-memory only (per the old design's own reasoning: a crashed process should free the lock, so
 persisting it would be wrong). Two clients (phone + laptop tab) hitting the same thread do NOT
-get two Claude processes — `sendMessage` on a thread with a turn already running enqueues the
+get two Claude processes: `sendMessage` on a thread with a turn already running enqueues the
 message into that turn's *input queue* (the Agent SDK's streaming input supports mid-turn
 messages) rather than rejecting with 409. This is a deliberate change from the old design: a
 phone and a laptop driving one thread is a real use case here ("multiple parallel threads" is
@@ -117,7 +117,7 @@ class SessionSupervisor {
   restoreOnBoot(store: ThreadStore): Promise<void>;
   // TODO: for every thread whose folded status is "running" (a turn_started with
   // no matching turn_completed/interrupted/error after it), append a synthetic
-  // turn_interrupted event with reason "server_restart" — the SDK process died
+  // turn_interrupted event with reason "server_restart". The SDK process died
   // with the server, so there is no live turn to resume; the log must not keep
   // claiming one is running. This is the crash-recovery contract: restart makes
   // the log consistent again, it does not try to resurrect the child process.
@@ -128,21 +128,21 @@ type RunningTurn = { queue: AsyncQueue<TurnInput>; abort: AbortController };
 
 `runTurn` (private) is the only thing that calls into the Agent SDK. It appends `turn_started`,
 then for each SDK stream chunk appends the matching event kind (`assistant_text`,
-`assistant_tool_call`, ...) as it arrives — this is what makes the log genuinely append-only and
+`assistant_tool_call`, ...) as it arrives. This is what makes the log genuinely append-only and
 streamed rather than "buffer the SDK response, write one event at the end," which would silently
 reintroduce the old blocking-`claude -p`problem behind a different API. When the SDK's turn
 generator ends, append `turn_completed` (or `turn_error` on throw) and pop the next queued input
 if any, otherwise delete the `RunningTurn` from the map. `killTree`-equivalent process-group
 teardown from the old route carries over verbatim for the child process the SDK spawns
-underneath, since the SDK still shells out to the CLI's tool-execution model — same
+underneath, since the SDK still shells out to the CLI's tool-execution model, with the same
 settle-exactly-once discipline (`exit` + drain timer) so `RunningTurn` cleanup always runs.
 
 ### SSE replay/resume and the reconnect-mid-turn case
 
 The phone reconnecting mid-turn is not a special case in this design; it is the *only* case the
 log format supports, because replay and live-tail are the same `AsyncIterable<ThreadEvent>`
-interface with no seam between them. A client that was streaming `assistant_text` deltas... no —
-see Tradeoffs: there are no deltas, so "reconnect mid-turn" means "replay from cursor picks up
+interface with no seam between them. A client that was streaming `assistant_text` deltas... no.
+See Tradeoffs: there are no deltas, so "reconnect mid-turn" means "replay from cursor picks up
 one or more complete `assistant_text` events the client already fully has, plus whatever
 happened after disconnect, plus (if the turn is still running) live events as they land." The
 client's own cursor bookkeeping (store the highest `seq` seen, in `localStorage`) is what makes
@@ -154,10 +154,10 @@ regardless of server behavior, not an extra feature).
 ### Uploads
 
 `POST /api/threads/:id/uploads` accepts a multipart body, stages the file under
-`state/uploads/<threadId>/<uuid>-<original-name>` (never inside the vault — the SDK's `cwd` and
+`state/uploads/<threadId>/<uuid>-<original-name>` (never inside the vault; the SDK's `cwd` and
 `--add-dir` roots are where the model can *choose* to move it), and returns the staged path. The
 caller includes that path in the next `sendMessage` call's `attachments` field, which `runTurn`
-folds into the SDK prompt as a reference the model can read via its normal file tools — no special
+folds into the SDK prompt as a reference the model can read via its normal file tools, with no special
 upload-to-prompt image encoding needed, since the model already has filesystem access to
 `~/Projects`, `~/Desktop`, `~/Documents`, and staged uploads live in a sibling of those. Staged
 files are swept on a TTL (24h) by a cron-like sweep in the server boot path, not by the client,
@@ -167,7 +167,7 @@ tracking references (per laziness-protocol).
 ### Push notifications
 
 `PushSubscription` rows live in `state/push-subscriptions.json` (small, rarely written, so plain
-atomic-write-temp-then-rename from the old `atomicWrite.ts` is exactly right here — this is a
+atomic-write-temp-then-rename from the old `atomicWrite.ts` is exactly right here. This is a
 whole-file replace, unlike the event log). `runTurn` fires a push on `turn_completed` /
 `turn_error` only if no SSE client is currently subscribed to that thread's log (`EventLog`
 exposes `subscriberCount()`), so a client watching live never gets a redundant push.

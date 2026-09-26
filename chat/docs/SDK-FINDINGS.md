@@ -1,4 +1,4 @@
-# Agent SDK capability probe — @anthropic-ai/claude-agent-sdk@0.3.268
+# Agent SDK capability probe: @anthropic-ai/claude-agent-sdk@0.3.268
 Probed against the installed d.ts, not from memory. Resolves sonnet candidate risk #1.
 
 ## Mid-turn message injection: SUPPORTED

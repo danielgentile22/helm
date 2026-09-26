@@ -1,4 +1,4 @@
-# Helm 2.0 — synthesized design
+# Helm 2.0: synthesized design
 
 Status: sketch (types and boundaries only, bodies unimplemented)
 Date: 2026-09-11

@@ -18,7 +18,7 @@ comparison about structure and execution rather than palette taste.
 | 6. Craft | 3 | 3 | 1 |
 | **Total** | **18** | **18** | **8** |
 
-### opus — Amber Rail (18/18)
+### opus: Amber Rail (18/18)
 
 1. **3.** A single hairline rail at 15 px with every block type indented to the same 34 px gutter:
    prompt, thinking, prose, activity and diff hang off one spine with no card backgrounds, so the
@@ -42,7 +42,7 @@ Brief violations: none found. Nits: thread-list rows are bordered cards rather t
 which is slightly less "ledger" than the log itself; frame 2 is a 1356 px tall screen so one whole
 turn fits, which the caption discloses.
 
-### fable — Amber Gutter (18/18)
+### fable: Amber Gutter (18/18)
 
 1. **3.** A 28 px gutter column carries a glyph per line kind (`❯` typed, `∴` thinking, `·` prose,
    `$` tool, `±` diff) with San Francisco for prose and SF Mono for everything the machine said, which
@@ -62,7 +62,7 @@ turn fits, which the caption discloses.
 Brief violations: none. Nit: the gallery page chrome itself is hardcoded dark and does not follow the
 theme toggle, which is page furniture rather than the direction.
 
-### sonnet — Amber Ledger (8/18)
+### sonnet: Amber Ledger (8/18)
 
 1. **2.** Ledger rows and an origin-tagged prompt line are the right instinct, but the log is a stack
    of separate bordered blocks in a 16 px gap flex column with no spine, so it reads closer to a

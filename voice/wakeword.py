@@ -24,7 +24,7 @@ import time
 import numpy as np
 
 SR = 16000
-FRAME = 1280  # 80ms @ 16k — the frame size openwakeword expects per predict()
+FRAME = 1280  # 80ms @ 16k, the frame size openwakeword expects per predict()
 # No wake model ships with helm. Bring your own openWakeWord model name.
 WAKE_MODEL = os.environ.get("WAKE_MODEL", "")
 
@@ -49,13 +49,13 @@ class WakeListener:
 
     def _run(self):
         # server.py only constructs this listener when WAKE_MODEL is set, so
-        # WAKE_MODEL is guaranteed non-empty here — no need to re-check.
+        # WAKE_MODEL is guaranteed non-empty here, no need to re-check.
         try:
             import sounddevice as sd
             from openwakeword.model import Model
 
             model = Model(wakeword_models=[WAKE_MODEL], inference_framework="onnx")
-        except Exception as e:  # missing mic/deps/models — report via /health, never crash the server
+        except Exception as e:  # missing mic/deps/models: report via /health, never crash the server
             self.error = f"{type(e).__name__}: {e}"
             print(f"wake word disabled: {self.error}")
             return
@@ -65,7 +65,7 @@ class WakeListener:
                 samplerate=SR, channels=1, dtype="int16", blocksize=FRAME
             ) as stream:
                 self.ok = True
-                print(f"wake word armed — '{WAKE_MODEL}' threshold={self.threshold}")
+                print(f"wake word armed: '{WAKE_MODEL}' threshold={self.threshold}")
                 noise = 80.0  # rolling RMS noise floor, follows the room
                 last_fire = 0.0
                 while True:
@@ -84,7 +84,7 @@ class WakeListener:
             self.ok = False
             self.error = f"{type(e).__name__}: {e}"
             print(f"wake listener died: {self.error}")
-            # tell connected HUDs hands-free is gone — the one-shot hello at
+            # tell connected HUDs hands-free is gone; the one-shot hello at
             # connect time otherwise asserts "wake word armed" forever
             self.emit({"type": "hello", "wake": False})
 

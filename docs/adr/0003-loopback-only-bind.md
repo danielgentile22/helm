@@ -44,7 +44,7 @@ is sitting at.
 ### 0.0.0.0 + firewall
 
 * Good: one deployment serves every device.
-* Bad: the perimeter becomes firewall configuration — mutable, invisible to
+* Bad: the perimeter becomes firewall configuration: mutable, invisible to
   the repo, and one `pf` misstep from exposing a code executor to the LAN.
 
 ### Tailscale interface bind

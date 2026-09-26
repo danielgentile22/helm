@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fixture sweep for the voice-server's pure audio-framing helpers —
+"""Fixture sweep for the voice-server's pure audio-framing helpers:
 wav_header (RIFF framing for the streamed TTS response) and chunks_of
 (the chunker that decides whether replies speak whole or clipped).
 

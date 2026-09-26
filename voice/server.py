@@ -58,7 +58,7 @@ kokoro = Kokoro(os.path.join(HERE, "kokoro-v1.0.onnx"), os.path.join(HERE, "voic
 WHISPER_DEVICE = "cpu"
 whisper = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
 
-# one whisper model, two callers (/stt route + wake-word thread) — serialize
+# one whisper model, two callers (/stt route + wake-word thread), so serialize
 whisper_lock = threading.Lock()
 
 # :3108 bounds its own memory: a caller can stream any size it likes
@@ -73,7 +73,7 @@ def transcribe_locked(audio):
             audio, beam_size=1, language="en", vad_filter=False,
             initial_prompt=WHISPER_PROMPT,
         )
-        # segments is a lazy generator — consume INSIDE the lock or the
+        # segments is a lazy generator: consume INSIDE the lock or the
         # actual decode runs unguarded
         return " ".join(s.text.strip() for s in segments).strip()
 
@@ -121,7 +121,7 @@ async def events(ws: WebSocket):
     ws_clients.add(ws)
     try:
         while True:
-            await ws.receive_text()  # client pings — content ignored
+            await ws.receive_text()  # client pings; content ignored
     except WebSocketDisconnect:
         pass
     finally:
@@ -166,7 +166,7 @@ async def stt(req: Request):
         return Response(status_code=400, content="clip too short")
     t0 = time.time()
     # faster-whisper decodes webm/opus/wav via PyAV from a file-like object.
-    # CPU decode takes ~1s — run it (and the lock wait, which the wake thread
+    # CPU decode takes ~1s, so run it (and the lock wait, which the wake thread
     # may hold) off the event loop so /health, /events and /speak stay alive.
     text = await asyncio.to_thread(transcribe_locked, io.BytesIO(audio))
     return {"text": text, "ms": int((time.time() - t0) * 1000)}

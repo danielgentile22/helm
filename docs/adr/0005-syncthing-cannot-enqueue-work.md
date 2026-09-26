@@ -22,8 +22,8 @@ execute it with skipped permissions.
 ## Decision Outcome
 
 Chosen: **`.stignore`**. The vault's `.stignore` excludes `system/queue/`
-and `system/runs/` from sync — on the Mac, and written unconditionally by
-[entrypoint.sh](../../entrypoint.sh) on the VM before Syncthing starts.
+and `system/runs/` from sync. The file exists on the Mac, and
+[entrypoint.sh](../../entrypoint.sh) writes it unconditionally on the VM before Syncthing starts.
 Excluding the queue from sync severs the path at the transport layer instead
 of trusting every peer forever.
 
@@ -53,4 +53,4 @@ of trusting every peer forever.
 
 * Good: could sync history safely.
 * Bad: a bespoke authenticated channel built to re-add a capability nobody
-  needs — the queue is only ever written by the machine that runs it.
+  needs. The queue is only ever written by the machine that runs it.

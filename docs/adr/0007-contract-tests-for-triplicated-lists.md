@@ -12,7 +12,7 @@ The skill list lives in three places that can't import each other:
 cases in [runner/runner.js](../../runner/runner.js) (plain Node, no TS
 imports), and the tab/deck maps in [lib/tabs.ts](../../lib/tabs.ts)). The
 failure mode of drift is silent: a skill in the allowlist but missing a
-`buildPrompt()` case dispatches fine and then does nothing — voice just
+`buildPrompt()` case dispatches fine and then does nothing, and voice just
 quietly misroutes.
 
 ## Considered Options
@@ -48,7 +48,7 @@ where drift would split "today" across two dates.
 
 * Good: single source of truth.
 * Bad: the runner would need a TS build step or the lib would need to
-  regress to plain JS — either sacrifices the zero-build daemon for a list
+  regress to plain JS. Either sacrifices the zero-build daemon for a list
   of a dozen strings.
 
 ### Generated lists
