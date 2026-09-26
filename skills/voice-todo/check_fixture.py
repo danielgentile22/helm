@@ -3,7 +3,7 @@
 
 The skill's judgment has no unit test. This is the check instead: every sentence in
 `fixture.json` goes through the same headless command the dashboard's talk route
-builds, against a copy of `Vault/` (including its .git, so commits and `since` behave),
+builds, against a copy of `demo-vault/` made into its own git repo (so commits and `since` behave),
 and the departments and operations that came back are compared to the fixture.
 
     python3 skills/voice-todo/check_fixture.py            every case
@@ -39,7 +39,10 @@ NOTHING_TO_DO = "Nothing to do there"
 def copy_vault() -> tuple[Path, Path]:
     root = Path(tempfile.mkdtemp(prefix="voice-todo-fixture-"))
     dest = root / "Vault"
-    shutil.copytree(ENGINE / "Vault", dest, symlinks=True)
+    shutil.copytree(ENGINE / "demo-vault", dest, symlinks=True)
+    for argv in (["init", "-q", "-b", "main"], ["add", "-A"],
+                 ["-c", "user.name=fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "demo vault"]):
+        subprocess.run(["git", "-C", str(dest), *argv], check=True, capture_output=True)
     return root, dest
 
 
