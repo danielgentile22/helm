@@ -57,19 +57,19 @@ reboots. `tailscale serve status` shows it. Never use Funnel; the app must stay 
 ops/install.sh
 ```
 
-This renders and loads two user agents: `com.helm2.server` (KeepAlive, restarts on crash, logs to
-`~/.helm2/server.log`) and `com.helm2.caffeinate` (`caffeinate -ims`, keeps the Mac awake but lets the display sleep).
+This renders and loads two user agents: `com.helm.chat` (KeepAlive, restarts on crash, logs to
+`~/.helm/logs/com.helm.chat.log`) and `com.helm.caffeinate` (`caffeinate -ims`, keeps the Mac awake but lets the display sleep).
 Rerun the script after pulling changes; it is idempotent. `ops/uninstall.sh` removes both.
 
 Boot is idempotent by design: the server repairs any torn log, seals any turn that was open when
-it died, and refuses to start if another instance holds `~/.helm2/helm.lock`.
+it died, and refuses to start if another instance holds `~/.helm/helm.lock`.
 
 ## 5. Enroll the phone
 
 The server prints an enrollment link when no passkey exists. Read it from the log:
 
 ```
-grep enroll ~/.helm2/server.log | tail -1
+grep enroll ~/.helm/logs/com.helm.chat.log | tail -1
 ```
 
 Open that link on the phone in Safari within ten minutes. It creates a passkey with Face ID and
@@ -98,12 +98,13 @@ assertion path is verified on the phone at step 5, not in the test suite.
 
 ## Moving to the always-on desktop
 
-Repeat steps 1 to 6 on the new machine, then copy `~/.helm2` from the old one (thread history,
+Repeat steps 1 to 6 on the new machine, then copy `~/.helm` from the old one (thread history,
 sessions, push subscriptions, credentials). The passkey's relying party id is the hostname, so a
 new hostname means enrolling the phone again. Stop the old server first so two instances never
 write the same logs.
 
-## Not yet built
+## Backup
 
-Nightly off-machine sync of `~/.helm2`. The destination is not chosen; it should share the
-vault's backup destination.
+The engine's backup routine (`runner/routines/backup.sh`) copies the thread history,
+push subscriptions and credentials in `~/.helm` to the same local drive as the vault
+snapshot, whenever that drive is mounted.
