@@ -92,7 +92,7 @@ which model each runs at in `models.json`; it owns only the two in `skills/`.
 **Directive**:
 A department's standing goal. Every department has them; three anywhere in the tree
 are starred as the current priorities, and the list in the vault's `CLAUDE.md` renders those three
-rather than holding a separate list. A star is written on the heading, `### Job search ★1`,
+rather than holding a separate list. A star is written on the heading, `### Launch ★1`,
 and weights the todos under it (ADR 0020). A directive is never finished, so it is never
 escalated against.
 _Avoid_: goal, objective, priority, OKR

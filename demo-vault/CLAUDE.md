@@ -22,7 +22,7 @@ The three starred directives, in order. The stars live on the department notes.
 
 | Department | Router | Covers |
 |---|---|---|
-| Work | `WORK.md` | the day job, the launch, interview prep |
+| Work | `WORK.md` | the day job, the launch, the team offsite |
 | Projects | `PROJECTS.md` | every repo, Compiler, Keel |
 | Chess | `CHESS.md` | coaching, courses, tournaments |
 | Life | `LIFE.md` | travel, errands, home, health |
