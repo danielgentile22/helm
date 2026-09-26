@@ -28,8 +28,8 @@ test("a file written by a newer version still reads: unknown keys are dropped, n
     const store = new SettingsStore(file, { defaultCwd: "/home/work" });
     assert.deepEqual(await store.get(), { ...defaults, theme: "light" });
 
-    const next = await store.patch({ defaultEffort: "xhigh" });
-    assert.deepEqual(next, { ...defaults, theme: "light", defaultEffort: "xhigh" });
+    const next = await store.patch({ defaultEffort: "high" });
+    assert.deepEqual(next, { ...defaults, theme: "light", defaultEffort: "high" });
     assert.equal("fontScale" in JSON.parse(await readFile(file, "utf8")), false, "a patch rewrites the record this version knows");
   } finally {
     await rm(home, { recursive: true, force: true });

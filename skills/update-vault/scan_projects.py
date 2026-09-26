@@ -183,9 +183,9 @@ def append_metrics(vault: Path, data: dict) -> None:
         "unnoted": len(data["unnoted"]),
         "missing": len(data["missing"]),
     }
-    # Metrics live in the runner, not the vault: the vault holds knowledge and the
-    # runner holds everything that changes because something ran. ADR 0001.
-    with (vault.parent / "runner" / "metrics" / "metrics.csv").open("a") as f:
+    # Metrics are state, not knowledge, so they live in ~/.helm (HELM_STATE), never in the vault.
+    state = Path(os.environ.get("HELM_STATE") or Path.home() / ".helm")
+    with (state / "metrics" / "metrics.csv").open("a") as f:
         for k, v in rows.items():
             f.write(f"{now},projects,{k},{v},ok,\n")
 
@@ -194,7 +194,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--vault", default=os.environ.get("HELM_VAULT_ROOT") or "~/Vault")
     ap.add_argument("--projects", default="~/Projects")
-    ap.add_argument("--metrics", action="store_true", help="also append counts to runner/metrics/metrics.csv")
+    ap.add_argument("--metrics", action="store_true", help="also append counts to ~/.helm/metrics/metrics.csv")
     ap.add_argument("--json", action="store_true", help="print drift as JSON instead of a summary")
     a = ap.parse_args()
     vault, projects = Path(a.vault).expanduser(), Path(a.projects).expanduser()
