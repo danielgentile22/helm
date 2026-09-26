@@ -15,7 +15,7 @@ agent never fights a hand started server.
 Reach: every socket is loopback only, always. With `HELM_HOSTNAME` set in `.env` a second
 loopback listener opens on `HELM_TAILNET_LOCAL_PORT`, `tailscale serve` fronts that one on
 the tailnet, and every request on it is a tailnet request that needs a passkey session
-(ADR 0009, ADR 0018). Binding `--host` to anything but 127.0.0.1 gets a 403 per request.
+(ADR 0016, ADR 0025). Binding `--host` to anything but 127.0.0.1 gets a 403 per request.
 
 Node is a build time tool only. Nothing here names one machine: every path comes from this
 file and from `common.ENGINE`.
@@ -71,7 +71,7 @@ def npm(*args: str) -> int:
 
 def build() -> None:
     """Build when the sources are newer than the last build, so a fresh clone and a stale
-    checkout converge on the same first command (ADR 0014)."""
+    checkout converge on the same first command (ADR 0021)."""
     if not stale():
         return
     if shutil.which("npm") is None:
