@@ -17,7 +17,7 @@ command in muscle memory keeps working.
 
 The server is Python standard library only, a `ThreadingHTTPServer` in the same process
 as the producers under `runner/producers/`, so the one write reaches
-`todo_edit.set_done` as a function call rather than a subprocess (ADR 0014). Node is a
+`todo_edit.set_done` as a function call rather than a subprocess (ADR 0021). Node is a
 build time tool and nothing more.
 
 ## Routes
@@ -45,7 +45,7 @@ and nothing is asked. With a tailnet name configured the same process opens a se
 loopback listener on `HELM_TAILNET_LOCAL_PORT`, and that listener is the tailnet door:
 `tailscale serve` terminates HTTPS on the tailnet and proxies to it, every request on it
 is a tailnet request whatever Host header it carries, and every `/api` request through it
-needs a session that a passkey assertion minted (ADR 0009, ADR 0018). The door is a fact
+needs a session that a passkey assertion minted (ADR 0016, ADR 0025). The door is a fact
 of the socket, never of a header a client chose. Set it up once:
 
 ```sh
@@ -73,7 +73,7 @@ verification, ES256 on P-256, is `server/passkey.py`.
 
 The write is a PUT of desired state, never a toggle, so a retry, a double click and a
 lost response all converge. A repeat answers 200 with `changed: false`. The content id
-is the address, so no path crosses the wire (ADR 0008). After a change the server reruns
+is the address, so no path crosses the wire (ADR 0015). After a change the server reruns
 the todos source and re-merges `agenda.json`, and `agenda_produced` is that file's new
 stamp. Writes into the vault hold the same `flock` the `update-vault` command line
 interface holds, because the vault's git index is one shared writer.
@@ -98,7 +98,7 @@ tail -f ~/.helm/logs/com.helm.dashboard.err              # why it is unhappy
 ```
 
 It keeps the build-if-stale behaviour, because that is the one command a fresh clone
-and a stale checkout both converge on (ADR 0014). The cost is that the first login
+and a stale checkout both converge on (ADR 0021). The cost is that the first login
 after a source change spends a few seconds building before the port answers, and the
 existing degradation path (serve the build that is already there when npm is missing
 or the build fails) keeps that from being fatal.
@@ -128,7 +128,7 @@ dispatch. It refuses on two counts, and both are needed:
   The bound port reaches `authorize` on the request, set by `make_server` off the socket.
 
 The passkey gate for `tailnet` routes lands in that one function when it is needed
-(ADR 0009). Routes marked `loopback` never graduate, whatever is turned on around them.
+(ADR 0016). Routes marked `loopback` never graduate, whatever is turned on around them.
 
 ## The installed app
 
@@ -156,7 +156,7 @@ function from a method and a path to one of three strategies:
 |---|---|---|
 | `/assets/*` | cache first | the hash is in the name, so a hit is never the wrong bytes |
 | the shell document | network first, cache as fallback | not hashed, so a stale copy must never win while the server answers |
-| `GET /api/agenda`, `GET /api/projects` | network first, cache as fallback | a snapshot served from cache arrives as itself, with its own `produced` stamp, and the page classifies its age the way it always has (ADR 0013) |
+| `GET /api/agenda`, `GET /api/projects` | network first, cache as fallback | a snapshot served from cache arrives as itself, with its own `produced` stamp, and the page classifies its age the way it always has (ADR 0020) |
 | `PUT /api/todos/<id>/done` | network only | never cached, never queued, never retried. A failed write surfaces as a failed write |
 | everything else | network only | straight through, untouched |
 
@@ -229,9 +229,9 @@ exits with a one line message.
 | `tsconfig.sw.json` | the worker's own type check. DOM and WebWorker cannot share one program, so `npm run check:sw` covers `src/sw.ts` and `tsconfig.json` excludes it |
 | `src/` | the Svelte client: `App.svelte` and the header, `lib/panels/Map.svelte` and the boxes, cells, rows and drawer under it |
 | `src/lib/model/pressure.ts` | how hard a thing pulls and why, and a department's view of its directives. The one place the ranking lives |
-| `src/lib/model/ink.ts` | what carries pull on the map: lead tiers, the rails and their scale, and the week band (ADR 0019) |
+| `src/lib/model/ink.ts` | what carries pull on the map: lead tiers, the rails and their scale, and the week band (ADR 0026) |
 | `DESIGN.md` | the pressure map's design system, read before drawing anything new |
-| `archive/observatory/` | the previous dashboard, the Approach disc, as it stood at tag `observatory-ui` (ADR 0017) |
+| `archive/observatory/` | the previous dashboard, the Approach disc, as it stood at tag `observatory-ui` (ADR 0024) |
 | `public/icon.svg` | the app mark, and the favicon the page links. `npm run icons` rasterises it to the two PNG sizes the manifest names |
 | `public/manifest.webmanifest` | what Chrome installs: the name, the stable `id`, the icons and `window-controls-overlay` |
-| `prototypes/` | the design record, kept untouched (ADR 0014). `attention/` is the round that chose the map |
+| `prototypes/` | the design record, kept untouched (ADR 0021). `attention/` is the round that chose the map |
