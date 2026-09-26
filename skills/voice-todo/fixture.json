@@ -47,7 +47,7 @@
       "say": "I want to apply to one role every morning",
       "dept": "Work",
       "op": "add",
-      "good_text": "A daily: add Work \"Apply to one role\" --daily, filed under a job search directive if one exists. No due date on a daily."
+      "good_text": "A daily: add Work \"Apply to one role\" --daily, filed under a launch directive if one exists. No due date on a daily."
     },
     {
       "say": "I have a coaching session Thursday at seven in the evening",
