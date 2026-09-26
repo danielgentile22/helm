@@ -1,0 +1,95 @@
+{
+  "_contract": "Each case: `say` is the transcript, `dept` and `op` are what the actions should be, `good_text` is what a good row reads like. `op` as a list means several actions in that order, and `dept` is then positional. `op` as a string with `dept` as a list means one action whose department may be any of them: the sentence is genuinely ambiguous and the confirmation has to name the assumption. `op` values are the editor's five writes plus `sub` (note --sub), `none` (not a todo, confirmation exactly \"Nothing to do there\") and `decline` (cannot act, confirmation says why). `none` and `decline` write nothing.",
+  "cases": [
+    {
+      "say": "Priya wants the opening explorer finished and the share dialog copy fixed on Compiler by Friday",
+      "dept": ["Projects", "Projects"],
+      "op": ["add", "add"],
+      "good_text": "Two rows under the existing ### Compiler heading, both due the coming Friday. Each a clean imperative with the Compiler: prefix, e.g. \"Compiler: finish the opening explorer\". Priya is a Compiler founder named in Vault/Atlas/Projects/Compiler.md and does not belong in the text."
+    },
+    {
+      "say": "I finished the first Day job training module",
+      "dept": "Work",
+      "op": "tick",
+      "good_text": "Ticks the existing Work row \"Finish the first Day job training module\" under ### Day job. No new row. Confirmation names the module."
+    },
+    {
+      "say": "push the Italian chapter to next Monday",
+      "dept": "Chess",
+      "op": "edit",
+      "good_text": "edit on the existing Chess row \"Finish the Italian chapter of the 1.e4 e5 course\", --due set to the Monday after now. Text, directive and kind unchanged, so the id survives."
+    },
+    {
+      "say": "add to the Lisbon flights todo that Sam wants the aisle seat",
+      "dept": "Life",
+      "op": "note",
+      "good_text": "An indented note line under the Life row \"Buy the flight tickets to Lisbon\" in the ### Lisbon trip section. Something like \"Sam wants the aisle seat.\" No new todo."
+    },
+    {
+      "say": "the REAL ID todo also needs me to dig the birth certificate out of the safe first",
+      "dept": "Life",
+      "op": "sub",
+      "good_text": "note --sub under the Life row \"Convert the driver's license to a REAL ID at the DMV\", giving \"  - [ ] dig the birth certificate out of the safe\"."
+    },
+    {
+      "say": "I need to convert my license to a REAL ID at the DMV",
+      "dept": "Life",
+      "op": "decline",
+      "good_text": "Already on the Life list. No write, and the confirmation says so: \"That is already on the Life list\"."
+    },
+    {
+      "say": "I need to finish the interview prep site before the next screen",
+      "dept": ["Work", "Projects"],
+      "op": "add",
+      "good_text": "One row. Work owns interview prep, Projects owns the repo behind Vault/Atlas/Projects/Interview Readiness.md, and either reading is defensible. The confirmation has to name which it chose."
+    },
+    {
+      "say": "I want to apply to one role every morning",
+      "dept": "Work",
+      "op": "add",
+      "good_text": "A daily: add Work \"Apply to one role\" --daily, filed under a job search directive if one exists. No due date on a daily."
+    },
+    {
+      "say": "I have a coaching session Thursday at seven in the evening",
+      "dept": "Chess",
+      "op": "add",
+      "good_text": "An event: add Chess \"Coaching session\" --at \"<the coming Thursday> 19:00\". Seven in the evening is 19:00, not 07:00."
+    },
+    {
+      "say": "book the Lisbon hotel by Friday",
+      "dept": "Life",
+      "op": "add",
+      "good_text": "add Life \"Book the Lisbon hotel\" --project \"Lisbon trip\" --due <the coming Friday>. The directive heading already exists, so reuse it."
+    },
+    {
+      "say": "Alex wants the lead triage bug on Keel fixed",
+      "dept": "Projects",
+      "op": "add",
+      "good_text": "Alex resolves to Vault/Atlas/People/Alex Reed.md, the Keel business partner and daily user of lead triage. Row reads like \"Keel: fix the lead triage bug\", filed under a Keel directive. Alex's name is not needed in the text."
+    },
+    {
+      "say": "the Day job training todo should say module two, not module one",
+      "dept": "Work",
+      "op": "edit",
+      "good_text": "edit --text on the existing Work row so it reads \"Finish the second Day job training module\". Due date and directive untouched. The id changes with the text, and the action carries the new one."
+    },
+    {
+      "say": "remind me to merge the feature pull request, it is done when it is merged",
+      "dept": "Projects",
+      "op": "add",
+      "good_text": "add Projects \"Merge the feature pull request\" --done-when \"pr merged example/repo#<n>\" only if the transcript or the notes give a number. With no number, plain add and no predicate; a guessed number is worse than none."
+    },
+    {
+      "say": "I sent the Acme resume",
+      "dept": null,
+      "op": "decline",
+      "good_text": "No todo about Acme exists. No write, and the confirmation says which lookup failed: \"I could not find a todo about Acme to tick\"."
+    },
+    {
+      "say": "what's the weather",
+      "dept": null,
+      "op": "none",
+      "good_text": "Not a todo. No write, and the confirmation is exactly \"Nothing to do there\"."
+    }
+  ]
+}
