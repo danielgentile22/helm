@@ -41,6 +41,8 @@ expect pass  "example email"                        try docs/i.md "mail someone@
 expect block "phone number"                         try docs/j.md "call (571) 555-0134" # guard:allow
 expect pass  "generic pattern with guard:allow"     try docs/k.md "call (571) 555-0134 guard:allow"
 expect block "guard:allow does not cover deny list" try docs/l.md "Frobnitz guard:allow"
+expect block "em dash in a doc"                      try docs/m0.md "A thing $(printf '\342\200\224') badly"
+expect pass  "en dash in a range in a doc"           try docs/m1.md "From 2020$(printf '\342\200\223')2025"
 expect block "em dash in message"                   try docs/m.md "fine" "Add a thing $(printf '\342\200\224') badly"
 expect block "session link in message"              try docs/n.md "fine" "Add a thing
 

@@ -8,7 +8,8 @@ commit message:
 1. A deny list of personal names and terms, kept OUTSIDE the repo (default
    ~/.helm/guard/deny.txt, or $HELM_GUARD_DENY). No deny list means every check fails.
 2. .githooks/paths: which paths may be added or changed at all.
-3. Generic patterns: secrets, email addresses, phone numbers, and commit message rules.
+3. Generic patterns: secrets, email addresses, phone numbers, dashes in docs, and commit
+   message rules.
 
 A line may opt out of the generic patterns (never the deny list) by carrying the
 marker `guard:allow`, which stays visible in review.
@@ -119,9 +120,14 @@ def check_paths(paths, report, deny_terms):
                 report.add(p, f"path contains a denied term ({term})")
 
 
+DOC_DASH = re.compile(r"\u2014|\s\u2013\s")
+
+
 def check_diff(diff, report, deny_terms):
     for path, n, text in added_lines(diff):
         where = f"{path}:{n}"
+        if path.endswith(".md") and DOC_DASH.search(text):
+            report.add(where, "em dash or spaced en dash in a doc; use two sentences, a colon or a comma")
         for term, rx in deny_terms:
             if rx.search(text):
                 report.add(where, f"denied term ({term})")
