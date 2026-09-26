@@ -1,4 +1,9 @@
-# Helm 2.0 — Phase A grounding
+# Helm 2.0: Phase A grounding
+
+> [!note] Historical. This is the brief the design candidates in `candidates/` were
+> written against, before Helm Chat existed. Paths and names in it (`~/Projects/helm2`,
+> `inbox/chats/`, the salvage list from HELM 1) describe the repo and vault as they were
+> then. `DESIGN.md` is what was built.
 
 ## What we're building
 A standalone self-hosted web app (installed to the iPhone home screen as a PWA) that lets
@@ -20,7 +25,7 @@ largely abandoned; we salvage four small pieces from it (below) and rebuild the 
 4. **No capability sandbox.** Explicit user position: "If I tell it to delete my desktop and
    it does, that's on me." Security is (a) device-level lock on the phone and (b) an encrypted
    network path from phone to Mac over untrusted wifi. Nothing else. Do NOT reintroduce
-   allowlists, read-only modes, or mutation walls — those are a rejected design.
+   allowlists, read-only modes, or mutation walls. Those are a rejected design.
 5. **Multiple parallel threads**, each a continuous conversation with its own working
    directory and its own live Claude Code session. Context economy matters to him: a thread
    should NOT preload the vault, it should be told the task and find what is relevant.
@@ -50,21 +55,21 @@ largely abandoned; we salvage four small pieces from it (below) and rebuild the 
   migrate the whole setup to a real always-on desktop soon. Nothing should assume "laptop."
 
 ## Salvage from ~/Projects/helm (read these; reuse the idea, not necessarily the code)
-- `lib/chat.ts` — `resolveThreadId` (accept a client thread id matching `/^[a-f0-9-]{8,40}$/i`
+- `lib/chat.ts`: `resolveThreadId` (accept a client thread id matching `/^[a-f0-9-]{8,40}$/i`
   else mint a UUID), and the in-process `busy: Set<string>` lock with `acquireThread` /
   `releaseThread`. The lock's comment is the useful part: `claude --resume` is NOT safe to run
   twice concurrently against one session, so the second caller must be rejected; the lock
   living in process memory is correct because a crashed turn should free it on restart.
   DISCARD from this file: the model allowlist (stale: lists claude-sonnet-4-6 / claude-opus-4-8
   / haiku), `chatSystem()`, and the whole `DISPATCH` sentinel + `CHAT_SKILLS` machinery.
-- `lib/atomicWrite.ts` — write-to-temp-then-rename, same directory so the rename stays on one
+- `lib/atomicWrite.ts`: write-to-temp-then-rename, same directory so the rename stays on one
   filesystem. Matters for any state file a second reader might catch mid-write.
-- `app/api/chat/route.ts` — `killTree()`: spawn the child `detached` so it leads its own
+- `app/api/chat/route.ts`: `killTree()`: spawn the child `detached` so it leads its own
   process group, then `process.kill(-pid, sig)` so grandchildren (MCP servers, shell tools)
   die too. Also its settle-exactly-once discipline: a grandchild holding the stdio pipes open
   means `close` may never fire, so `exit` plus a short drain window guarantees settlement.
   These are hard-won and worth carrying over.
-- `lib/auth.ts` — `checkHelmKey` (timing-safe compare, fails CLOSED when unconfigured) and
+- `lib/auth.ts`: `checkHelmKey` (timing-safe compare, fails CLOSED when unconfigured) and
   `bodyTooLarge` (reject on Content-Length before buffering; absent header = chunked = reject).
 - **Transcript mirroring** (from the old route body): every turn is appended to a human-readable
   markdown file under the vault at `inbox/chats/<threadId>.md`, seeded with frontmatter
@@ -78,10 +83,9 @@ largely abandoned; we salvage four small pieces from it (below) and rebuild the 
 ## Vault conventions the design must not violate
 - Never write application code into the vault; code lives in `~/Projects/*`.
 - The vault has machine-owned areas that must not be hand-edited:
-  `Atlas/Projects/Morphy/_board-snapshot.md`, `system/morphy-state.json`, and `system/`
-  caches generally.
+  generated board snapshots under `Atlas/Projects/` and the `system/` caches generally.
 - Inbox retention: research kept indefinitely, morning reports 30 days. `inbox/chats/` has no
-  stated retention policy yet — worth raising.
+  stated retention policy yet, which is worth raising.
 
 ## Model choice
 The user's model policy: Haiku is never used. Available aliases are sonnet, opus, fable.

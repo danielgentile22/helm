@@ -17,8 +17,7 @@ runner/
 ├── routines/             one script per routine
 ├── producers/            capture.py and the five sources it runs, plus todo_edit.py
 ├── hooks/                session_note.py, the three Claude Code session hooks
-├── checks/               deterministic checks the routines call
-└── schemas/              the daily note contract
+└── checks/               deterministic checks the routines call
 
 ~/.helm/
 ├── status/               what the dashboard reads: agenda, projects, per-routine
