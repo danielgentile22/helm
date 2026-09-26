@@ -84,9 +84,9 @@ class TodosSourceTest(unittest.TestCase):
         self.assertEqual((rows["pay the dues"]["project"], rows["pay the dues"]["star"]), ("Club", None))
 
     def test_only_a_trailing_star_one_to_three_is_a_rank(self) -> None:
-        self.assertEqual(todos.directive_heading("Job search ★1"), ("Job search", 1))
-        self.assertEqual(todos.directive_heading("Job search ★4"), ("Job search ★4", None))
-        self.assertEqual(todos.directive_heading("★1 Job search"), ("★1 Job search", None))
+        self.assertEqual(todos.directive_heading("Launch ★1"), ("Launch", 1))
+        self.assertEqual(todos.directive_heading("Launch ★4"), ("Launch ★4", None))
+        self.assertEqual(todos.directive_heading("★1 Launch"), ("★1 Launch", None))
 
     def test_a_starred_directive_is_reported_with_or_without_todos(self) -> None:
         """A first priority with nothing queued had no row at all, so the map could not show

@@ -3,7 +3,7 @@
 
 `agenda.json` and `projects.json` each copy the envelope of every source that fed them,
 so staleness is read off the file the dashboard already holds rather than off a status
-file claiming to summarise it (ADR 0008). A source is a problem when it is failing, when
+file claiming to summarise it (ADR 0015). A source is a problem when it is failing, when
 it has never produced anything, or when its last success is older than twice its cadence,
 which is one missed run plus the run that should have caught up.
 

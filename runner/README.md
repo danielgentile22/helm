@@ -134,7 +134,7 @@ the only two files the dashboard reads:
   and the next fire of every routine. Beside that list, `directives` names every
   starred directive heading on the department notes, with or without todos under it
   (`{"dept", "name", "star", "path", "line"}`), so a priority with nothing queued
-  still reaches the map (ADR 0020). The todos source reports these as rows of kind
+  still reaches the map (ADR 0027). The todos source reports these as rows of kind
   `directive` in its own cache, so they share its failure domain, and capture lifts
   them out of `items`. The todos envelope's `count` includes them
 - `status/projects.json` - every repo and workspace under `~/Projects`, with its
@@ -171,14 +171,14 @@ lists every name and its default.
 
 `producers/sources/todos.py` reads open checkboxes off the four department notes. A
 `### <directive>` heading under `## Todos` files the boxes below it under that
-directive (ADR 0007), and indented lines under a box are its notes and subtasks. A
+directive (ADR 0014), and indented lines under a box are its notes and subtasks. A
 trailing `★1`, `★2` or `★3` on the heading stars the directive and weights its todos
-(ADR 0020); the star is not part of the name:
+(ADR 0027); the star is not part of the name:
 
 ```markdown
 ## Todos
 
-### Job search ★1
+### Launch ★1
 - [ ] tailor resume for the Acme posting (due: 2026-09-18)
   Two pages. Lead with the route rebuild.
   - [ ] read the PDF once
@@ -195,7 +195,7 @@ YYYY-MM-DD HH:MM)` is an event at that moment. Markers may sit anywhere in the t
 and are not part of it, so the content id survives adding a date. `done-when:
 <predicate>` must be the tail. Age needs no date: the commit that added the line says
 when it appeared.
-Four predicates are understood, and a true one is reported, never ticked (ADR 0007):
+Four predicates are understood, and a true one is reported, never ticked (ADR 0014):
 
 ```
 pr merged <owner/repo>#<n>      gh pr view --json state; MERGED

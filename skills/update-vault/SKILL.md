@@ -26,7 +26,7 @@ Run from `~/Vault`. Follow the vault `CLAUDE.md` conventions (frontmatter, super
 python3 ~/.claude/skills/update-vault/scan_projects.py --json
 ```
 
-It rewrites `Atlas/Projects/_registry.md` (generated, never hand-edit) and prints drift as JSON. Add `--metrics` only when a scheduled run should feed the dashboard; on-demand runs skip it so `runner/metrics/metrics.csv` does not fill with duplicates.
+It rewrites `Atlas/Projects/_registry.md` (generated, never hand-edit) and prints drift as JSON. Add `--metrics` only when a scheduled run should feed the dashboard; on-demand runs skip it so `~/.helm/metrics/metrics.csv` does not fill with duplicates.
 
 ## Reconcile drift
 
@@ -47,12 +47,12 @@ Statuses are `active`, `dormant`, `shipped`, `archived` (schema in `CLAUDE.md`).
 
 The syntax and the row contract live in `~/Projects/helm/runner/README.md` (Todo syntax) and `runner/producers/sources/todos.py`. Do not write the line by hand. Decide six things from the sentence, then run the lever:
 
-1. **Department** from the subject: Day job, the job search, interviews, resume → `Work`; a repo, helm, a skill → `Projects`; playing, coaching, the club, rating → `Chess`; everything else → `Life`. When it is genuinely unclear, ask.
+1. **Department** from the subject: Day job, the launch, interviews, resume → `Work`; a repo, helm, a skill → `Projects`; playing, coaching, the club, rating → `Chess`; everything else → `Life`. When it is genuinely unclear, ask.
 2. **Text**: the commitment in Daniel's words, imperative, no date, no trailing period. Keep a project name as a prefix (`Compiler: ...`) when the sentence names one.
 3. **Due date** as `YYYY-MM-DD`, derived from the sentence against today's date ("by Friday", "before the tournament", "end of month"). No date is fine; the row still has an age from the commit.
 4. **Predicate**, only when one of the four shapes fits exactly: `pr merged <owner/repo>#<n>`, `tree clean <path>`, `metric <name> >= <value>`, `file exists <path>`. Most todos have none.
 5. **Kind**. A thing done every day ("every morning", "daily") is `--daily` and carries no date. A thing that happens at a moment (a session, an appointment, a call) is `--at "YYYY-MM-DD HH:MM"`. Everything else is a plain todo, dated or not.
-6. **Directive** with `--project`: the `### <directive>` heading the todo belongs under in the note's Todos section (Job search, Day job, Coaching, Lisbon trip). Reuse a heading that exists; coin one only when the sentence clearly names a thread of work with more than one todo in it. A one-off stays unfiled.
+6. **Directive** with `--project`: the `### <directive>` heading the todo belongs under in the note's Todos section (Launch, Day job, Coaching, Lisbon trip). Reuse a heading that exists; coin one only when the sentence clearly names a thread of work with more than one todo in it. A one-off stays unfiled.
 
 ```
 python3 ~/Projects/helm/runner/producers/todo_edit.py add <Dept> "<text>" [--project "<directive>"] [--due YYYY-MM-DD | --daily | --at "YYYY-MM-DD HH:MM"] [--done-when "<predicate>"]

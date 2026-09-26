@@ -186,7 +186,7 @@ class CaptureTest(unittest.TestCase):
             return [*self.todo_rows,
                     {"kind": "directive", "source": "todos", "dept": "Work", "name": "Day job",
                      "star": 2, "path": "Vault/Atlas/Work/Work.md", "line": 12},
-                    {"kind": "directive", "source": "todos", "dept": "Work", "name": "Job search",
+                    {"kind": "directive", "source": "todos", "dept": "Work", "name": "Launch",
                      "star": 1, "path": "Vault/Atlas/Work/Work.md", "line": 9}]
 
         self.use_sources(todos=todos)
@@ -194,7 +194,7 @@ class CaptureTest(unittest.TestCase):
         agenda = self.agenda()
         self.assertEqual(self.titles(), ["open the box"])
         self.assertEqual(agenda["directives"], [
-            {"dept": "Work", "name": "Job search", "star": 1, "path": "Vault/Atlas/Work/Work.md", "line": 9},
+            {"dept": "Work", "name": "Launch", "star": 1, "path": "Vault/Atlas/Work/Work.md", "line": 9},
             {"dept": "Work", "name": "Day job", "star": 2, "path": "Vault/Atlas/Work/Work.md", "line": 12},
         ])
 
@@ -205,7 +205,7 @@ class CaptureTest(unittest.TestCase):
             calls.append("collect")
             if len(calls) > 1:
                 raise RuntimeError("vault unreadable")
-            return [{"kind": "directive", "source": "todos", "dept": "Work", "name": "Job search",
+            return [{"kind": "directive", "source": "todos", "dept": "Work", "name": "Launch",
                      "star": 1, "path": "Vault/Atlas/Work/Work.md", "line": 9}]
 
         self.use_sources(todos=todos)
@@ -213,7 +213,7 @@ class CaptureTest(unittest.TestCase):
         capture.refresh("todos")
         agenda = self.agenda()
         self.assertFalse(agenda["sources"]["todos"]["ok"])
-        self.assertEqual([d["name"] for d in agenda["directives"]], ["Job search"])
+        self.assertEqual([d["name"] for d in agenda["directives"]], ["Launch"])
 
     def test_a_source_with_no_cache_yet_merges_as_never_produced(self) -> None:
         self.use_sources()

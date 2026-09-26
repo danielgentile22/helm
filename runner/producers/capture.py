@@ -53,7 +53,7 @@ def cadence() -> int:
 def latest_produced(runs: dict[str, common.SourceRun], names: tuple[str, ...]) -> str | None:
     """The newest `produced` among the sources in the file. Merging is not producing: a merge
     after one source reran would otherwise stamp the whole file as a second old while the
-    routine rows in it are from half an hour ago (ADR 0013). None until something succeeds."""
+    routine rows in it are from half an hour ago (ADR 0020). None until something succeeds."""
     stamps = [runs[n].meta["produced"] for n in names if runs[n].meta["produced"]]
     return max(stamps, key=datetime.fromisoformat) if stamps else None
 
