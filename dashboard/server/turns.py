@@ -29,7 +29,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
 
 HERE = Path(__file__).resolve().parent
 RUNNER = HERE.parents[1] / "runner"
@@ -209,14 +209,17 @@ def kill_group(proc: subprocess.Popen) -> None:
 
 
 def run_command(argv: list[str], timeout_s: float,
-                register: Callable[[subprocess.Popen], None] | None = None) -> Outcome:
+                register: Callable[[subprocess.Popen], None] | None = None,
+                env: Mapping[str, str] | None = None) -> Outcome:
     """One headless run, to completion or to the timeout, whichever comes first.
 
     `register` is handed the process the moment it exists, which is how the in flight slot
     gets something to kill. Exported without it for `skills/voice-todo/check_fixture.py`,
-    which runs the same command against a copy of the vault and has nothing to cancel.
+    which runs the same command against a copy of the vault and has nothing to cancel. `env`
+    replaces `os.environ` as the base for `bench/tiers/bench.py`, which points the same run at
+    a local model.
     """
-    env = dict(os.environ, HELM_NO_SESSION_NOTE="1")
+    env = dict(os.environ if env is None else env, HELM_NO_SESSION_NOTE="1")
     started = time.monotonic()
     proc = subprocess.Popen(argv, cwd=str(common.ENGINE), env=env, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,

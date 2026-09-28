@@ -1,0 +1,234 @@
+{
+  "_contract": "Each case: `say` is the sentence as talk would hear it, `tier` the tier that should handle it (0 none, 1 instant, 2 local, 3 cloud). Tier 1 cases name the expected menu key in `action` (`note:<stem>` for a note under Atlas). Tier 2 read cases carry `answer_has`, lowercase substrings the spoken reply must contain; tier 2 edit cases carry `diff_has`, lowercase substrings the added lines of the vault diff must contain, and `dept`, the one department note allowed to change. `ambiguous` marks a sentence where two tiers are defensible; the label is then the higher, safer one. Every expectation is true of demo-vault as it is on disk.",
+  "cases": [
+    {
+      "say": "what do I have today",
+      "tier": 1,
+      "action": "agenda"
+    },
+    {
+      "say": "anything due today",
+      "tier": 1,
+      "action": "agenda"
+    },
+    {
+      "say": "did the capture sources run this morning",
+      "tier": 1,
+      "action": "capture_health"
+    },
+    {
+      "say": "when did the backup last run",
+      "tier": 1,
+      "action": "backup_status"
+    },
+    {
+      "say": "open the latest routine report",
+      "tier": 1,
+      "action": "latest_report"
+    },
+    {
+      "say": "show me the newest report in the inbox",
+      "tier": 1,
+      "action": "latest_report"
+    },
+    {
+      "say": "open the Compiler note",
+      "tier": 1,
+      "action": "note:Compiler"
+    },
+    {
+      "say": "pull up Keel",
+      "tier": 1,
+      "action": "note:Keel"
+    },
+    {
+      "say": "open the Team Wiki page",
+      "tier": 1,
+      "action": "note:Team Wiki"
+    },
+    {
+      "say": "show me the chess note",
+      "tier": 1,
+      "action": "note:Chess"
+    },
+    {
+      "say": "open the decision about starring the launch",
+      "tier": 1,
+      "action": "note:2026-09-20-star-the-launch"
+    },
+    {
+      "say": "Sam's note",
+      "tier": 1,
+      "action": "note:Sam",
+      "ambiguous": true
+    },
+    {
+      "say": "what did I say about the pricing page copy",
+      "tier": 2,
+      "answer_has": [
+        "one screen"
+      ]
+    },
+    {
+      "say": "who runs product on Compiler",
+      "tier": 2,
+      "answer_has": [
+        "priya"
+      ]
+    },
+    {
+      "say": "who is my business partner on Keel",
+      "tier": 2,
+      "answer_has": [
+        "alex"
+      ]
+    },
+    {
+      "say": "tell me about Compiler",
+      "tier": 2,
+      "answer_has": [
+        "opening trainer"
+      ],
+      "ambiguous": true
+    },
+    {
+      "say": "what's left to do on Keel",
+      "tier": 2,
+      "answer_has": [
+        "csv"
+      ],
+      "ambiguous": true
+    },
+    {
+      "say": "which version are the Compiler release notes for",
+      "tier": 2,
+      "answer_has": [
+        "0.4"
+      ]
+    },
+    {
+      "say": "who am I going to Lisbon with",
+      "tier": 2,
+      "answer_has": [
+        "sam"
+      ]
+    },
+    {
+      "say": "what do I still owe my chess coach",
+      "tier": 2,
+      "answer_has": [
+        "games"
+      ]
+    },
+    {
+      "say": "remind me to renew the Keel domain",
+      "tier": 2,
+      "diff_has": [
+        "renew",
+        "domain"
+      ],
+      "dept": "Projects"
+    },
+    {
+      "say": "I sent the coach last weekend's games",
+      "tier": 2,
+      "diff_has": [
+        "[x] send the coach last weekend's games"
+      ],
+      "dept": "Chess"
+    },
+    {
+      "say": "I booked the winter tire swap",
+      "tier": 2,
+      "diff_has": [
+        "[x] book the winter tire swap"
+      ],
+      "dept": "Life"
+    },
+    {
+      "say": "push the pricing page copy to October 9",
+      "tier": 2,
+      "diff_has": [
+        "write the pricing page copy",
+        "2026-10-09"
+      ],
+      "dept": "Work"
+    },
+    {
+      "say": "add to the Lisbon flights todo that Sam wants the aisle seat",
+      "tier": 2,
+      "diff_has": [
+        "aisle seat"
+      ],
+      "dept": "Life"
+    },
+    {
+      "say": "the checkup todo also needs me to find the insurance card first",
+      "tier": 2,
+      "diff_has": [
+        "- [ ]",
+        "insurance card"
+      ],
+      "dept": "Life"
+    },
+    {
+      "say": "plan out next week around the launch and the training module",
+      "tier": 3
+    },
+    {
+      "say": "draft an email to Priya about the pricing numbers",
+      "tier": 3
+    },
+    {
+      "say": "look through the Compiler repo and find out why the PGN importer chokes on big files",
+      "tier": 3
+    },
+    {
+      "say": "set up a new repo for the team wiki redesign and push it",
+      "tier": 3
+    },
+    {
+      "say": "write Alex a summary of this week's Keel leads",
+      "tier": 3
+    },
+    {
+      "say": "is the backup fine and did anything fail overnight",
+      "tier": 3,
+      "ambiguous": true
+    },
+    {
+      "say": "move everything on the Day job list to next week",
+      "tier": 3,
+      "ambiguous": true
+    },
+    {
+      "say": "what should I work on next for the launch",
+      "tier": 3,
+      "ambiguous": true
+    },
+    {
+      "say": "cool, thank you",
+      "tier": 0
+    },
+    {
+      "say": "um",
+      "tier": 0
+    },
+    {
+      "say": "and then the",
+      "tier": 0
+    },
+    {
+      "say": "banana telescope purple",
+      "tier": 0
+    },
+    {
+      "say": "never mind",
+      "tier": 0
+    },
+    {
+      "say": "hang on a second",
+      "tier": 0
+    }
+  ]
+}

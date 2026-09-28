@@ -41,6 +41,7 @@ Life sessions start in the vault, not here. Open this repo only to work on the e
 | `skills/` | `update-vault` and `voice-todo`, the two skills that operate a vault |
 | `models.json` | Model and effort per skill and routine, plus the routine schedules |
 | `demo-vault/` | A vault of fictional data |
+| `bench/` | Benchmarks run by hand on the owner's machine. `bench/tiers` measures the tier ladder |
 
 ## Run and verify
 
@@ -51,8 +52,10 @@ Life sessions start in the vault, not here. Open this repo only to work on the e
   `127.0.0.1:3108/health`.
 - Tests: `npm test` and `npm run typecheck` in `chat/`; `npm run check` in
   `dashboard/`; `python3 -m unittest discover -s <suite> -p 'test_*.py'` for
-  `dashboard/server`, `runner` and `runner/producers`; `.githooks/test-guard.sh`.
+  `dashboard/server`, `runner`, `runner/producers` and `bench/tiers`; `.githooks/test-guard.sh`.
   Point `HELM_STATE` and `HELM_VAULT_ROOT` at temporary folders when you run the
   Python suites. CI runs all of these on every push.
 - Against the demo vault: `HELM_VAULT_ROOT=demo-vault python3 runner/producers/capture.py --print`.
   `skills/voice-todo/check_fixture.py` grades the voice-todo skill against a copy of it.
+- `python3 bench/tiers/bench.py` measures the tier ladder (Kev, a local model, memory) on this
+  machine; see `bench/tiers/README.md`. It needs the speech server up and never runs in CI.

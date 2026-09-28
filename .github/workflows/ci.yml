@@ -37,7 +37,7 @@ jobs:
           python-version: "3.12"
       - run: |
           export HELM_STATE="$RUNNER_TEMP/state" HELM_VAULT_ROOT="$RUNNER_TEMP/vault"
-          for suite in dashboard/server runner runner/producers; do
+          for suite in dashboard/server runner runner/producers bench/tiers; do
             python3 -m unittest discover -s "$suite" -p 'test_*.py'
           done
 
