@@ -14,6 +14,9 @@ commit message:
 A line may opt out of the generic patterns (never the deny list) by carrying the
 marker `guard:allow`, which stays visible in review.
 
+On push, files and messages the remote already publishes are skipped, so a rewritten
+history (filter-repo, then a force-push) is checked only for what it adds.
+
 Usage: guard.py staged | guard.py message <file> | guard.py push (pre-push stdin)
 """
 import os
@@ -157,6 +160,22 @@ def changed_paths(name_status):
     return [line.split("\t")[-1] for line in name_status.splitlines() if line and line[0] in "ACMR"]
 
 
+def changed_files(sha):
+    """(path, blob) for each file a commit adds or changes."""
+    raw = git("show", "-M", "--format=", "--raw", "--no-abbrev", sha)
+    return [(line.split("\t")[-1], line.split()[3]) for line in raw.splitlines() if line.startswith(":") and line.split()[4][0] in "ACMR"]
+
+
+def already_public(remote, remote_shas):
+    """(blob, path) pairs and commit messages reachable from the remote, which a push cannot leak again."""
+    tips = [s for s in remote_shas if s != Z40 and subprocess.run(["git", "cat-file", "-e", s], cwd=ROOT, capture_output=True).returncode == 0]
+    refs = [*tips, f"--remotes={remote}"]
+    raw = git("log", "--format=", "--raw", "--no-abbrev", "--no-renames", *refs)
+    files = {(line.split()[3], line.split("\t")[-1]) for line in raw.splitlines() if line.startswith(":") and line.split()[4] in "AM"}
+    messages = {m.strip() for m in git("log", "--format=%B%x00", *refs).split("\0")}
+    return files, messages
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     deny_terms = load_deny()
@@ -169,18 +188,24 @@ def main():
         check_message(Path(sys.argv[2]).read_text(), report, deny_terms, "commit message")
         report.finish("commit-msg")
     elif mode == "push":
-        for line in sys.stdin.read().splitlines():
-            local_ref, local_sha, _remote_ref, _remote_sha = line.split()
+        updates = [line.split() for line in sys.stdin.read().splitlines()]
+        remote = sys.argv[2] if len(sys.argv) > 2 else "origin"
+        public_files, public_messages = already_public(remote, [u[3] for u in updates])
+        for _local_ref, local_sha, _remote_ref, _remote_sha in updates:
             if local_sha == Z40:
                 continue
-            remote = sys.argv[2] if len(sys.argv) > 2 else "origin"
             for sha in git("rev-list", local_sha, "--not", f"--remotes={remote}").split():
                 short = sha[:8]
-                paths = changed_paths(git("show", "-M", "--format=", "--name-status", sha))
+                # A rewritten history (filter-repo, force-push) gives every old commit a new
+                # id. Only check files and messages the remote does not already publish.
+                paths = [p for p, blob in changed_files(sha) if (blob, p) not in public_files]
                 sub = Report()
                 check_paths(paths, sub, deny_terms)
-                check_diff(git("show", "-M", "-U0", "--no-color", "--format=", "--diff-filter=ACMR", sha), sub, deny_terms)
-                check_message(git("log", "-1", "--format=%B", sha), sub, deny_terms, "message")
+                if paths:
+                    check_diff(git("show", "-M", "-U0", "--no-color", "--format=", "--diff-filter=ACMR", sha, "--", *paths), sub, deny_terms)
+                message = git("log", "-1", "--format=%B", sha)
+                if message.strip() not in public_messages:
+                    check_message(message, sub, deny_terms, "message")
                 report.problems += [f"  {short}{p[1:]}" if p.startswith("  ") else p for p in sub.problems]
         report.finish("pre-push")
     else:

@@ -55,6 +55,17 @@ expect block "push of a --no-verify commit" git push -q origin main
 git reset -q --hard HEAD~1
 expect pass  "push of clean commits" git push -q origin main
 
+# a history rewrite re-pushes what the remote already publishes, but nothing new
+printf 'Old \342\200\224 style\n' > docs/s.md; git add -A; git commit -q --no-verify -m "Old $(printf '\342\200\224') style"
+git push -q --no-verify origin main
+printf 'fine\n' > docs/t.md; git add -A; git commit -q -m "Add t"; git push -q origin main
+git reset -q --soft HEAD~2 && git commit -q --no-verify -m "Old $(printf '\342\200\224') style"
+git rm -q --cached docs/t.md
+expect pass  "force-push of a rewrite of public content" git push -q --force origin main
+printf 'Frobnitz\n' > docs/u.md; git add -A; git commit -q --amend --no-verify -m "Old $(printf '\342\200\224') style"
+expect block "force-push of a rewrite that adds content" git push -q --force origin main
+git reset -q --hard origin/main
+
 # fail closed
 HELM_GUARD_DENY="$tmp/missing.txt" expect block "missing deny list" try docs/q.md "fine"
 : > "$tmp/empty.txt"
