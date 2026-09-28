@@ -8,6 +8,9 @@ the agent follows it, finds nothing, and falls back to globbing the vault.
 Checks helm's CLAUDE.md, the department routers at the vault root, and the department
 notes inside Atlas. A relative pointer resolves against the root its router lives in.
 Prints one line per broken pointer and exits non-zero if any are broken.
+
+A pointer onto an external drive (`/Volumes/<name>/...`) is only checked while that drive is
+mounted. An unplugged backup drive is not a stale pointer; a missing folder on a mounted one is.
 """
 import os
 import re
@@ -35,6 +38,15 @@ def show(path: Path) -> str:
     return str(path).replace(str(Path.home()), "~", 1)
 
 
+def unmounted(path: Path, volumes: Path = Path("/Volumes")) -> bool:
+    """True when the path lives on an external drive that is not plugged in."""
+    try:
+        drive = path.relative_to(volumes).parts[0]
+    except (ValueError, IndexError):
+        return False
+    return not (volumes / drive).is_dir()
+
+
 def resolve(raw: str, root: Path) -> Path:
     if raw.startswith("~"):
         return Path(os.path.expanduser(raw))
@@ -44,7 +56,7 @@ def resolve(raw: str, root: Path) -> Path:
 
 
 def main() -> int:
-    broken, checked, missing_routers = [], 0, []
+    broken, checked, missing_routers, offline = [], 0, [], 0
     for router, root in ROUTERS:
         if not router.exists():
             missing_routers.append(router)
@@ -54,8 +66,12 @@ def main() -> int:
             raw = m.group(1)
             if SKIP.search(raw):
                 continue
+            target = resolve(raw, root)
+            if unmounted(target):
+                offline += 1
+                continue
             checked += 1
-            if not resolve(raw, root).exists():
+            if not target.exists():
                 line = text[: m.start()].count("\n") + 1
                 broken.append((show(router), line, raw))
 
@@ -66,7 +82,9 @@ def main() -> int:
 
     total_bad = len(broken) + len(missing_routers)
     status = "PASS" if total_bad == 0 else "FAIL"
-    print(f"{status}  {checked} pointers checked across {len(ROUTERS) - len(missing_routers)} routers, {total_bad} broken")
+    skipped = f", {offline} on unmounted drives skipped" if offline else ""
+    print(f"{status}  {checked} pointers checked across {len(ROUTERS) - len(missing_routers)} routers, "
+          f"{total_bad} broken{skipped}")
     return 1 if total_bad else 0
 
 
