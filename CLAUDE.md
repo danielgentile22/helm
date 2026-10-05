@@ -3,7 +3,7 @@
 The public engine of a personal operating system. It knows nothing about its owner
 until it reads a vault (`HELM_VAULT_ROOT`, default `~/Vault`), and it writes its own
 state to `~/.helm` (`HELM_STATE`). Nothing personal ever lives in this repo. The words
-used here are defined in `CONTEXT.md`, and the reasons are in `docs/adr/`.
+used here are defined in `GLOSSARY.md`, and the reasons are in `docs/adr/`.
 
 Life sessions start in the vault, not here. Open this repo only to work on the engine.
 
