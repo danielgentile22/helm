@@ -172,11 +172,11 @@ class Run:
         def one(pk: Pick) -> Pick:
             folder = self.folder / tailor.folder_name(pk)
             log = self.dir / f"tailor-{pk.posting.id}.log"
-            if not self.force and folder.exists() and tailor.check(folder) is None:
+            if not self.force and folder.exists() and tailor.check(folder, self.criteria.resume_deny) is None:
                 pk.folder, pk.tailored, pk.tailor_note = str(folder), True, ""
                 self.say(f"tailor  {pk.rank:02d} {pk.posting.company}: already done")
                 return pk
-            done = tailor.tailor(pk, folder, VAULT, self.day, log)
+            done = tailor.tailor(pk, folder, VAULT, self.day, log, self.criteria.resume_deny)
             self.say(f"tailor  {pk.rank:02d} {pk.posting.company}: {'ok' if done.tailored else done.tailor_note}")
             return done
 

@@ -38,6 +38,7 @@ class Criteria:
     description_deny: tuple[str, ...] = ()
     keywords: tuple[str, ...] = ()
     tailor: bool = True
+    resume_deny: tuple[str, ...] = ()
     todo_directive: str = ""
 
     @staticmethod
@@ -47,7 +48,7 @@ class Criteria:
                         for q in raw["queries"])
         if not queries:
             raise ValueError(f"{path}: queries is empty")
-        for key in ("title_deny", "description_deny"):
+        for key in ("title_deny", "description_deny", "resume_deny"):
             for pattern in raw.get(key, ()):
                 re.compile(pattern)
         return Criteria(
@@ -64,6 +65,7 @@ class Criteria:
             description_deny=tuple(raw.get("description_deny", ())),
             keywords=tuple(k.lower() for k in raw.get("keywords", ())),
             tailor=bool(raw.get("tailor", True)),
+            resume_deny=tuple(raw.get("resume_deny", ())),
             todo_directive=str(raw.get("todo_directive", "")),
         )
 

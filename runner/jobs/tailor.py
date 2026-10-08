@@ -42,28 +42,51 @@ def job_description(pick: Pick, today: date) -> str:
             f"# Original JD\n\n{paragraphs}\n")
 
 
-def prompt(jd: Path, out: Path, today: date, retry: bool = False) -> str:
+def prompt(jd: Path, out: Path, today: date, retry: str | None = None) -> str:
     text = f"/{SKILL}\nheadless: true\njd: {jd}\nout: {out}\nnow: {today.isoformat()}"
     if retry:
-        text += ("\nretry: true\nThe first attempt ran out of time. Read the five files, edit, "
+        text += (f"\nretry: true\nThe first attempt failed: {retry}. Read the five files, edit, "
                  "compile, write the notes. Nothing else.")
     return text
+
+
+POPPLER_PATH = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")
 
 
 def pdf_pages(pdf: Path) -> int | None:
     """From pdfinfo (poppler), which the resume-tailor skill already relies on. None when it
     is not installed, so a missing tool never reads as a two-page resume."""
-    env = {**os.environ, "PATH": "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")}
     try:
-        r = subprocess.run(["pdfinfo", str(pdf)], capture_output=True, text=True, env=env)
+        r = subprocess.run(["pdfinfo", str(pdf)], capture_output=True, text=True,
+                           env={**os.environ, "PATH": POPPLER_PATH})
     except FileNotFoundError:
         return None
     m = re.search(r"^Pages:\s+(\d+)", r.stdout, re.M)
     return int(m.group(1)) if m else None
 
 
-def check(folder: Path) -> str | None:
-    """None when the folder holds what the owner needs, else what is missing."""
+def pdf_text(pdf: Path) -> str:
+    """From pdftotext (poppler). Empty when it is not installed."""
+    try:
+        r = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True,
+                           env={**os.environ, "PATH": POPPLER_PATH})
+    except FileNotFoundError:
+        return ""
+    return r.stdout
+
+
+def denied(text: str, deny: tuple[str, ...]) -> list[str]:
+    """The words the resume must not carry, as the owner's criteria list them."""
+    hits = []
+    for pattern in deny:
+        m = re.search(pattern, text)
+        if m:
+            hits.append(m.group(0))
+    return hits
+
+
+def check(folder: Path, deny: tuple[str, ...] = ()) -> str | None:
+    """None when the folder holds what the owner needs, else what is missing or wrong."""
     resumes = [p for p in folder.glob("*.pdf") if "resume" in p.name.lower()]
     letters = [p for p in folder.glob("*.pdf") if "cover" in p.name.lower()]
     if not resumes:
@@ -73,28 +96,33 @@ def check(folder: Path) -> str | None:
     pages = pdf_pages(resumes[0])
     if pages not in (None, 1):
         return f"resume is {pages} pages"
+    hits = denied(pdf_text(resumes[0]), deny) if deny else []
+    if hits:
+        return "resume names " + ", ".join(sorted(set(hits)))
     return None
 
 
-def attempt(jd: Path, folder: Path, vault: Path, today: date, log: Path, retry: bool) -> str | None:
+def attempt(jd: Path, folder: Path, vault: Path, today: date, log: Path, deny: tuple[str, ...],
+            retry: str | None) -> str | None:
     model, effort = claude.registry("skills", SKILL)
     out = claude.run(prompt(jd, folder, today, retry), model, effort, cwd=vault,
                      timeout_s=TIMEOUT_S, stream=True)
     log.write_text(out.stdout + ("\n--- stderr ---\n" + out.stderr if out.stderr else "")
                    + ("\n--- timed out ---\n" if out.timed_out else ""))
-    problem = check(folder)
+    problem = check(folder, deny)
     if out.timed_out:
         problem = problem or "timed out"
     return problem
 
 
-def tailor(pick: Pick, folder: Path, vault: Path, today: date, log: Path) -> Pick:
+def tailor(pick: Pick, folder: Path, vault: Path, today: date, log: Path,
+           deny: tuple[str, ...] = ()) -> Pick:
     folder.mkdir(parents=True, exist_ok=True)
     jd = folder / "job_description.md"
     jd.write_text(job_description(pick, today))
-    problem = attempt(jd, folder, vault, today, log, retry=False)
+    problem = attempt(jd, folder, vault, today, log, deny, retry=None)
     if problem:
-        problem = attempt(jd, folder, vault, today, log.with_suffix(".retry.log"), retry=True)
+        problem = attempt(jd, folder, vault, today, log.with_suffix(".retry.log"), deny, retry=problem)
     pick.folder = str(folder)
     pick.tailored = problem is None
     pick.tailor_note = problem or ""

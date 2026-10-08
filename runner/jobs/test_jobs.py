@@ -215,7 +215,22 @@ class Tailoring(unittest.TestCase):
         self.assertTrue(text.startswith("/resume-tailor\nheadless: true\n"))
         self.assertIn("out: /j\n", text)
         self.assertNotIn("retry", text)
-        self.assertIn("retry: true", tailor.prompt(Path("/j/jd.md"), Path("/j"), TODAY, retry=True))
+        again = tailor.prompt(Path("/j/jd.md"), Path("/j"), TODAY, retry="resume names AWS")
+        self.assertIn("retry: true", again)
+        self.assertIn("resume names AWS", again)
+
+    def test_check_fails_a_resume_that_names_a_denied_word(self):
+        with tempfile.TemporaryDirectory() as d:
+            folder = Path(d)
+            (folder / "Jordan_Resume.pdf").write_bytes(b"%PDF")
+            (folder / "Jordan_Cover_Letter.pdf").write_bytes(b"%PDF")
+            deny = ("\\bAWS\\b", "\\bGo\\b")
+            with mock.patch.object(tailor, "pdf_pages", return_value=1), \
+                 mock.patch.object(tailor, "pdf_text", return_value="Tooling: Docker, AWS, Fly.io. Google Cloud."):
+                self.assertEqual(tailor.check(folder, deny), "resume names AWS")
+            with mock.patch.object(tailor, "pdf_pages", return_value=1), \
+                 mock.patch.object(tailor, "pdf_text", return_value="Tooling: Docker, Fly.io. Gone to Google."):
+                self.assertIsNone(tailor.check(folder, deny))
 
     def test_a_failed_attempt_is_retried_once_with_its_own_log(self):
         calls = []
@@ -238,6 +253,7 @@ class Tailoring(unittest.TestCase):
             self.assertTrue(pk.tailored)
             self.assertEqual(len(calls), 2)
             self.assertIn("retry: true", calls[1])
+            self.assertIn("no resume PDF", calls[1])
             self.assertIn("timed out", log.read_text())
             self.assertTrue(log.with_suffix(".retry.log").exists())
 
