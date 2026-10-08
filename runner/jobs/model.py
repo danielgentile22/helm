@@ -35,7 +35,11 @@ class Criteria:
     shortlist: int = 50
     max_years: int = 2
     title_deny: tuple[str, ...] = ()
+    company_deny: tuple[str, ...] = ()
     description_deny: tuple[str, ...] = ()
+    home_location: str = ""
+    remote_says: tuple[str, ...] = ()
+    remote_denies: tuple[str, ...] = ()
     keywords: tuple[str, ...] = ()
     tailor: bool = True
     resume_deny: tuple[str, ...] = ()
@@ -48,9 +52,11 @@ class Criteria:
                         for q in raw["queries"])
         if not queries:
             raise ValueError(f"{path}: queries is empty")
-        for key in ("title_deny", "description_deny", "resume_deny"):
+        for key in ("title_deny", "company_deny", "description_deny", "resume_deny",
+                    "remote_says", "remote_denies"):
             for pattern in raw.get(key, ()):
                 re.compile(pattern)
+        re.compile(raw.get("home_location", ""))
         return Criteria(
             queries=queries,
             profile=raw["profile"].strip(),
@@ -62,7 +68,11 @@ class Criteria:
             shortlist=int(raw.get("shortlist", 50)),
             max_years=int(raw.get("max_years", 2)),
             title_deny=tuple(raw.get("title_deny", ())),
+            company_deny=tuple(raw.get("company_deny", ())),
             description_deny=tuple(raw.get("description_deny", ())),
+            home_location=str(raw.get("home_location", "")),
+            remote_says=tuple(raw.get("remote_says", ())),
+            remote_denies=tuple(raw.get("remote_denies", ())),
             keywords=tuple(k.lower() for k in raw.get("keywords", ())),
             tailor=bool(raw.get("tailor", True)),
             resume_deny=tuple(raw.get("resume_deny", ())),

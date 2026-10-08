@@ -114,6 +114,11 @@ class Screen(unittest.TestCase):
         self.assertIn("senior", screen.title_reason(posting(title="Senior Backend Engineer"), c))
         self.assertIsNone(screen.title_reason(posting(title="Seniority is not a word here"), c))
 
+    def test_company_deny_is_a_regex_on_the_company(self):
+        c = criteria(company_deny=(r"\bjobright\b",))
+        self.assertIsNone(screen.title_reason(posting(), c))
+        self.assertIn("jobright", screen.title_reason(posting(company="Jobright.ai"), c))
+
     def test_min_years_reads_the_low_end_of_a_range(self):
         self.assertEqual(screen.min_years("3-5 years of experience"), 3)
         self.assertEqual(screen.min_years("2 to 4 yrs of Python"), 2)
@@ -130,6 +135,16 @@ class Screen(unittest.TestCase):
         self.assertIn("citizenship", screen.description_reason(
             posting(desc="US citizenship is required for this role."), c).lower())
         self.assertEqual(screen.description_reason(posting(desc="Requires 4+ years of Python."), c), "asks 4 years")
+
+    def test_a_posting_away_from_home_must_say_remote_and_never_hybrid(self):
+        c = criteria(home_location=r",\s*(VA|DC|MD)$", remote_says=(r"\bremote\b",),
+                     remote_denies=(r"\bhybrid\b",))
+        home = posting(desc="Hybrid, three days in Reston.")
+        home.location = "Reston, VA"
+        self.assertIsNone(screen.description_reason(home, c))
+        self.assertIn("nothing saying", screen.description_reason(posting(desc="Python in Hartford."), c))
+        self.assertIn("hybrid", screen.description_reason(posting(desc="Remote-friendly, but this is a hybrid role."), c))
+        self.assertIsNone(screen.description_reason(posting(desc="Fully remote. See https://x.com/Hybrid-Mesh"), c))
 
     def test_shortlist_prefers_keyword_hits_then_few_applicants_then_recency(self):
         c = criteria(shortlist=2)

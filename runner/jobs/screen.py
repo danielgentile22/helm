@@ -1,6 +1,7 @@
 """The deterministic cuts before any model reads a posting: title words that mark the wrong
-level or stack, description phrases the owner cannot satisfy, a years floor above the
-owner's, and a cheap score that keeps the shortlist the ranker reads to a page or two.
+level or stack, employers whose postings lead nowhere, description phrases the owner cannot
+satisfy, a years floor above the owner's, a posting away from home that is not really remote, and a cheap score that keeps the shortlist the
+ranker reads to a page or two.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ _YEARS = re.compile(r"(\d{1,2})\s*(?:\+|-|–|to)?\s*(?:\d{1,2})?\s*\+?\s*(?:yea
                     r"innovation|excellence|growth|tradition|leadership)))", re.I)
 _IN_LIEU = re.compile(r"in lieu|additional|equivalent|instead of|or an?\s*$", re.I)
 _APPLICANTS = re.compile(r"(\d+)")
+_URL = re.compile(r"https?://\S+")
 
 
 def title_reason(p: Posting, c: Criteria) -> str | None:
@@ -23,6 +25,9 @@ def title_reason(p: Posting, c: Criteria) -> str | None:
     for pattern in c.title_deny:
         if re.search(pattern, t, re.I):
             return f"title matches {pattern!r}"
+    for pattern in c.company_deny:
+        if re.search(pattern, p.company, re.I):
+            return f"company matches {pattern!r}"
     return None
 
 
@@ -45,6 +50,23 @@ def description_reason(p: Posting, c: Criteria) -> str | None:
     years = min_years(d)
     if years is not None and years > c.max_years:
         return f"asks {years} years"
+    return away_reason(p, c)
+
+
+def away_reason(p: Posting, c: Criteria) -> str | None:
+    """A posting outside `home_location` stays only when its own text says it is remote and
+    never says hybrid or on-site. LinkedIn's remote filter lets hybrid and on-site postings
+    through, and its public page carries no workplace type, so the description is the only
+    evidence. Links are cut first: a blog URL with "hybrid" in it says nothing about the job."""
+    if not c.home_location or re.search(c.home_location, p.location, re.I):
+        return None
+    text = _URL.sub(" ", p.title + "\n" + p.description)
+    for pattern in c.remote_denies:
+        m = re.search(pattern, text, re.I)
+        if m:
+            return f"in {p.location} and says {m.group(0)!r}"
+    if not any(re.search(pattern, text, re.I) for pattern in c.remote_says):
+        return f"in {p.location} with nothing saying it is remote"
     return None
 
 
