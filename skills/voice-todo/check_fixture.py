@@ -9,6 +9,8 @@ and the departments and operations that came back are compared to the fixture.
     python3 skills/voice-todo/check_fixture.py            every case
     python3 skills/voice-todo/check_fixture.py --only 4   one case, 1-based
     python3 skills/voice-todo/check_fixture.py --keep     leave the copy on disk
+    python3 skills/voice-todo/check_fixture.py --local gemma4:26b
+                                                          the same run against a local Ollama model
 
 Each case starts from the same copy, reset with git between cases, so the cases never see
 one another's writes. The real vault is never opened for writing: `HELM_VAULT_ROOT` points the
@@ -30,6 +32,7 @@ HERE = Path(__file__).resolve().parent
 ENGINE = HERE.parents[1]
 FIXTURE = HERE / "fixture.json"
 TIMEOUT_S = 90
+OLLAMA_URL = "http://127.0.0.1:11434"
 
 OPS = {"add", "tick", "untick", "edit", "note", "sub", "none", "decline"}
 NO_WRITE = {"none", "decline"}
@@ -115,12 +118,30 @@ def grade(case: dict, actions: list | None, confirmation: str) -> tuple[bool, st
     return True, expected, got
 
 
+def local_run(argv: list[str], model: str, url: str, state: Path) -> tuple[list[str], dict[str, str]]:
+    """Talk's argv and environment pointed at a local Ollama model, the way `bench/tiers` does it.
+
+    Every model alias maps to the local model, `--effort` goes because a local backend has none,
+    and `HELM_STATE` goes to a scratch folder so the demo vault's todos never reach the owner's
+    dashboard when the todo editor re-merges the agenda."""
+    i = argv.index("--effort")
+    argv = argv[:i] + argv[i + 2:]
+    env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+    env.update(ANTHROPIC_BASE_URL=url, ANTHROPIC_AUTH_TOKEN="ollama",
+               CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1",
+               ANTHROPIC_DEFAULT_HAIKU_MODEL=model, ANTHROPIC_DEFAULT_SONNET_MODEL=model,
+               ANTHROPIC_DEFAULT_OPUS_MODEL=model, HELM_NO_SESSION_NOTE="1", HELM_STATE=str(state))
+    return argv, env
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--only", type=int, help="run one case, 1-based")
     ap.add_argument("--keep", action="store_true", help="leave the vault copy on disk")
     ap.add_argument("--now", help='"YYYY-MM-DD HH:MM" to pin the clock, default is now')
+    ap.add_argument("--local", metavar="MODEL", help="run against this Ollama model instead of Claude")
+    ap.add_argument("--ollama", default=OLLAMA_URL, help=f"Ollama base URL, default {OLLAMA_URL}")
     a = ap.parse_args(argv)
 
     cases = json.loads(FIXTURE.read_text())["cases"]
@@ -147,7 +168,10 @@ def main(argv: list[str]) -> int:
     failures = 0
     for i, case in enumerate(cases, 1):
         restore(vault)
-        outcome = turns.run_command(turns.command(case["say"], now), TIMEOUT_S)
+        run, env = turns.command(case["say"], now), None
+        if a.local:
+            run, env = local_run(run, a.local, a.ollama, root / "state")
+        outcome = turns.run_command(run, TIMEOUT_S, env=env)
         result = turns.parse_result(outcome.stdout)
         ok, expected, got = grade(case, result.actions if result else None,
                                   result.confirmation if result else "")
