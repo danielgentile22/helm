@@ -1,0 +1,20 @@
+{
+  "_comment": "Read by helm's job-search routine every morning. Fictional, for the demo vault.",
+  "count": 10,
+  "posted_within_days": 14,
+  "experience_levels": ["2"],
+  "pages": 2,
+  "shortlist": 40,
+  "max_years": 2,
+  "tailor": false,
+  "todo_directive": "Launch",
+  "queries": [
+    {"keywords": "software engineer python", "location": "Lisbon, Portugal"},
+    {"keywords": "junior backend engineer", "location": "European Union", "remote": true}
+  ],
+  "title_deny": ["\\bsenior\\b", "\\bstaff\\b", "\\blead\\b", "\\bintern(ship)?\\b", "\\bmobile\\b"],
+  "description_deny": ["(u\\.?s\\.?|united states)\\s+citizenship\\s+(is\\s+)?required", "clearance\\s+(is\\s+)?required"],
+  "keywords": ["python", "fastapi", "compiler", "backend"],
+  "profile": "Jordan, three months into a software engineering job, building Compiler on the side with Priya and Sam. Backend Python, a little Svelte. Lisbon or remote in the EU. No relocation.",
+  "ranking": "Level fit first, then stack match, then Lisbon or true remote, then applicant count."
+}
