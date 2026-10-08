@@ -34,7 +34,7 @@ dashboard_checks() {
 		echo "FAIL  npm run check"
 		rc=1
 	fi
-	for suite in dashboard/server runner runner/producers; do
+	for suite in dashboard/server runner runner/producers runner/jobs; do
 		if got=$(cd "$ENGINE" && python3 -m unittest discover -s "$suite" -p 'test_*.py' 2>&1); then
 			echo "PASS  python tests in $suite"
 		else

@@ -59,6 +59,13 @@
       "why": "Verifying that paths exist is close to mechanical. Runs every day, so cost compounds.",
       "writes": "nothing when everything passes"
     },
+    "job-search": {
+      "model": "opus",
+      "effort": "high",
+      "schedule": "daily 04:00",
+      "why": "Picking ten postings the owner can actually interview for is a judgment call over fifty descriptions, and the ten tailorings that follow run the resume-tailor skill at its own entry. Runs before the owner wakes so the desktop folder is waiting.",
+      "writes": "~/Desktop/Jobs <day>.pdf and ~/Desktop/Jobs <day>/, Atlas/Work/research/<day>-jobs-top-10.md and Atlas/Work/files/applications/<day>/ in the vault, a todo on Work, and ~/.helm/status/job-search/"
+    },
     "capture": {
       "model": null,
       "effort": null,

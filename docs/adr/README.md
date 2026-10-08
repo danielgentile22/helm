@@ -53,6 +53,7 @@ where it was the name at the time. Records that read "HELM" mean the first versi
 - [0032](0032-helm-commits-to-main-too.md) Helm commits straight to main too
 - [0033](0033-one-phone-app-helm-chat-is-the-shell.md) One phone app: Helm Chat is the shell
 - [0034](0034-skills-get-their-own-private-repo.md) Skills get their own private repo
+- [0035](0035-the-job-search-is-a-routine.md) The job search is a routine
 
 ## Numbering after the merge
 

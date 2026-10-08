@@ -36,7 +36,7 @@ Life sessions start in the vault, not here. Open this repo only to work on the e
 |---|---|
 | `chat/` | Helm Chat, the phone chat surface. Node, Svelte 5. Port 8420 |
 | `dashboard/` | The dashboard. Python standard library server, Svelte 5 build. Port 8642 |
-| `runner/` | Routines, capture producers, checks, the launchd generator |
+| `runner/` | Routines, capture producers, the job search, checks, the launchd generator |
 | `voice/` | The local speech server for talk. Port 3108 |
 | `skills/` | `update-vault` and `voice-todo`, the two skills that operate a vault |
 | `models.json` | Model and effort per skill and routine, plus the routine schedules |
@@ -52,7 +52,8 @@ Life sessions start in the vault, not here. Open this repo only to work on the e
   `127.0.0.1:3108/health`.
 - Tests: `npm test` and `npm run typecheck` in `chat/`; `npm run check` in
   `dashboard/`; `python3 -m unittest discover -s <suite> -p 'test_*.py'` for
-  `dashboard/server`, `runner`, `runner/producers` and `bench/tiers`; `.githooks/test-guard.sh`.
+  `dashboard/server`, `runner`, `runner/producers`, `runner/jobs` and `bench/tiers`;
+  `.githooks/test-guard.sh`.
   Point `HELM_STATE` and `HELM_VAULT_ROOT` at temporary folders when you run the
   Python suites. CI runs all of these on every push.
 - Against the demo vault: `HELM_VAULT_ROOT=demo-vault python3 runner/producers/capture.py --print`.

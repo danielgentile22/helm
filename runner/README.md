@@ -16,6 +16,7 @@ runner/
 ├── schedule.py           the schedule grammar in models.json, parsed in one place
 ├── routines/             one script per routine
 ├── producers/            capture.py and the five sources it runs, plus todo_edit.py
+├── jobs/                 the job search: LinkedIn fetch, screen, rank, tailor, report
 ├── hooks/                session_note.py, the three Claude Code session hooks
 └── checks/               deterministic checks the routines call
 
@@ -50,6 +51,7 @@ runner/
 |---|---|---|---|
 | `integrity-check` | daily 07:00 | sonnet, low | Verifies every router pointer, every wikilink, every repo against its project note, and the dashboard checks and tests. Writes a report only when something is broken |
 | `capture` | every 30 min | none | Refreshes `status/agenda.json` and `status/projects.json` from the deterministic producers. No Claude call |
+| `job-search` | daily 04:00 | opus, high | Searches LinkedIn against the vault's criteria, screens, picks the day's ten, tailors a resume and cover letter for each, and leaves a PDF with the apply links on the desktop. The record goes in the vault |
 
 A routine is a script on a timer. A service is a process launchd keeps alive, and
 there are two:
@@ -123,6 +125,36 @@ but `status/integrity-check.json`.
 
 This is the routine that makes everything else trustworthy. Routers are only
 worth reading if their pointers are real.
+
+## Job search
+
+`jobs/run.py` runs five stages, each leaving its result as JSON under
+`status/job-search/<day>/` so one can be rerun alone with `--only`:
+
+| Stage | Does | Model |
+|---|---|---|
+| `search` | Every query in the vault's `Atlas/Work/files/job-search/criteria.json` against LinkedIn's public listings, deduplicated, titles and employers screened by `title_deny` and `company_deny`, postings reported on an earlier day hidden by `seen.json` | none |
+| `detail` | Each posting page fetched once (cached under `cache/`), descriptions screened by `description_deny`, the years floor, and the remote check (a posting outside `home_location` must match `remote_says` and none of `remote_denies`) | none |
+| `rank` | A cheap score keeps the `shortlist`; one read-only Claude call picks `count`, best first, with a tier and a sentence each | the routine's entry |
+| `tailor` | One headless `resume-tailor` run per pick into `~/Desktop/Jobs <day>/<rank> <Company> - <Title>/`, two at a time; a folder that already holds both PDFs is skipped, so a rerun resumes | the skill's entry |
+| `report` | The research note `Atlas/Work/research/<day>-jobs-top-<count>.md`, a mirror of the folders under `Atlas/Work/files/applications/<day>/`, a vault commit, a due-today todo on Work, and `~/Desktop/Jobs <day>.pdf` compiled with xelatex | none |
+
+The criteria file is the only thing that knows who is searching: the queries, the deny
+regexes, the owner's profile and what the ranker should weigh. `demo-vault/` carries a
+fictional one. A stage that fails still writes the note and the PDF, saying what failed,
+and `status/job-search.json` reads `fail`. It is the one routine that is not silent on
+success: the report is the point.
+
+```sh
+python3 runner/jobs/run.py                      # what launchd runs
+python3 runner/jobs/run.py --limit 2            # tailor the first two picks only
+python3 runner/jobs/run.py --only rank          # rerun one stage from the previous stage's file
+python3 runner/jobs/run.py --desktop /tmp/d     # the morning folder somewhere else
+```
+
+The Mac has to be awake at 04:00 for the folder to be ready by morning; launchd runs a
+missed job at wake instead, and ten tailorings take about an hour. `sudo pmset repeat
+wakeorpoweron MTWRFSU 03:55:00` schedules the wake.
 
 ## Capture
 
