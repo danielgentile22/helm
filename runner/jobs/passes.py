@@ -52,11 +52,11 @@ def skills_prompt(p: Posting, c: Criteria, skills_text: str) -> str:
 
 Report:
 1. years: the smallest number of years of professional experience the required or minimum qualifications demand, as an integer, or null when the required section names none. Ignore the preferred or nice to have section. Quote the line.
-2. stack: the primary programming language or framework the day to day work uses, in a few words as the posting names it.
+2. stack: the one programming language or framework most of the day to day work is in, named in a word or two, never a list. When the posting accepts any of several, name the one the inventory below lists; a language that merely appears somewhere in the text is not the stack.
 3. skills: every hard skill the required section names (languages, frameworks, databases, clouds, tools). Mark each "has" when the inventory below lists it, "adjacent" when the inventory lists something a hiring manager would accept in its place, "missing" otherwise. Leave soft skills, degrees and years out.
 
 Answer with one JSON object and nothing else, in exactly this form:
-{{"years": 3 | null, "years_quote": "...", "stack": "...",
+{{"years": 3 | null, "years_quote": "...", "stack": "Python",
  "skills": [{{"name": "...", "status": "has" | "adjacent" | "missing"}}]}}
 
 Candidate's skills inventory:

@@ -22,6 +22,7 @@ sys.path.insert(0, str(HERE))
 import claude  # noqa: E402
 import funnel  # noqa: E402
 import linkedin  # noqa: E402
+import model  # noqa: E402
 import passes  # noqa: E402
 import pool as poolmod  # noqa: E402
 import rank  # noqa: E402
@@ -327,6 +328,8 @@ class Verdicts(unittest.TestCase):
         self.assertNotEqual(e, verdict_key("eligibility", criteria(work_status="a US citizen"), "Python"))
         self.assertEqual(s, verdict_key("skills", criteria(max_years=5, work_status="a US citizen"), "Python"))
         self.assertNotEqual(s, verdict_key("skills", c, "Python, Java"))
+        with mock.patch.dict(model.FORM_VERSION, {"skills": 99}):
+            self.assertNotEqual(s, verdict_key("skills", c, "Python"))
 
     def test_criteria_loads_the_new_keys_with_defaults(self):
         c = criteria()

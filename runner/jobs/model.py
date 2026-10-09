@@ -99,13 +99,17 @@ class Criteria:
         )
 
 
+FORM_VERSION = {"eligibility": 1, "skills": 2}
+
+
 def verdict_key(stage: str, c: Criteria, skills_text: str) -> str:
     """Twelve hex digits over what shaped a pass's question, so a cached verdict is reused
-    only while that question is unchanged. The eligibility form depends on the owner's work
-    status alone; the skills form on the inventory alone. The thresholds are applied to the
-    cached form at drop time, so changing one never re-buys a verdict."""
+    only while that question is unchanged: the version of the form asked, and the owner's
+    work status for eligibility or the inventory for skills. The thresholds are applied to
+    the cached form at drop time, so changing one never re-buys a verdict. Bump the version
+    when a prompt changes what the form means."""
     shaped = c.work_status if stage == "eligibility" else skills_text
-    return hashlib.sha256(json.dumps([stage, shaped]).encode()).hexdigest()[:12]
+    return hashlib.sha256(json.dumps([stage, FORM_VERSION[stage], shaped]).encode()).hexdigest()[:12]
 
 
 @dataclass
