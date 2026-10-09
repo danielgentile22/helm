@@ -8,6 +8,8 @@ rerun alone with `--only` and a reader can see what every stage decided.
     run.py --limit 2            tailor only the first two picks, for a cheap end to end
     run.py --only tailor --force  tailor every pick again, even the folders already done
     run.py --desktop /tmp/d     write the morning folder somewhere other than ~/Desktop
+    run.py --replay --day D     rerun the cascade over a past day's cards from the cache, no LinkedIn,
+                                no pool, no note, no PDF; the funnel lands in the day dir
 
 Safe to run late (the day is today's date at the start, not 04:00) and safe to run twice (every
 file is overwritten, the ledger only hides postings reported on an earlier day, and a todo
@@ -67,7 +69,8 @@ class Run:
         self.dir.mkdir(parents=True, exist_ok=True)
         self.cache = STATE / "status" / ROUTINE / "cache"
         self.cache.mkdir(parents=True, exist_ok=True)
-        self.pool = Pool.load(STATE / "status" / ROUTINE / "pool.json", STATE / "status" / ROUTINE / "seen.json")
+        self.pool = Pool(None, {}) if replay else \
+            Pool.load(STATE / "status" / ROUTINE / "pool.json", STATE / "status" / ROUTINE / "seen.json")
         self.verdicts = STATE / "status" / ROUTINE / "verdicts"
         self.skills_path = VAULT / self.criteria.skills_note
         self.folder = desktop / f"Jobs {day.isoformat()}"
@@ -103,8 +106,16 @@ class Run:
             self.say(f"search  {q.keywords!r} in {q.location!r}: {len(found)} cards, {fresh} new")
         if not cards:
             raise RuntimeError("LinkedIn returned no cards for any query; throttled or the markup changed")
+        kept = self.screen_cards(list(cards.values()))
+        self.say(f"search  {len(cards)} unique ({', '.join(f'{n} {b}' for b, n in new.items())} new), "
+                 f"{kept} kept after the title and pool screen")
+
+    def screen_cards(self, cards: list[Posting]) -> int:
+        """The title and pool screen over every card pulled. Writes cards.json whole and the
+        drops beside it; returns how many survived."""
+        c = self.criteria
         dropped: list[Dropped] = []
-        for p in cards.values():
+        for p in cards:
             rec = self.pool.known(p.id)
             if rec is not None and rec.day != self.today:
                 dropped.append(Dropped(p.id, "pool", f"{rec.status} {rec.day}"))
@@ -113,12 +124,10 @@ class Run:
             if reason:
                 dropped.append(Dropped(p.id, "search", reason))
                 self.pool.drop(p, "search", reason, self.today)
-        dump(self.dir / "cards.json", list(cards.values()))
+        dump(self.dir / "cards.json", cards)
         dump(self.dir / "dropped-search.json", dropped)
         self.pool.save()
-        kept = len(cards) - len(dropped)
-        self.say(f"search  {len(cards)} unique ({', '.join(f'{n} {b}' for b, n in new.items())} new), "
-                 f"{kept} kept after the title and pool screen")
+        return len(cards) - len(dropped)
 
     # detail: fetch each kept card's page, screen the description
 
@@ -453,6 +462,20 @@ class Run:
         if r.returncode != 0 and "already" not in (r.stdout + r.stderr):
             self.say(f"todo    not added: {(r.stdout + r.stderr).strip()[-300:]}")
 
+    # replay: the cascade again over a past day's cards, from the cache, against no pool
+
+    def replay_day(self) -> None:
+        cards = load_postings(self.dir / "cards.json")
+        (self.dir / "costs.json").unlink(missing_ok=True)
+        self.say(f"replay  {self.today}: {len(cards)} cards from cards.json, "
+                 f"{self.screen_cards(cards)} kept after the title screen")
+        for stage in ("detail", "eligibility", "skills", "rank"):
+            getattr(self, stage)()
+        f = funnel.compute(self.dir)
+        (self.dir / "funnel.json").write_text(json.dumps(f.to_dict(), indent=1))
+        (self.dir / "funnel.md").write_text(f"{funnel.line(f)}\n\n{funnel.table(f)}")
+        self.say(f"replay  {funnel.line(f)}")
+
     def status(self, result: str, failures: int, detail: str = "") -> None:
         path = STATE / "status" / f"{ROUTINE}.json"
         picks = load_picks(self.dir / "picks.json") if (self.dir / "picks.json").exists() else []
@@ -480,7 +503,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--limit", type=int, help="tailor only the first N picks")
     ap.add_argument("--no-tailor", action="store_true")
     ap.add_argument("--force", action="store_true", help="tailor again even where the folder is already done")
+    ap.add_argument("--replay", action="store_true", help="rerun a past day's cascade from the cache, pool untouched")
     args = ap.parse_args(argv)
+
+    if args.replay:
+        day = date.fromisoformat(args.day)
+        if day >= date.today():
+            ap.error("--replay is for a past day; today's run is the live one")
+        run = Run(day, Path(args.desktop).expanduser(), None, True, replay=True)
+        if not (run.dir / "cards.json").exists():
+            ap.error(f"{run.dir / 'cards.json'} does not exist; nothing to replay")
+        run.replay_day()
+        return 0
 
     run = Run(date.fromisoformat(args.day), Path(args.desktop).expanduser(), args.limit, args.no_tailor,
               args.force)

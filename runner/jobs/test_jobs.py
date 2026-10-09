@@ -792,6 +792,31 @@ class Orchestration(unittest.TestCase):
         status = json.loads((self.state / "status/job-search.json").read_text())
         self.assertEqual((status["picks"], status["pool_live"]), (3, 0))
 
+    def test_replay_reruns_a_past_day_from_the_cache_and_leaves_the_pool_alone(self):
+        self.seed_pool()
+        self.assertEqual(self.main("--day", "2026-10-08"), 0)
+        pool_before = (self.jobs / "pool.json").read_text()
+        note = self.vault / "Atlas/Work/research/2026-10-08-jobs-top-10.md"
+        note.unlink()
+        (self.state / "status/job-search.json").unlink()
+        self.fail_calls = set()
+        with self.assertRaises(SystemExit):
+            self.main("--day", date.today().isoformat(), "--replay")
+        self.assertEqual(self.main("--day", "2026-10-08", "--replay"), 0)
+        day = "2026-10-08"
+        self.assertEqual((self.jobs / "pool.json").read_text(), pool_before)
+        self.assertFalse(note.exists())
+        self.assertFalse((self.state / "status/job-search.json").exists())
+        search = self.dropped(day, "search")
+        self.assertNotIn("4", search)
+        self.assertEqual(self.dropped(day, "detail")["4"], "not cached")
+        costs = self.read(day, "costs.json")
+        self.assertEqual((costs["eligibility"]["calls"], costs["eligibility"]["cached"]), (1, 9))
+        self.assertEqual(sorted((r["id"] for r in self.read(day, "ranked.json")), key=int), ["1", "6", "9", "10", "13"])
+        md = (self.jobs / day / "funnel.md").read_text()
+        self.assertTrue(md.startswith("13 pulled (7 home, 6 remote), 0 known, 1 cut by title, 1 unfetched, 1 cut by the screen, 2 by eligibility"))
+        self.assertEqual(self.read(day, "funnel.json")["ranked"], 5)
+
     def test_every_pass_call_failing_is_a_failed_run(self):
         self.fail_calls = {" at "}
         rc = self.main("--day", "2026-10-08")
