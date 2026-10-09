@@ -11,6 +11,7 @@ import os
 import sys
 import tempfile
 import unittest
+import urllib.parse
 from datetime import date
 from pathlib import Path
 from unittest import mock
@@ -168,12 +169,33 @@ class Parsing(unittest.TestCase):
             linkedin.parse_posting("<html>sign in</html>", posting())
 
     def test_search_url_names_experience_window_and_remote(self):
-        url = linkedin.search_url(Query("ai engineer", "European Union", remote=True), ("2",), 14, 25)
+        url = linkedin.search_url(Query("ai engineer", "European Union", remote=True), ("2",), 14, 25,
+                                  ("F", "C"), ("eng", "it"))
         self.assertIn("f_E=2", url)
         self.assertIn("f_TPR=r1209600", url)
         self.assertIn("f_WT=2", url)
         self.assertIn("start=25", url)
-        self.assertNotIn("f_WT", linkedin.search_url(Query("x", "y"), ("2",), 14, 0))
+        self.assertIn("f_JT=F%2CC", url)
+        self.assertIn("f_F=eng%2Cit", url)
+        plain = linkedin.search_url(Query("x", "y"), ("2",), 14, 0)
+        for key in ("f_WT", "f_JT", "f_F"):
+            self.assertNotIn(key, plain)
+
+    def test_search_stops_once_it_has_seen_enough_new_cards(self):
+        pages = []
+
+        def fake_fetch(url):
+            start = int(urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["start"][0])
+            pages.append(start)
+            return "" if start >= 30 else CARDS.replace("1001", str(start + 1)).replace("1002", str(start + 2))
+        q = Query("x", "y")
+        with mock.patch.object(linkedin, "fetch", fake_fetch), mock.patch.object(linkedin.time, "sleep", lambda s: None):
+            found = linkedin.search(q, criteria(pages=5), known={"1", "2"}, want=2)
+            self.assertEqual(pages, [0, 10])
+            self.assertEqual([p.id for p in found], ["1", "2", "11", "12"])
+            pages.clear()
+            found = linkedin.search(q, criteria(pages=5), known=set(), want=50)
+            self.assertEqual(pages, [0, 10, 20, 30])
 
 
 class Screen(unittest.TestCase):
@@ -507,7 +529,7 @@ class Orchestration(unittest.TestCase):
         self.env.stop()
         self.tmp.cleanup()
 
-    def fake_search(self, q, levels, days, pages):
+    def fake_search(self, q, c, known, want, pause_s=0.6):
         return [Posting("1", "Junior Backend Engineer", "Keel", "Lisbon", "2026-10-06", q.keywords),
                 Posting("2", "Senior Engineer", "Compiler", "Remote", "2026-10-05", q.keywords),
                 Posting("3", "Backend Engineer", "Priya Systems", "Lisbon", "2026-10-07", q.keywords),
@@ -536,12 +558,15 @@ class Orchestration(unittest.TestCase):
         day = self.state / "status/job-search/2026-10-08"
         dropped = {d["id"]: d["why"] for d in json.loads((day / "dropped-search.json").read_text())}
         self.assertIn("senior", dropped["2"])
-        self.assertEqual(dropped["4"], "reported on 2026-10-07")
+        self.assertEqual(dropped["4"], "picked 2026-10-07")
         self.assertEqual([d["id"] for d in json.loads((day / "dropped-detail.json").read_text())], ["3"])
         picks = json.loads((day / "picks.json").read_text())
         self.assertEqual([p["posting"]["id"] for p in picks], ["1"])
-        self.assertEqual(json.loads((self.state / "status/job-search/seen.json").read_text()),
-                         {"4": "2026-10-07", "1": "2026-10-08"})
+        pool = json.loads((self.state / "status/job-search/pool.json").read_text())
+        self.assertFalse((self.state / "status/job-search/seen.json").exists())
+        self.assertEqual({k: v["status"] for k, v in pool.items()},
+                         {"1": "picked", "2": "dropped", "3": "dropped", "4": "picked"})
+        self.assertEqual((pool["1"]["picked"], pool["3"]["stage"]), ("2026-10-08", "detail"))
         note = (self.vault / "Atlas/Work/research/2026-10-08-jobs-top-10.md").read_text()
         self.assertIn("**Keel**, [Junior Backend Engineer](https://www.linkedin.com/jobs/view/1/)", note)
         self.assertTrue((self.desktop / "Jobs 2026-10-08.pdf").exists())

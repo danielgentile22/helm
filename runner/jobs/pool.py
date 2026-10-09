@@ -6,7 +6,8 @@ happened to it. It replaces the seen ledger.
     picked    shown on a morning list, never shown again
     expired   judged, but its posting date is older than the pool age
 
-Transitions are the only writes. A caller never sets `status` by hand.
+Transitions are the only writes. A caller never sets `status` by hand. A pool with no path
+is the replay's scratch pool: it accepts every transition and keeps none of them.
 """
 from __future__ import annotations
 
@@ -33,7 +34,7 @@ class Record:
 
 
 class Pool:
-    def __init__(self, path: Path, records: dict[str, Record]) -> None:
+    def __init__(self, path: Path | None, records: dict[str, Record]) -> None:
         self.path = path
         self.records = records
 
@@ -54,6 +55,8 @@ class Pool:
         return pool
 
     def save(self) -> None:
+        if self.path is None:
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps({k: asdict(v) for k, v in self.records.items()}, indent=1, ensure_ascii=False))
@@ -85,3 +88,9 @@ class Pool:
 
     def live(self) -> dict[str, Record]:
         return {pid: r for pid, r in self.records.items() if r.status == "judged"}
+
+    def rankable(self, today: str) -> dict[str, Record]:
+        """What the ranker may read: every live record, plus the ones already picked today,
+        so a rerun of the same day builds the same list."""
+        return {pid: r for pid, r in self.records.items()
+                if r.status == "judged" or (r.status == "picked" and r.picked == today)}

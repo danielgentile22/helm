@@ -12,7 +12,7 @@ import subprocess
 import time
 import urllib.parse
 
-from model import Posting, Query
+from model import Criteria, Posting, Query
 
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0 Safari/537.36")
@@ -40,11 +40,16 @@ def fetch(url: str, timeout_s: int = 30) -> str:
     return r.stdout
 
 
-def search_url(q: Query, experience_levels: tuple[str, ...], days: int, start: int) -> str:
+def search_url(q: Query, experience_levels: tuple[str, ...], days: int, start: int,
+               job_types: tuple[str, ...] = (), job_functions: tuple[str, ...] = ()) -> str:
     params = {"keywords": q.keywords, "location": q.location, "f_E": ",".join(experience_levels),
               "f_TPR": f"r{days * 86400}", "start": start}
     if q.remote:
         params["f_WT"] = "2"
+    if job_types:
+        params["f_JT"] = ",".join(job_types)
+    if job_functions:
+        params["f_F"] = ",".join(job_functions)
     return SEARCH + urllib.parse.urlencode(params)
 
 
@@ -56,14 +61,21 @@ def parse_cards(page: str, q: Query) -> list[Posting]:
     return out
 
 
-def search(q: Query, experience_levels: tuple[str, ...], days: int, pages: int,
-           pause_s: float = 0.6) -> list[Posting]:
+def search(q: Query, c: Criteria, known: set[str], want: int, pause_s: float = 0.6) -> list[Posting]:
+    """One query, page by page, until `want` cards whose id is not in `known` have been seen
+    or the pages run out. Every card seen is returned, known ones included, so the caller
+    can count the pool hits."""
     found: list[Posting] = []
-    for page in range(pages):
-        cards = parse_cards(fetch(search_url(q, experience_levels, days, page * PAGE)), q)
+    new = 0
+    for page in range(c.pages):
+        cards = parse_cards(fetch(search_url(q, c.experience_levels, c.posted_within_days, page * PAGE,
+                                             c.job_types, c.job_functions)), q)
         if not cards:
             break
         found.extend(cards)
+        new += sum(1 for p in cards if p.id not in known)
+        if new >= want:
+            break
         time.sleep(pause_s)
     return found
 

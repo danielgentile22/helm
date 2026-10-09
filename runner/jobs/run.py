@@ -36,6 +36,7 @@ import report  # noqa: E402
 import screen  # noqa: E402
 import tailor  # noqa: E402
 from model import CRITERIA_PATH, Criteria, Dropped, Pick, Posting, dump, load_picks, load_postings  # noqa: E402
+from pool import Pool  # noqa: E402
 
 ENGINE = HERE.parents[1]
 STATE = Path(os.environ.get("HELM_STATE") or Path.home() / ".helm")
@@ -48,8 +49,10 @@ TAILOR_WORKERS = 2
 
 class Run:
     def __init__(self, day: date, desktop: Path, limit: int | None, no_tailor: bool,
-                 force: bool = False) -> None:
+                 force: bool = False, replay: bool = False) -> None:
+        self.replay = replay
         self.day = day
+        self.today = day.isoformat()
         self.desktop = desktop
         self.limit = limit
         self.no_tailor = no_tailor
@@ -59,7 +62,7 @@ class Run:
         self.dir.mkdir(parents=True, exist_ok=True)
         self.cache = STATE / "status" / ROUTINE / "cache"
         self.cache.mkdir(parents=True, exist_ok=True)
-        self.ledger_path = STATE / "status" / ROUTINE / "seen.json"
+        self.pool = Pool.load(STATE / "status" / ROUTINE / "pool.json", STATE / "status" / ROUTINE / "seen.json")
         self.folder = desktop / f"Jobs {day.isoformat()}"
         self.pdf = desktop / f"Jobs {day.isoformat()}.pdf"
         self.note_path = VAULT / "Atlas/Work/research" / f"{report.note_stem(day, self.criteria.count)}.md"
@@ -68,47 +71,59 @@ class Run:
     def say(self, line: str) -> None:
         print(line, flush=True)
 
-    # search: cards from every query, deduplicated, title screened, ledger screened
-
-    def ledger(self) -> dict[str, str]:
-        if self.ledger_path.exists():
-            return json.loads(self.ledger_path.read_text())
-        return {}
+    # search: cards per bucket until its target of new ones is met, title screened, pool screened
 
     def search(self) -> None:
         c = self.criteria
-        seen = self.ledger()
         cards: dict[str, Posting] = {}
-        dropped: list[Dropped] = []
+        new = {bucket: 0 for bucket in c.targets}
         for q in c.queries:
-            found = linkedin.search(q, c.experience_levels, c.posted_within_days, c.pages)
-            new = 0
+            bucket = "remote" if q.remote else "home"
+            want = c.targets.get(bucket, 0) - new[bucket]
+            if want <= 0:
+                self.say(f"search  {q.keywords!r} in {q.location!r}: skipped, the {bucket} target is met")
+                continue
+            found = linkedin.search(q, c, set(cards) | set(self.pool.records), want)
+            fresh = 0
             for p in found:
                 if p.id in cards:
                     continue
                 cards[p.id] = p
-                new += 1
-            self.say(f"search  {q.keywords!r} in {q.location!r}: {len(found)} cards, {new} new")
-        kept: list[Posting] = []
-        for p in cards.values():
-            reason = screen.title_reason(p, c)
-            if reason is None and seen.get(p.id) not in (None, self.day.isoformat()):
-                reason = f"reported on {seen[p.id]}"
-            if reason:
-                dropped.append(Dropped(p.id, "search", reason))
-            else:
-                kept.append(p)
+                if self.pool.known(p.id) is None:
+                    fresh += 1
+            new[bucket] += fresh
+            self.say(f"search  {q.keywords!r} in {q.location!r}: {len(found)} cards, {fresh} new")
         if not cards:
             raise RuntimeError("LinkedIn returned no cards for any query; throttled or the markup changed")
-        dump(self.dir / "cards.json", kept)
+        dropped: list[Dropped] = []
+        for p in cards.values():
+            rec = self.pool.known(p.id)
+            if rec is not None and rec.day != self.today:
+                dropped.append(Dropped(p.id, "pool", f"{rec.status} {rec.day}"))
+                continue
+            reason = screen.title_reason(p, c)
+            if reason:
+                dropped.append(Dropped(p.id, "search", reason))
+                self.pool.drop(p, "search", reason, self.today)
+        dump(self.dir / "cards.json", list(cards.values()))
         dump(self.dir / "dropped-search.json", dropped)
-        self.say(f"search  {len(cards)} unique, {len(kept)} kept after the title and ledger screen")
+        self.pool.save()
+        kept = len(cards) - len(dropped)
+        self.say(f"search  {len(cards)} unique ({', '.join(f'{n} {b}' for b, n in new.items())} new), "
+                 f"{kept} kept after the title and pool screen")
 
     # detail: fetch each kept card's page, screen the description
 
+    def survivors(self, stage: str) -> list[Posting]:
+        """The postings that entered `stage`'s predecessor and were not dropped there."""
+        before = {"detail": "cards.json"}[stage]
+        dropped_file = {"detail": "dropped-search.json"}[stage]
+        gone = {d["id"] for d in json.loads((self.dir / dropped_file).read_text())}
+        return [p for p in load_postings(self.dir / before) if p.id not in gone]
+
     def detail(self) -> None:
         c = self.criteria
-        cards = load_postings(self.dir / "cards.json")
+        cards = self.survivors("detail")
         kept: list[Posting] = []
         dropped: list[Dropped] = []
         failed = 0
@@ -116,6 +131,9 @@ class Run:
             cached = self.cache / f"{p.id}.json"
             if cached.exists():
                 p = Posting.from_dict(json.loads(cached.read_text()))
+            elif self.replay:
+                dropped.append(Dropped(p.id, "detail", "not cached"))
+                continue
             else:
                 try:
                     p = linkedin.fetch_posting(p)
@@ -127,12 +145,14 @@ class Run:
             reason = screen.description_reason(p, c)
             if reason:
                 dropped.append(Dropped(p.id, "detail", reason))
+                self.pool.drop(p, "detail", reason, self.today)
             else:
                 kept.append(p)
         if cards and failed == len(cards):
             raise RuntimeError("no posting page could be fetched; LinkedIn is throttling")
         dump(self.dir / "postings.json", kept)
         dump(self.dir / "dropped-detail.json", dropped)
+        self.pool.save()
         self.say(f"detail  {len(cards)} fetched ({failed} failed), {len(kept)} kept after the description screen")
 
     # rank: one model call over the shortlist
@@ -151,10 +171,12 @@ class Run:
         if not out.ok:
             raise RuntimeError(f"the ranker failed ({'timed out' if out.timed_out else out.returncode}): {out.tail()}")
         picks, dropped = rank.parse(out.stdout, short, c.count)
-        ledger = self.ledger()
+        for p in short:
+            if self.pool.known(p.id) is None:
+                self.pool.judged(p, self.today)
         for pk in picks:
-            ledger.setdefault(pk.posting.id, self.day.isoformat())
-        self.ledger_path.write_text(json.dumps(ledger, indent=1))
+            self.pool.pick(pk.posting.id, self.today)
+        self.pool.save()
         dump(self.dir / "picks.json", [pk.to_dict() for pk in picks])
         dump(self.dir / "dropped-rank.json", dropped)
         self.say(f"rank    {len(short)} read, {len(picks)} picked")
