@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""The job search routine: search, detail, rank, tailor, report. One stage after another,
-each leaving its result as JSON under `~/.helm/status/job-search/<day>/`, so a stage can be
-rerun alone with `--only` and a reader can see what every stage decided.
+"""The job search routine: search, detail, eligibility, skills, rank, tailor, report. One
+stage after another, each leaving its result as JSON under `~/.helm/status/job-search/<day>/`
+beside the drops it made, so a stage can be rerun alone with `--only` and a reader can see
+what every stage decided. The pool at `pool.json` carries judged postings across days.
 
     run.py                      what launchd runs: the whole day
     run.py --only rank          rerun one stage from the previous stage's file
@@ -12,8 +13,8 @@ rerun alone with `--only` and a reader can see what every stage decided.
                                 no pool, no note, no PDF; the funnel lands in the day dir
 
 Safe to run late (the day is today's date at the start, not 04:00) and safe to run twice (every
-file is overwritten, the ledger only hides postings reported on an earlier day, and a todo
-already on the note is left alone).
+file is overwritten, a pool record written today counts as new again, and a todo already on
+the note is left alone).
 """
 from __future__ import annotations
 
@@ -88,19 +89,20 @@ class Run:
         c = self.criteria
         cards: dict[str, Posting] = {}
         new = {bucket: 0 for bucket in c.targets}
+        known = {pid for pid, rec in self.pool.records.items() if rec.day != self.today}
         for q in c.queries:
             bucket = "remote" if q.remote else "home"
             want = c.targets.get(bucket, 0) - new[bucket]
             if want <= 0:
                 self.say(f"search  {q.keywords!r} in {q.location!r}: skipped, the {bucket} target is met")
                 continue
-            found = linkedin.search(q, c, set(cards) | set(self.pool.records), want)
+            found = linkedin.search(q, c, set(cards) | known, want)
             fresh = 0
             for p in found:
                 if p.id in cards:
                     continue
                 cards[p.id] = p
-                if self.pool.known(p.id) is None:
+                if p.id not in known:
                     fresh += 1
             new[bucket] += fresh
             self.say(f"search  {q.keywords!r} in {q.location!r}: {len(found)} cards, {fresh} new")
@@ -204,10 +206,11 @@ class Run:
         costs[stage] = cost.to_dict()
         path.write_text(json.dumps(costs, indent=1))
 
-    def judge(self, stage: str, rows: list[dict], prompt_for, parse, reason) -> list[dict]:
+    def judge(self, stage: str, rows: list[dict], prompt_for, parse, reason) -> tuple[list[dict], list[Dropped]]:
         """Run `stage` over `rows`: a cached verdict under the current criteria hash is reused,
         anything else costs one model call. A call that fails or will not parse drops its
-        posting closed. Returns the rows that passed, each with the verdict added."""
+        posting closed. Returns the rows that passed, each with the verdict added, and the
+        drops."""
         c = self.criteria
         model, effort = claude.pass_registry(ROUTINE, stage)
         key = criteria_hash(c, self.skills_text())
