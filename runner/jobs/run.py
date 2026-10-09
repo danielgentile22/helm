@@ -131,16 +131,10 @@ class Run:
 
     # detail: fetch each kept card's page, screen the description
 
-    def survivors(self, stage: str) -> list[Posting]:
-        """The postings that entered `stage`'s predecessor and were not dropped there."""
-        before = {"detail": "cards.json"}[stage]
-        dropped_file = {"detail": "dropped-search.json"}[stage]
-        gone = {d["id"] for d in json.loads((self.dir / dropped_file).read_text())}
-        return [p for p in load_postings(self.dir / before) if p.id not in gone]
-
     def detail(self) -> None:
         c = self.criteria
-        cards = self.survivors("detail")
+        gone = {d["id"] for d in json.loads((self.dir / "dropped-search.json").read_text())}
+        cards = [p for p in load_postings(self.dir / "cards.json") if p.id not in gone]
         kept: list[Posting] = []
         dropped: list[Dropped] = []
         failed = 0
