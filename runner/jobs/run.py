@@ -30,6 +30,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import claude  # noqa: E402
+import funnel  # noqa: E402
 import linkedin  # noqa: E402
 import passes  # noqa: E402
 import rank  # noqa: E402
@@ -72,6 +73,7 @@ class Run:
         self.folder = desktop / f"Jobs {day.isoformat()}"
         self.pdf = desktop / f"Jobs {day.isoformat()}.pdf"
         self.note_path = VAULT / "Atlas/Work/research" / f"{report.note_stem(day, self.criteria.count)}.md"
+        self.dropped_path = VAULT / "Atlas/Work/research" / f"{report.dropped_stem(day)}.md"
         self.mirror = VAULT / "Atlas/Work/files/applications" / day.isoformat()
 
     def say(self, line: str) -> None:
@@ -343,60 +345,93 @@ class Run:
             return
         self.folder.mkdir(parents=True, exist_ok=True)
 
-        def one(pk: Pick) -> Pick:
+        def one(pk: Pick) -> tuple[Pick, Usage | None]:
             folder = self.folder / tailor.folder_name(pk)
             log = self.dir / f"tailor-{pk.posting.id}.log"
             if not self.force and folder.exists() and tailor.check(folder, self.criteria.resume_deny) is None:
                 pk.folder, pk.tailored, pk.tailor_note = str(folder), True, ""
                 self.say(f"tailor  {pk.rank:02d} {pk.posting.company}: already done")
-                return pk
-            done = tailor.tailor(pk, folder, VAULT, self.day, log, self.criteria.resume_deny)
+                return pk, None
+            done, usage = tailor.tailor(pk, folder, VAULT, self.day, log, self.criteria.resume_deny)
             self.say(f"tailor  {pk.rank:02d} {pk.posting.company}: {'ok' if done.tailored else done.tailor_note}")
-            return done
+            return done, usage
 
-        with ThreadPoolExecutor(max_workers=TAILOR_WORKERS) as pool:
-            done = list(pool.map(one, todo))
-        by_rank = {pk.rank: pk for pk in done}
+        with ThreadPoolExecutor(max_workers=TAILOR_WORKERS) as workers:
+            done = list(workers.map(one, todo))
+        cost = Cost()
+        for pk, usage in done:
+            if usage is None:
+                cost.cached += 1
+            else:
+                cost.add(usage)
+                cost.failed += 0 if pk.tailored else 1
+        self.add_cost("tailor", cost)
+        by_rank = {pk.rank: pk for pk, _ in done}
         picks = [by_rank.get(pk.rank, pk) for pk in picks]
         dump(self.dir / "picks.json", [pk.to_dict() for pk in picks])
 
-    # report: the vault note, the mirror, the todo, the desktop PDF, the vault commit
+    # report: the funnel, the two vault notes, the mirror, the todo, the desktop PDF, the vault commit
 
-    def counts(self) -> tuple[int, int]:
-        def n(name: str) -> int:
-            p = self.dir / name
-            return len(json.loads(p.read_text())) if p.exists() else 0
-        searched = n("cards.json") + n("dropped-search.json")
-        return searched, n("postings.json")
+    def dropped_rows(self) -> dict[str, list[report.Row]]:
+        """Every drop the day recorded, by stage, each named from cards.json, the cache or the
+        pool record, whichever knows the posting."""
+        cards = {p.id: p for p in load_postings(self.dir / "cards.json")} if (self.dir / "cards.json").exists() else {}
+
+        def name(pid: str) -> tuple[str, str]:
+            if pid in cards:
+                return cards[pid].title, cards[pid].company
+            cached = self.cache / f"{pid}.json"
+            if cached.exists():
+                d = json.loads(cached.read_text())
+                return d.get("title", ""), d.get("company", "")
+            rec = self.pool.known(pid)
+            return (rec.title, rec.company) if rec else ("", "")
+
+        by_stage: dict[str, list[report.Row]] = {}
+        for stage, _ in report.DROPPED_HEADINGS:
+            file = self.dir / ("dropped-search.json" if stage == "pool" else f"dropped-{stage}.json")
+            if not file.exists():
+                continue
+            for d in json.loads(file.read_text()):
+                if d["stage"] != stage:
+                    continue
+                by_stage.setdefault(stage, []).append(report.Row(d["id"], *name(d["id"]), d["why"]))
+        return by_stage
+
+    def carried_rows(self) -> list[report.Row]:
+        return [report.Row(pid, r.title, r.company, f"judged {r.day}, posted {r.posted or 'unknown'}")
+                for pid, r in sorted(self.pool.live().items(), key=lambda kv: kv[1].posted, reverse=True)]
 
     def report(self, failed: str | None = None) -> None:
         picks = load_picks(self.dir / "picks.json") if (self.dir / "picks.json").exists() else []
-        dropped = [Dropped(**d) for d in json.loads((self.dir / "dropped-rank.json").read_text())] \
-            if (self.dir / "dropped-rank.json").exists() else []
         if failed:
             picks = []
-        searched, screened = self.counts()
+        f = funnel.compute(self.dir)
+        (self.dir / "funnel.json").write_text(json.dumps(f.to_dict(), indent=1))
         self.note_path.parent.mkdir(parents=True, exist_ok=True)
-        self.note_path.write_text(report.note(picks, dropped, self.day, searched, screened, failed))
+        self.note_path.write_text(report.note(picks, f, self.day, failed))
+        self.dropped_path.write_text(report.dropped_note(self.day, self.dropped_rows(), self.carried_rows(),
+                                                         self.criteria.count))
         if self.folder.exists() and any(self.folder.iterdir()):
             if self.mirror.exists():
                 shutil.rmtree(self.mirror)
             shutil.copytree(self.folder, self.mirror)
         self.desktop.mkdir(parents=True, exist_ok=True)
         tex_path = self.dir / "report.tex"
-        tex_path.write_text(report.report_tex(picks, self.day, failed))
+        tex_path.write_text(report.report_tex(picks, self.day, f, failed))
         problem = report.compile_pdf(tex_path, self.pdf)
         if problem:
             raise RuntimeError(f"the report PDF did not compile: {problem}")
         self.commit_vault()
         if picks and not failed:
             self.add_todo(len(picks))
+        self.say(f"report  {funnel.line(f)}")
         self.say(f"report  {self.pdf} and {self.note_path.relative_to(VAULT)}")
 
     def commit_vault(self) -> None:
         if not (VAULT / ".git").exists():
             return
-        paths = [str(self.note_path.relative_to(VAULT))]
+        paths = [str(self.note_path.relative_to(VAULT)), str(self.dropped_path.relative_to(VAULT))]
         if self.mirror.exists():
             paths.append(str(self.mirror.relative_to(VAULT)))
         subprocess.run(["git", "-C", str(VAULT), "add", "-A", "--", *paths], check=True, capture_output=True)
@@ -421,6 +456,7 @@ class Run:
     def status(self, result: str, failures: int, detail: str = "") -> None:
         path = STATE / "status" / f"{ROUTINE}.json"
         picks = load_picks(self.dir / "picks.json") if (self.dir / "picks.json").exists() else []
+        f = funnel.compute(self.dir)
         path.write_text(json.dumps({
             "routine": ROUTINE,
             "last_run": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -430,6 +466,8 @@ class Run:
             "picks": len(picks),
             "tailored": sum(1 for pk in picks if pk.tailored),
             "report": str(self.pdf).replace(str(Path.home()), "~"),
+            "cost_usd": round(f.usd, 4),
+            "pool_live": len(self.pool.live()),
             "detail": detail,
         }, indent=1))
 

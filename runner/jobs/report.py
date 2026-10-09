@@ -9,10 +9,13 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from model import Dropped, Pick
+import funnel as funnelmod
+from funnel import Funnel
+from model import Pick
 
 _TEX_SPECIAL = {"\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "$": r"\$", "#": r"\#",
                 "_": r"\_", "{": r"\{", "}": r"\}", "~": r"\textasciitilde{}", "^": r"\textasciicircum{}"}
@@ -31,6 +34,10 @@ def note_stem(today: date, count: int) -> str:
     return f"{today.isoformat()}-jobs-top-{count}"
 
 
+def dropped_stem(today: date) -> str:
+    return f"{today.isoformat()}-jobs-dropped"
+
+
 def _line(pick: Pick) -> str:
     p = pick.posting
     bits = [p.location]
@@ -47,17 +54,17 @@ def _line(pick: Pick) -> str:
             f"{pick.why}{tail}")
 
 
-def note(picks: list[Pick], dropped: list[Dropped], today: date, searched: int, screened: int,
-         failed: str | None = None) -> str:
+def note(picks: list[Pick], f: Funnel, today: date, failed: str | None = None) -> str:
     count = len(picks)
     head = (f"---\ntype: research\ntitle: Jobs top {count}, {today.isoformat()}\n"
             f"updated: {today.isoformat()}\n"
             f"tags: [job-search, linkedin, postings, routine]\n---\n\n"
             f"# Jobs top {count}, {today.isoformat()}\n\n"
-            f"**Related:** [[Job Search]] · [[Applications & Roles]]\n\n"
-            f"Written by helm's `job-search` routine. {searched} unique postings from LinkedIn, "
-            f"{screened} left after the title, clearance, citizenship, sponsorship and years screen, "
-            f"{count} picked. Goal: apply to every one today.\n\n")
+            f"**Related:** [[Job Search]] · [[Applications & Roles]] · [[{dropped_stem(today)}]]\n\n"
+            f"Written by helm's `job-search` routine. {funnelmod.line(f)}. "
+            f"Every dropped posting and the pool carryovers are in [[{dropped_stem(today)}]]. "
+            f"Goal: apply to every one today.\n\n"
+            f"## Funnel\n\n{funnelmod.table(f)}\n")
     if failed:
         return head + f"## The run failed\n\n{failed}\n"
     tiers = {"A": "## Tier A: apply first\n\n", "B": "## Tier B: solid fit, more competition\n\n",
@@ -67,13 +74,65 @@ def note(picks: list[Pick], dropped: list[Dropped], today: date, searched: int, 
         rows = [pk for pk in picks if pk.tier == t]
         if rows:
             body += tiers[t] + "\n".join(_line(pk) for pk in rows) + "\n\n"
-    if dropped:
-        body += "## Dropped at ranking\n\nSo nobody re-checks them.\n\n"
-        body += "\n".join(f"- {d.id}: {d.why}" for d in dropped) + "\n"
+    if not picks:
+        body += "## No picks\n\nNothing that survived the passes was worth an application today.\n"
     return head + body
 
 
-def report_tex(picks: list[Pick], today: date, failed: str | None = None) -> str:
+@dataclass
+class Row:
+    """One line of the dropped note: a posting named well enough to spot-check."""
+    id: str
+    title: str
+    company: str
+    why: str
+
+    @property
+    def url(self) -> str:
+        return f"https://www.linkedin.com/jobs/view/{self.id}/"
+
+    def line(self) -> str:
+        name = f"{self.title} at {self.company}" if self.title else f"posting {self.id}"
+        return f"- [{name}]({self.url}): {self.why}"
+
+
+DROPPED_HEADINGS = (("pool", "Already in the pool"), ("search", "Title or employer"),
+                    ("detail", "Description screen"), ("eligibility", "Eligibility"),
+                    ("skills", "Skills"), ("rank", "Overturned by the ranker"))
+
+
+def dropped_note(today: date, by_stage: dict[str, list[Row]], carried: list[Row], count: int) -> str:
+    head = (f"---\ntype: research\ntitle: Jobs dropped, {today.isoformat()}\n"
+            f"updated: {today.isoformat()}\n"
+            f"tags: [job-search, linkedin, postings, routine]\n---\n\n"
+            f"# Jobs dropped, {today.isoformat()}\n\n"
+            f"**Related:** [[Job Search]] · [[{note_stem(today, count)}]]\n\n"
+            f"Written by helm's `job-search` routine. Every posting the day removed, by the stage "
+            f"that removed it, with the reason, so the filter can be checked from here.\n\n")
+    body = ""
+    for stage, heading in DROPPED_HEADINGS:
+        rows = by_stage.get(stage) or []
+        if rows:
+            body += f"## {heading} ({len(rows)})\n\n" + "\n".join(r.line() for r in rows) + "\n\n"
+    body += f"## Carried in the pool ({len(carried)})\n\n"
+    body += ("\n".join(r.line() for r in carried) + "\n") if carried else "Nothing is waiting.\n"
+    return head + body
+
+
+def cost_table_tex(f: Funnel) -> str:
+    if not f.costs:
+        return ""
+    rows = "".join(f"{tex(label)} & {c.calls} & {c.cached} & {c.failed} & "
+                   f"{c.usage.input_tokens + c.usage.cache_read_tokens + c.usage.cache_write_tokens} & "
+                   f"{c.usage.output_tokens} & {c.usage.usd:.2f} \\\\\n"
+                   for key, label in funnelmod.STAGE_LABELS if (c := f.costs.get(key)) is not None)
+    return ("{\\small\\begin{tabular}{lrrrrrr}\n"
+            "Stage & Calls & Cached & Failed & Tokens in & Tokens out & USD \\\\\\hline\n"
+            + rows + f"\\multicolumn{{6}}{{l}}{{Total at API list rates}} & {f.usd:.2f} \\\\\n"
+            "\\end{tabular}}\n\n")
+
+
+def report_tex(picks: list[Pick], today: date, f: Funnel, failed: str | None = None) -> str:
     count = len(picks)
     head = r"""\documentclass[11pt]{article}
 \usepackage[margin=1in]{geometry}
@@ -85,7 +144,8 @@ def report_tex(picks: list[Pick], today: date, failed: str | None = None) -> str
 \pagestyle{empty}
 \begin{document}
 """
-    title = f"\\section*{{Jobs for {tex(today.strftime('%A %d %B %Y'))}}}\n"
+    title = (f"\\section*{{Jobs for {tex(today.strftime('%A %d %B %Y'))}}}\n"
+             f"{{\\small {tex(funnelmod.line(f))}}}\n\n" + cost_table_tex(f))
     if failed:
         return head + title + f"The run failed.\n\n{tex(failed)}\n\\end{{document}}\n"
     intro = (f"{count} postings, best first. Each title is the apply link. Each folder holds a tailored "

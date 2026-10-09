@@ -19,7 +19,7 @@ from datetime import date
 from pathlib import Path
 
 import claude
-from model import Pick
+from model import Pick, Usage
 
 SKILL = "resume-tailor"
 TIMEOUT_S = 35 * 60
@@ -103,7 +103,7 @@ def check(folder: Path, deny: tuple[str, ...] = ()) -> str | None:
 
 
 def attempt(jd: Path, folder: Path, vault: Path, today: date, log: Path, deny: tuple[str, ...],
-            retry: str | None) -> str | None:
+            retry: str | None) -> tuple[str | None, Usage]:
     model, effort = claude.registry("skills", SKILL)
     out = claude.run(prompt(jd, folder, today, retry), model, effort, cwd=vault,
                      timeout_s=TIMEOUT_S, stream=True)
@@ -112,18 +112,20 @@ def attempt(jd: Path, folder: Path, vault: Path, today: date, log: Path, deny: t
     problem = check(folder, deny)
     if out.timed_out:
         problem = problem or "timed out"
-    return problem
+    return problem, out.usage
 
 
 def tailor(pick: Pick, folder: Path, vault: Path, today: date, log: Path,
-           deny: tuple[str, ...] = ()) -> Pick:
+           deny: tuple[str, ...] = ()) -> tuple[Pick, Usage]:
+    """The pick with its folder filled in, and what the one or two runs cost."""
     folder.mkdir(parents=True, exist_ok=True)
     jd = folder / "job_description.md"
     jd.write_text(job_description(pick, today))
-    problem = attempt(jd, folder, vault, today, log, deny, retry=None)
+    problem, usage = attempt(jd, folder, vault, today, log, deny, retry=None)
     if problem:
-        problem = attempt(jd, folder, vault, today, log.with_suffix(".retry.log"), deny, retry=problem)
+        problem, more = attempt(jd, folder, vault, today, log.with_suffix(".retry.log"), deny, retry=problem)
+        usage = usage + more
     pick.folder = str(folder)
     pick.tailored = problem is None
     pick.tailor_note = problem or ""
-    return pick
+    return pick, usage

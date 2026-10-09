@@ -20,6 +20,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import claude  # noqa: E402
+import funnel  # noqa: E402
 import linkedin  # noqa: E402
 import passes  # noqa: E402
 import pool as poolmod  # noqa: E402
@@ -27,7 +28,7 @@ import rank  # noqa: E402
 import report  # noqa: E402
 import screen  # noqa: E402
 import tailor  # noqa: E402
-from model import Cost, Criteria, Dropped, Eligibility, Pick, Posting, Query, SkillMark, Skills, Usage, criteria_hash  # noqa: E402
+from model import Cost, Criteria, Dropped, Eligibility, Pick, Posting, Query, SkillMark, Skills, Usage, criteria_hash, dump  # noqa: E402
 
 DEMO = HERE.parents[1] / "demo-vault"
 TODAY = date(2026, 10, 8)
@@ -422,31 +423,75 @@ class Reports(unittest.TestCase):
                  folder="/tmp/Jobs/02 Compiler", tailored=False, tailor_note="resume is 2 pages")
         return [a, b]
 
-    def test_note_has_frontmatter_tiers_links_and_the_dropped_list(self):
-        text = report.note(self.picks(), [Dropped("7", "rank", "too far")], TODAY, 120, 40)
+    def funnel(self) -> funnel.Funnel:
+        return funnel.Funnel(pulled={"home": 120, "remote": 80}, known=30, title=40, unfetched=2, screen=50,
+                             eligibility=20, skills=10, carried=3, ranked=14, overturned=1, picked=2,
+                             costs={"eligibility": Cost(calls=25, cached=5, failed=1, usage=Usage(1000, 100, 0, 0, 1.5)),
+                                    "rank": Cost(calls=1, usage=Usage(50000, 2000, 0, 0, 2.62))})
+
+    def test_note_opens_with_the_funnel_and_links_the_dropped_note(self):
+        text = report.note(self.picks(), self.funnel(), TODAY)
         self.assertTrue(text.startswith("---\ntype: research\ntitle: Jobs top 2, 2026-10-08\n"))
+        self.assertIn("200 pulled (120 home, 80 remote), 30 known, 40 cut by title", text)
+        self.assertIn("$4.12", text)
+        self.assertIn("[[2026-10-08-jobs-dropped]]", text)
+        self.assertIn("| Cut by eligibility | 20 | 25 calls, 5 cached, 1 failed, 1000 in, 100 out, $1.50 |", text)
         self.assertIn("## Tier A", text)
         self.assertIn("[Junior Backend Engineer](https://www.linkedin.com/jobs/view/1/)", text)
         self.assertIn("Tailoring failed (resume is 2 pages)", text)
-        self.assertIn("- 7: too far", text)
-        self.assertIn("120 unique postings", text)
+        self.assertIn("## No picks", report.note([], self.funnel(), TODAY))
 
     def test_failed_note_says_so(self):
-        text = report.note([], [], TODAY, 0, 0, failed="search failed: throttled")
+        text = report.note([], funnel.Funnel(), TODAY, failed="search failed: throttled")
         self.assertIn("## The run failed", text)
         self.assertIn("throttled", text)
 
-    def test_report_tex_escapes_and_links(self):
-        text = report.report_tex(self.picks(), TODAY)
+    def test_dropped_note_groups_by_stage_and_lists_the_pool(self):
+        rows = {"eligibility": [report.Row("5", "Platform Engineer", "Alex Reed Defence", "clearance required: Active Secret")],
+                "rank": [report.Row("9", "", "", "says US persons only")]}
+        text = report.dropped_note(TODAY, rows, [report.Row("6", "Backend Developer", "Lisbon Ferries", "judged 2026-10-08")], 10)
+        self.assertIn("## Eligibility (1)\n\n- [Platform Engineer at Alex Reed Defence](https://www.linkedin.com/jobs/view/5/): clearance required: Active Secret", text)
+        self.assertIn("- [posting 9](https://www.linkedin.com/jobs/view/9/): says US persons only", text)
+        self.assertIn("## Carried in the pool (1)\n\n- [Backend Developer at Lisbon Ferries]", text)
+        self.assertIn("[[2026-10-08-jobs-top-10]]", text)
+        self.assertNotIn("## Skills", text)
+
+    def test_report_tex_escapes_links_and_carries_the_funnel_and_costs(self):
+        text = report.report_tex(self.picks(), TODAY, self.funnel())
         self.assertIn(r"\textbf{Compiler \& Sons}", text)
         self.assertIn(r"Platform\_X", text)
         self.assertIn(r"\href{https://www.linkedin.com/jobs/view/1/}{Junior Backend Engineer}", text)
         self.assertIn("Tailoring failed: resume is 2 pages", text)
+        self.assertIn(r"2 picked, \$4.12", text)
+        self.assertIn(r"Eligibility & 25 & 5 & 1 & 1000 & 100 & 1.50 \\", text)
         self.assertIn(r"\end{document}", text)
 
     def test_todo_text_links_the_note(self):
         self.assertEqual(report.todo_text("2026-10-08-jobs-top-10", 10), "Apply to the 10 jobs in [[2026-10-08-jobs-top-10]]")
         self.assertEqual(report.todo_text("2026-10-08-jobs-top-10", 1), "Apply to the 1 job in [[2026-10-08-jobs-top-10]]")
+
+
+class Funnels(unittest.TestCase):
+    def test_compute_reads_the_stage_files_and_tolerates_missing_ones(self):
+        with tempfile.TemporaryDirectory() as d:
+            day = Path(d)
+            self.assertEqual(funnel.compute(day).to_dict()["pulled"], {})
+            dump(day / "cards.json", [posting("1"), posting("2"), Posting("3", "x", "y", "Remote", "", "q", remote=True)])
+            dump(day / "dropped-search.json", [Dropped("1", "pool", "picked 2026-10-07"), Dropped("2", "search", "title")])
+            dump(day / "dropped-detail.json", [Dropped("3", "detail", "not fetched: throttled"), Dropped("4", "detail", "asks 4 years")])
+            dump(day / "dropped-eligibility.json", [Dropped("5", "eligibility", "x")])
+            dump(day / "dropped-skills.json", [])
+            dump(day / "ranked.json", [{"id": "6", "source": "new"}, {"id": "7", "source": "carried"}])
+            dump(day / "dropped-rank.json", [Dropped("7", "rank", "x")])
+            dump(day / "picks.json", [{"id": "6"}])
+            (day / "costs.json").write_text(json.dumps({"rank": Cost(calls=1, usage=Usage(10, 5, 0, 0, 0.5)).to_dict()}))
+            f = funnel.compute(day)
+        self.assertEqual((f.pulled, f.known, f.title, f.unfetched, f.screen), ({"home": 2, "remote": 1}, 1, 1, 1, 1))
+        self.assertEqual((f.eligibility, f.skills, f.carried, f.ranked, f.overturned, f.picked), (1, 0, 1, 2, 1, 1))
+        self.assertEqual(funnel.line(f), "3 pulled (2 home, 1 remote), 1 known, 1 cut by title, 1 unfetched, "
+                                         "1 cut by the screen, 1 by eligibility, 0 by skills, 1 carried, 2 ranked, "
+                                         "1 overturned, 1 picked, $0.50")
+        self.assertIn("| Ranked | 2 | 1 call, 10 in, 5 out, $0.50 |", funnel.table(f))
 
 
 class Tailoring(unittest.TestCase):
@@ -491,7 +536,7 @@ class Tailoring(unittest.TestCase):
             if len(calls) == 2:
                 (cwd / "Daniel_Gentile_Resume.pdf").write_bytes(b"%PDF")
                 (cwd / "Daniel_Gentile_Cover_Letter.pdf").write_bytes(b"%PDF")
-            return tailor.claude.Outcome("", "", 0, len(calls) == 1)
+            return tailor.claude.Outcome("", "", 0, len(calls) == 1, usage=Usage(3, 1, 0, 0, 0.1))
 
         with tempfile.TemporaryDirectory() as d:
             folder = Path(d) / "01 Keel - Engineer"
@@ -500,8 +545,9 @@ class Tailoring(unittest.TestCase):
                  mock.patch.object(tailor.claude, "registry", lambda k, n: ("opus", "high")), \
                  mock.patch.object(tailor, "pdf_pages", return_value=1):
                 # the fake writes into cwd, so point the vault at the folder
-                pk = tailor.tailor(Pick(1, "A", "", posting()), folder, folder, TODAY, log)
+                pk, usage = tailor.tailor(Pick(1, "A", "", posting()), folder, folder, TODAY, log)
             self.assertTrue(pk.tailored)
+            self.assertEqual(usage, Usage(6, 2, 0, 0, 0.2))
             self.assertEqual(len(calls), 2)
             self.assertIn("retry: true", calls[1])
             self.assertIn("no resume PDF", calls[1])
@@ -521,10 +567,32 @@ class Tailoring(unittest.TestCase):
                 self.assertEqual(tailor.check(folder), "resume is 2 pages")
 
 
+HOME_CARDS = [
+    ("1", "Junior Backend Engineer", "Keel", "Python, FastAPI, 1+ years."),
+    ("2", "Senior Engineer", "Compiler", ""),
+    ("3", "Backend Engineer", "Priya Systems", "US citizenship is required."),
+    ("4", "Engineer I", "Sam Ltd", "Python backend."),
+    ("5", "Platform Engineer", "Alex Reed Defence", "Python services. Active Secret clearance needed on day one."),
+    ("6", "Backend Developer", "Lisbon Ferries", "Python and Postgres. Must hold EU citizenship or an EU work permit."),
+    ("7", "Data Engineer", "Reposter Co", "Python pipelines. Posted on behalf of our client by Keel Recruiting."),
+]
+REMOTE_CARDS = [
+    ("8", "Python Developer", "Compiler Labs", "Required: 4+ years of Python. Preferred: 1 year of Svelte."),
+    ("9", "Software Engineer", "Keel Marine", "Python, Postgres. Preference for Rust."),
+    ("10", "Backend Engineer", "Sam Analytics", "Python with some Go."),
+    ("11", "Java Developer", "Priya Bank", "Java and Spring Boot."),
+    ("12", "Infrastructure Engineer", "Alex Reed Cloud", "Kubernetes, Go, Terraform."),
+    ("13", "API Engineer", "Compiler", "Python APIs."),
+]
+DAY_TWO_CARDS = [("15", "Backend Engineer II", "Keel", "Python and FastAPI, 2 years.")]
+DESCRIPTIONS = {pid: desc for pid, _, _, desc in HOME_CARDS + REMOTE_CARDS + DAY_TWO_CARDS}
+
+
 class Orchestration(unittest.TestCase):
-    """The whole run with the network and the model faked, against a copy of the demo vault
-    and a temp state directory. What it proves: the ledger hides yesterday's picks, every stage
-    file lands, the note and the status are written, and a rerun is a no-op."""
+    """The whole cascade with LinkedIn, the model and the PDF compiler faked, against a copy of
+    the demo vault and a temp state directory. The fakes answer by posting text, so each
+    fictional posting exercises one drop rule; the assertions are on what the owner sees: the
+    stage files, the pool, the costs, the two notes, the PDF text and the status file."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -540,73 +608,214 @@ class Orchestration(unittest.TestCase):
         import run  # noqa: E402
         self.run = run
         run.STATE, run.VAULT = self.state, self.vault
+        self.jobs = self.state / "status/job-search"
+        self.day_two = False
+        self.pass_over = {"6"}
+        self.overturn = {"9": "says US persons only, which is a citizenship line the pass missed"}
+        self.fail_calls = {"API Engineer at Compiler"}
+        self.tex: list[str] = []
 
     def tearDown(self):
         self.env.stop()
         self.tmp.cleanup()
 
+    def card(self, pid, title, company, q):
+        return Posting(pid, title, company, "Remote" if q.remote else "Lisbon, Portugal", "2026-10-06", q.keywords, q.remote)
+
     def fake_search(self, q, c, known, want, pause_s=0.6):
-        return [Posting("1", "Junior Backend Engineer", "Keel", "Lisbon", "2026-10-06", q.keywords),
-                Posting("2", "Senior Engineer", "Compiler", "Remote", "2026-10-05", q.keywords),
-                Posting("3", "Backend Engineer", "Priya Systems", "Lisbon", "2026-10-07", q.keywords),
-                Posting("4", "Engineer I", "Sam Ltd", "Remote", "2026-10-07", q.keywords)]
+        rows = REMOTE_CARDS if q.remote else HOME_CARDS
+        if self.day_two and not q.remote:
+            rows = rows + DAY_TWO_CARDS
+        return [self.card(pid, title, company, q) for pid, title, company, _ in rows]
 
     def fake_fetch(self, p, tries=3, pause_s=0):
-        p.description = {"1": "Python, FastAPI, 1+ years.", "3": "US citizenship is required.",
-                         "4": "Python backend, no years stated."}[p.id]
+        p.description = DESCRIPTIONS[p.id]
         p.applicants = "12 applicants"
         return p
 
     def fake_claude(self, prompt, model, effort, cwd, timeout_s, read_only=False, stream=False):
+        usage = Usage(100, 10, 0, 0, 0.01)
+        body = prompt.split("Posting:\n", 1)[-1]
+        if any(name in body for name in self.fail_calls):
+            return self.run.claude.Outcome("rate limited", "", 1, False, usage=usage)
         if prompt.startswith(passes.ELIGIBILITY_HEAD):
             answer = {"citizenship": "not_required", "citizenship_quote": "", "clearance": "none",
                       "clearance_quote": "", "reposted": False, "reposted_quote": ""}
+            if "clearance needed" in body:
+                answer.update(clearance="required", clearance_quote="Active Secret clearance needed on day one.")
+            if "on behalf of" in body:
+                answer.update(reposted=True, reposted_quote="Posted on behalf of our client by Keel Recruiting.")
+            if "EU citizenship" in body:
+                answer.update(citizenship="open", citizenship_quote="Must hold EU citizenship or an EU work permit.")
         elif prompt.startswith(passes.SKILLS_HEAD):
             answer = {"years": None, "years_quote": "", "stack": "Python", "skills": [{"name": "Python", "status": "has"}]}
-        else:
+            if "Required: 4+" in body:
+                answer.update(years=4, years_quote="Required: 4+ years of Python.")
+            if "Spring Boot" in body:
+                answer.update(stack="Java, Spring Boot", skills=[{"name": "Java", "status": "missing"}])
+            if "Kubernetes" in body:
+                answer.update(skills=[{"name": n, "status": "missing"} for n in ("Kubernetes", "Go", "Terraform")])
+            if "some Go" in body:
+                answer["skills"].append({"name": "Go", "status": "missing"})
+        elif prompt.startswith(rank.HEAD):
             ids = [line.split()[1] for line in prompt.splitlines() if line.startswith("id ")]
-            answer = {"picks": [{"id": i, "tier": "A", "why": f"fits {i}"} for i in ids], "overturned": [], "passed": []}
-        return self.run.claude.Outcome(json.dumps(answer), "", 0, False, usage=Usage(100, 10, 0, 0, 0.01))
+            answer = {"picks": [{"id": i, "tier": "A", "why": f"fits {i}"} for i in ids
+                                if i not in self.pass_over and i not in self.overturn],
+                      "overturned": [{"id": i, "why": why} for i, why in self.overturn.items() if i in ids],
+                      "passed": [{"id": i, "why": "crowded"} for i in ids if i in self.pass_over]}
+        else:
+            raise AssertionError("a prompt no pass sent: " + prompt[:80])
+        return self.run.claude.Outcome(json.dumps(answer), "", 0, False, usage=usage)
 
-    def test_full_run_with_the_ledger_hiding_an_earlier_pick(self):
-        (self.state / "status/job-search").mkdir(parents=True)
-        (self.state / "status/job-search/seen.json").write_text(json.dumps({"4": "2026-10-07"}))
+    def fake_pdf(self, tex, pdf):
+        self.tex.append(tex.read_text())
+        pdf.write_bytes(b"%PDF")
+
+    def seed_pool(self):
+        self.jobs.mkdir(parents=True)
+        old = Posting("14", "Backend Engineer", "Compiler", "Lisbon", "2026-08-20", "q", description="Python.")
+        (self.jobs / "cache").mkdir()
+        (self.jobs / "cache/14.json").write_text(json.dumps(old.__dict__))
+        (self.jobs / "verdicts").mkdir()
+        (self.jobs / "verdicts/14.json").write_text(json.dumps(
+            {"criteria": "stale", "eligibility": eligibility().to_dict(), "skills": skills().to_dict()}))
+        (self.jobs / "pool.json").write_text(json.dumps({
+            "4": {"status": "picked", "day": "2026-10-07", "picked": "2026-10-07"},
+            "14": {"status": "judged", "day": "2026-09-01", "posted": "2026-08-20", "title": "Backend Engineer",
+                   "company": "Compiler"}}))
+
+    def main(self, *argv) -> int:
         with mock.patch.object(self.run.linkedin, "search", self.fake_search), \
              mock.patch.object(self.run.linkedin, "fetch_posting", self.fake_fetch), \
              mock.patch.object(self.run.claude, "run", self.fake_claude), \
-             mock.patch.object(self.run.report, "compile_pdf", lambda tex, pdf: pdf.write_bytes(b"%PDF") and None):
-            rc = self.run.main(["--day", "2026-10-08", "--desktop", str(self.desktop), "--no-tailor"])
+             mock.patch.object(self.run.report, "compile_pdf", self.fake_pdf):
+            return self.run.main(["--desktop", str(self.desktop), "--no-tailor", *argv])
+
+    def read(self, day: str, name: str):
+        return json.loads((self.jobs / day / name).read_text())
+
+    def dropped(self, day: str, stage: str) -> dict[str, str]:
+        return {d["id"]: d["why"] for d in self.read(day, f"dropped-{stage}.json")}
+
+    def test_two_mornings_through_the_cascade_and_the_pool(self):
+        self.seed_pool()
+        rc = self.main("--day", "2026-10-08")
         self.assertEqual(rc, 0)
-        day = self.state / "status/job-search/2026-10-08"
-        dropped = {d["id"]: d["why"] for d in json.loads((day / "dropped-search.json").read_text())}
-        self.assertIn("senior", dropped["2"])
-        self.assertEqual(dropped["4"], "picked 2026-10-07")
-        self.assertEqual([d["id"] for d in json.loads((day / "dropped-detail.json").read_text())], ["3"])
-        picks = json.loads((day / "picks.json").read_text())
-        self.assertEqual([p["posting"]["id"] for p in picks], ["1"])
-        pool = json.loads((self.state / "status/job-search/pool.json").read_text())
-        self.assertFalse((self.state / "status/job-search/seen.json").exists())
+        day = "2026-10-08"
+
+        search = self.dropped(day, "search")
+        self.assertIn("senior", search["2"])
+        self.assertEqual(search["4"], "picked 2026-10-07")
+        self.assertEqual(len(self.read(day, "cards.json")), 13)
+        self.assertEqual(self.dropped(day, "detail"), {"3": "description says 'US citizenship is required'"})
+
+        elig = self.dropped(day, "eligibility")
+        self.assertEqual(elig["5"], "clearance required: Active Secret clearance needed on day one.")
+        self.assertEqual(elig["7"], "reposted: Posted on behalf of our client by Keel Recruiting.")
+        self.assertTrue(elig["13"].startswith("call failed (1): rate limited"))
+        self.assertEqual(sorted((r["posting"]["id"] for r in self.read(day, "eligible.json")), key=int),
+                         ["1", "6", "8", "9", "10", "11", "12"])
+        self.assertEqual(self.read(day, "eligible.json")[1]["eligibility"]["citizenship"], "open")
+
+        sk = self.dropped(day, "skills")
+        self.assertEqual(sk, {"8": "asks 4 years: Required: 4+ years of Python.",
+                              "11": "primary stack Java, Spring Boot is on the never list",
+                              "12": "missing 3 of 3 required skills: Kubernetes, Go, Terraform"})
+        self.assertEqual(sorted((r["posting"]["id"] for r in self.read(day, "judged.json")), key=int), ["1", "6", "9", "10"])
+
+        ranked = self.read(day, "ranked.json")
+        self.assertEqual(sorted((r["id"] for r in ranked), key=int), ["1", "6", "9", "10"])
+        self.assertTrue(all(r["source"] == "new" for r in ranked))
+        self.assertEqual(self.dropped(day, "rank"), {"9": "says US persons only, which is a citizenship line the pass missed"})
+        self.assertEqual(sorted((p["posting"]["id"] for p in self.read(day, "picks.json")), key=int), ["1", "10"])
+
+        pool = json.loads((self.jobs / "pool.json").read_text())
         self.assertEqual({k: v["status"] for k, v in pool.items()},
-                         {"1": "picked", "2": "dropped", "3": "dropped", "4": "picked"})
-        self.assertEqual((pool["1"]["picked"], pool["3"]["stage"]), ("2026-10-08", "detail"))
-        note = (self.vault / "Atlas/Work/research/2026-10-08-jobs-top-10.md").read_text()
+                         {"1": "picked", "2": "dropped", "3": "dropped", "4": "picked", "5": "dropped", "6": "judged",
+                          "7": "dropped", "8": "dropped", "9": "dropped", "10": "picked", "11": "dropped",
+                          "12": "dropped", "14": "expired"})
+        self.assertNotIn("13", pool)
+        self.assertEqual((pool["9"]["stage"], pool["1"]["picked"], pool["5"]["title"]),
+                         ("rank", day, "Platform Engineer"))
+
+        costs = self.read(day, "costs.json")
+        self.assertEqual((costs["eligibility"]["calls"], costs["eligibility"]["failed"], costs["eligibility"]["cached"]), (10, 1, 0))
+        self.assertEqual((costs["skills"]["calls"], costs["rank"]["calls"]), (7, 1))
+        self.assertAlmostEqual(costs["eligibility"]["usage"]["usd"], 0.10)
+
+        note = (self.vault / "Atlas/Work/research" / f"{day}-jobs-top-10.md").read_text()
+        line = "13 pulled (7 home, 6 remote), 1 known, 1 cut by title, 0 unfetched, 1 cut by the screen, 3 by eligibility, 3 by skills, 0 carried, 4 ranked, 1 overturned, 2 picked, $0.18"
+        self.assertIn(line, note)
+        self.assertIn(f"[[{day}-jobs-dropped]]", note)
         self.assertIn("**Keel**, [Junior Backend Engineer](https://www.linkedin.com/jobs/view/1/)", note)
-        self.assertTrue((self.desktop / "Jobs 2026-10-08.pdf").exists())
+        self.assertNotIn("Lisbon Ferries", note)
+        dropped_note = (self.vault / "Atlas/Work/research" / f"{day}-jobs-dropped.md").read_text()
+        self.assertIn("## Eligibility (3)", dropped_note)
+        self.assertIn("- [Platform Engineer at Alex Reed Defence](https://www.linkedin.com/jobs/view/5/): clearance required: Active Secret clearance needed on day one.", dropped_note)
+        self.assertIn("- [Python Developer at Compiler Labs](https://www.linkedin.com/jobs/view/8/): asks 4 years: Required: 4+ years of Python.", dropped_note)
+        self.assertIn("## Overturned by the ranker (1)", dropped_note)
+        self.assertIn("## Carried in the pool (1)\n\n- [Backend Developer at Lisbon Ferries]", dropped_note)
+        self.assertIn("- [Engineer I at Sam Ltd](https://www.linkedin.com/jobs/view/4/): picked 2026-10-07", dropped_note)
+        self.assertEqual(self.read(day, "funnel.json")["picked"], 2)
+        self.assertIn(line.replace("$", "\\$"), self.tex[-1])
+        self.assertIn(r"Eligibility & 10 & 0 & 1 &", self.tex[-1])
         status = json.loads((self.state / "status/job-search.json").read_text())
-        self.assertEqual((status["result"], status["picks"], status["day"]), ("pass", 1, "2026-10-08"))
+        self.assertEqual((status["result"], status["picks"], status["pool_live"]), ("pass", 2, 1))
+        self.assertAlmostEqual(status["cost_usd"], 0.18)
         work = (self.vault / "Atlas/Work/Work.md").read_text()
-        self.assertIn("- [ ] Apply to the 1 job in [[2026-10-08-jobs-top-10]] (due: 2026-10-08)", work)
+        self.assertIn(f"- [ ] Apply to the 2 jobs in [[{day}-jobs-top-10]] (due: {day})", work)
+
+        self.assertEqual(self.main("--day", day, "--only", "eligibility"), 0)
+        costs = self.read(day, "costs.json")
+        self.assertEqual((costs["eligibility"]["calls"], costs["eligibility"]["cached"], costs["eligibility"]["failed"]), (1, 9, 1))
+
+        self.day_two = True
+        self.pass_over = set()
+        self.fail_calls = set()
+        day = "2026-10-09"
+        self.assertEqual(self.main("--day", day), 0)
+        search = self.dropped(day, "search")
+        self.assertEqual((search["1"], search["6"], search["10"]), ("picked 2026-10-08", "judged 2026-10-08", "picked 2026-10-08"))
+        self.assertNotIn("13", search)
+        self.assertEqual(self.read(day, "costs.json")["eligibility"]["calls"], 2)
+        ranked = {r["id"]: r["source"] for r in self.read(day, "ranked.json")}
+        self.assertEqual(ranked, {"15": "new", "6": "carried", "13": "new"})
+        picks = sorted((p["posting"]["id"] for p in self.read(day, "picks.json")), key=int)
+        self.assertEqual(picks, ["6", "13", "15"])
+        pool = json.loads((self.jobs / "pool.json").read_text())
+        self.assertEqual((pool["6"]["status"], pool["6"]["picked"], pool["6"]["day"]), ("picked", day, "2026-10-08"))
+        self.assertEqual(pool["1"]["picked"], "2026-10-08")
+        note = (self.vault / "Atlas/Work/research" / f"{day}-jobs-top-10.md").read_text()
+        self.assertIn("1 carried, 3 ranked, 0 overturned, 3 picked", note)
+        self.assertIn("[Backend Developer](https://www.linkedin.com/jobs/view/6/)", note)
+        self.assertNotIn("jobs/view/1/", note)
+        status = json.loads((self.state / "status/job-search.json").read_text())
+        self.assertEqual((status["picks"], status["pool_live"]), (3, 0))
+
+    def test_every_pass_call_failing_is_a_failed_run(self):
+        self.fail_calls = {" at "}
+        rc = self.main("--day", "2026-10-08")
+        self.assertEqual(rc, 1)
+        note = (self.vault / "Atlas/Work/research/2026-10-08-jobs-top-10.md").read_text()
+        self.assertIn("## The run failed", note)
+        self.assertIn("eligibility failed: every eligibility call failed: call failed (1): rate limited", note)
+        status = json.loads((self.state / "status/job-search.json").read_text())
+        self.assertEqual(status["result"], "fail")
+        self.assertEqual(self.read("2026-10-08", "costs.json")["eligibility"]["failed"], 11)
+        pool = json.loads((self.jobs / "pool.json").read_text())
+        self.assertEqual(sorted(pool), ["2", "3"])
 
     def test_a_failed_stage_still_leaves_a_report_and_a_failed_status(self):
         def boom(*a, **k):
             raise RuntimeError("throttled")
         with mock.patch.object(self.run.linkedin, "search", boom), \
-             mock.patch.object(self.run.report, "compile_pdf", lambda tex, pdf: pdf.write_bytes(b"%PDF") and None):
+             mock.patch.object(self.run.report, "compile_pdf", self.fake_pdf):
             rc = self.run.main(["--day", "2026-10-08", "--desktop", str(self.desktop)])
         self.assertEqual(rc, 1)
         note = (self.vault / "Atlas/Work/research/2026-10-08-jobs-top-10.md").read_text()
         self.assertIn("## The run failed", note)
         self.assertIn("throttled", note)
+        self.assertTrue((self.vault / "Atlas/Work/research/2026-10-08-jobs-dropped.md").exists())
         status = json.loads((self.state / "status/job-search.json").read_text())
         self.assertEqual(status["result"], "fail")
         self.assertTrue((self.desktop / "Jobs 2026-10-08.pdf").exists())
