@@ -1,0 +1,147 @@
+"""The two cheap model passes between the regex screen and the ranker, and the drop rules
+code applies to their answers.
+
+Each pass asks one question per posting and gets back a fixed JSON form. Parsing is strict on
+shape and lenient on text: an unknown enum value lands on the side that drops, so a sloppy
+answer never lets a posting through. The drop rules are pure functions over a verdict and the
+criteria, and each returns the reason the note will show or None.
+"""
+from __future__ import annotations
+
+import json
+import re
+
+from model import CITIZENSHIP, CLEARANCE, SKILL_STATUS, Criteria, Eligibility, Posting, SkillMark, Skills
+
+ELIGIBILITY_HEAD = "Read one job posting and report three facts about who may apply."
+SKILLS_HEAD = "Read one job posting against a candidate's skills inventory."
+
+
+def _posting_block(p: Posting) -> str:
+    head = f"{p.title} at {p.company}, {p.location}"
+    if p.seniority or p.employment:
+        head += f" ({', '.join(x for x in (p.seniority, p.employment) if x)})"
+    return f"Posting:\n{head}\n\n{p.description}"
+
+
+def eligibility_prompt(p: Posting, c: Criteria) -> str:
+    status = c.work_status or "not stated"
+    return f"""{ELIGIBILITY_HEAD}
+
+The candidate is {status}.
+
+Report:
+1. citizenship: "required" when the posting requires a citizenship or residency the candidate does not hold, "open" when it names a requirement the candidate's status satisfies, "not_required" when it says nothing or welcomes anyone.
+2. clearance: "required" when an active or current security clearance is required to start, including Public Trust; "obtainable" when the posting says the employer will sponsor or obtain one; "none" otherwise.
+3. reposted: true when a job board, staffing agency or aggregator posted this on behalf of another employer, or the apply button leads to its own site rather than the employer's. False when the named company is hiring for itself.
+
+Quote the sentence each answer rests on, or an empty string when nothing in the text speaks to it.
+
+Answer with one JSON object and nothing else, in exactly this form:
+{{"citizenship": "required" | "not_required" | "open", "citizenship_quote": "...",
+ "clearance": "required" | "obtainable" | "none", "clearance_quote": "...",
+ "reposted": true | false, "reposted_quote": "..."}}
+
+{_posting_block(p)}
+"""
+
+
+def skills_prompt(p: Posting, c: Criteria, skills_text: str) -> str:
+    return f"""{SKILLS_HEAD}
+
+Report:
+1. years: the smallest number of years of professional experience the required or minimum qualifications demand, as an integer, or null when the required section names none. Ignore the preferred or nice to have section. Quote the line.
+2. stack: the primary programming language or framework the day to day work uses, in a few words as the posting names it.
+3. skills: every hard skill the required section names (languages, frameworks, databases, clouds, tools). Mark each "has" when the inventory below lists it, "adjacent" when the inventory lists something a hiring manager would accept in its place, "missing" otherwise. Leave soft skills, degrees and years out.
+
+Answer with one JSON object and nothing else, in exactly this form:
+{{"years": 3 | null, "years_quote": "...", "stack": "...",
+ "skills": [{{"name": "...", "status": "has" | "adjacent" | "missing"}}]}}
+
+Candidate's skills inventory:
+{skills_text.strip()}
+
+{_posting_block(p)}
+"""
+
+
+def _object(text: str) -> dict:
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end < start:
+        raise ValueError("no JSON object in the answer")
+    data = json.loads(text[start:end + 1])
+    if not isinstance(data, dict):
+        raise ValueError("the answer is not a JSON object")
+    return data
+
+
+def _enum(value, allowed: tuple[str, ...], fallback: str) -> str:
+    v = str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
+    return v if v in allowed else fallback
+
+
+def _quote(value) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _flag(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("true", "yes", "y", "1")
+
+
+def parse_eligibility(text: str) -> Eligibility:
+    d = _object(text)
+    return Eligibility(
+        citizenship=_enum(d.get("citizenship"), CITIZENSHIP, "required"),
+        citizenship_quote=_quote(d.get("citizenship_quote")),
+        clearance=_enum(d.get("clearance"), CLEARANCE, "required"),
+        clearance_quote=_quote(d.get("clearance_quote")),
+        reposted=_flag(d.get("reposted")),
+        reposted_quote=_quote(d.get("reposted_quote")),
+    )
+
+
+def _years(value) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    m = re.search(r"\d+", str(value))
+    return int(m.group(0)) if m else None
+
+
+def parse_skills(text: str) -> Skills:
+    d = _object(text)
+    marks = []
+    for row in d.get("skills") or []:
+        if isinstance(row, dict):
+            name = _quote(row.get("name"))
+            if name:
+                marks.append(SkillMark(name, _enum(row.get("status"), SKILL_STATUS, "missing")))
+        elif isinstance(row, str) and row.strip():
+            marks.append(SkillMark(row.strip(), "missing"))
+    return Skills(years=_years(d.get("years")), years_quote=_quote(d.get("years_quote")),
+                  stack=_quote(d.get("stack")), skills=tuple(marks))
+
+
+def eligibility_reason(v: Eligibility, c: Criteria) -> str | None:
+    if v.citizenship == "required":
+        return f"citizenship required: {v.citizenship_quote}"
+    if v.clearance == "required":
+        return f"clearance required: {v.clearance_quote}"
+    if v.reposted:
+        return f"reposted: {v.reposted_quote}"
+    return None
+
+
+def skills_reason(v: Skills, c: Criteria) -> str | None:
+    if v.years is not None and v.years > c.max_years:
+        return f"asks {v.years} years: {v.years_quote}"
+    for pattern in c.never_stack:
+        if v.stack and re.search(pattern, v.stack, re.I):
+            return f"primary stack {v.stack} is on the never list"
+    missing = v.missing()
+    if len(missing) >= c.max_missing:
+        return f"missing {len(missing)} of {len(v.skills)} required skills: {', '.join(missing)}"
+    return None

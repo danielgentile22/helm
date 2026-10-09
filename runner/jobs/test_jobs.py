@@ -20,11 +20,13 @@ sys.path.insert(0, str(HERE))
 
 import claude  # noqa: E402
 import linkedin  # noqa: E402
+import passes  # noqa: E402
+import pool as poolmod  # noqa: E402
 import rank  # noqa: E402
 import report  # noqa: E402
 import screen  # noqa: E402
 import tailor  # noqa: E402
-from model import Cost, Criteria, Dropped, Pick, Posting, Query, Usage  # noqa: E402
+from model import Cost, Criteria, Dropped, Eligibility, Pick, Posting, Query, SkillMark, Skills, Usage, criteria_hash  # noqa: E402
 
 DEMO = HERE.parents[1] / "demo-vault"
 TODAY = date(2026, 10, 8)
@@ -219,6 +221,135 @@ class Screen(unittest.TestCase):
         b = posting("2", desc="java", applicants="10 applicants", posted="2026-10-08")
         d = posting("3", desc="python", applicants="", posted="")
         self.assertEqual([p.id for p in screen.shortlist([d, b, a], c, TODAY)], ["1", "2"])
+
+
+def eligibility(**over) -> Eligibility:
+    base = dict(citizenship="not_required", citizenship_quote="", clearance="none", clearance_quote="",
+                reposted=False, reposted_quote="")
+    return Eligibility(**{**base, **over})
+
+
+def skills(years=None, years_quote="", stack="Python", *marks) -> Skills:
+    return Skills(years, years_quote, stack, tuple(SkillMark(n, st) for n, st in marks))
+
+
+class Verdicts(unittest.TestCase):
+    def test_eligibility_parses_a_clean_answer(self):
+        v = passes.parse_eligibility('{"citizenship": "open", "citizenship_quote": "EU work permit holders welcome",'
+                                     ' "clearance": "none", "clearance_quote": "", "reposted": false, "reposted_quote": ""}')
+        self.assertEqual((v.citizenship, v.clearance, v.reposted), ("open", "none", False))
+        self.assertEqual(v.citizenship_quote, "EU work permit holders welcome")
+        self.assertEqual(Eligibility.from_dict(v.to_dict()), v)
+
+    def test_eligibility_maps_sloppy_values_to_the_dropping_side(self):
+        v = passes.parse_eligibility('Sure:\n```json\n{"citizenship": "Unclear", "clearance": "Not Required",'
+                                     ' "reposted": "yes", "reposted_quote": "Posted  by\\n Recruit Co"}\n```')
+        self.assertEqual((v.citizenship, v.clearance, v.reposted), ("required", "required", True))
+        self.assertEqual(v.reposted_quote, "Posted by Recruit Co")
+        with self.assertRaises(ValueError):
+            passes.parse_eligibility("I cannot tell.")
+
+    def test_skills_parses_years_stack_and_marks(self):
+        v = passes.parse_skills('{"years": "4+", "years_quote": "4+ years required", "stack": "Java, Spring",'
+                                ' "skills": [{"name": "Java", "status": "Missing"}, {"name": "SQL", "status": "has"},'
+                                ' {"name": "Kafka", "status": "nope"}, "Terraform"]}')
+        self.assertEqual((v.years, v.stack), (4, "Java, Spring"))
+        self.assertEqual([(m.name, m.status) for m in v.skills],
+                         [("Java", "missing"), ("SQL", "has"), ("Kafka", "missing"), ("Terraform", "missing")])
+        self.assertIsNone(passes.parse_skills('{"years": null, "skills": []}').years)
+        self.assertIsNone(passes.parse_skills('{"years": "none stated", "skills": []}').years)
+        self.assertEqual(Skills.from_dict(json.loads(json.dumps(v.to_dict()))), v)
+
+    def test_eligibility_reason_covers_every_branch(self):
+        c = criteria()
+        self.assertIsNone(passes.eligibility_reason(eligibility(), c))
+        self.assertIsNone(passes.eligibility_reason(eligibility(citizenship="open", clearance="obtainable"), c))
+        self.assertEqual(passes.eligibility_reason(eligibility(citizenship="required", citizenship_quote="US citizens only"), c),
+                         "citizenship required: US citizens only")
+        self.assertEqual(passes.eligibility_reason(eligibility(clearance="required", clearance_quote="active TS/SCI"), c),
+                         "clearance required: active TS/SCI")
+        self.assertEqual(passes.eligibility_reason(eligibility(reposted=True, reposted_quote="via Jobright"), c),
+                         "reposted: via Jobright")
+
+    def test_skills_reason_covers_years_stack_and_missing_count(self):
+        c = criteria(max_years=2, max_missing=3, never_stack=(r"\bjava\b",))
+        self.assertIsNone(passes.skills_reason(skills(2, "2 years", "Python", ("Python", "has")), c))
+        self.assertIsNone(passes.skills_reason(skills(None, "", "Python", ("Python", "has"), ("Go", "missing")), c))
+        self.assertEqual(passes.skills_reason(skills(4, "4+ years of Python", "Python"), c), "asks 4 years: 4+ years of Python")
+        self.assertEqual(passes.skills_reason(skills(1, "", "Java and Spring"), c), "primary stack Java and Spring is on the never list")
+        self.assertIsNone(passes.skills_reason(skills(1, "", "JavaScript"), c))
+        self.assertEqual(passes.skills_reason(skills(None, "", "Python", ("Go", "missing"), ("K8s", "missing"),
+                                                     ("Rust", "missing"), ("SQL", "has")), c),
+                         "missing 3 of 4 required skills: Go, K8s, Rust")
+        self.assertIsNone(passes.skills_reason(skills(None, "", "Python", ("Go", "missing"), ("K8s", "missing")), c))
+
+    def test_criteria_hash_follows_the_fields_that_shape_a_verdict(self):
+        c = criteria()
+        h = criteria_hash(c, "Python")
+        self.assertEqual(len(h), 12)
+        self.assertEqual(h, criteria_hash(criteria(count=3), "Python"))
+        self.assertNotEqual(h, criteria_hash(criteria(max_years=5), "Python"))
+        self.assertNotEqual(h, criteria_hash(c, "Python, Java"))
+
+    def test_criteria_loads_the_new_keys_with_defaults(self):
+        c = criteria()
+        self.assertEqual(c.targets, {"home": 20, "remote": 20})
+        self.assertEqual(c.job_types, ("F",))
+        self.assertIn("EU citizen", c.work_status)
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "c.json"
+            path.write_text(json.dumps({"queries": [{"keywords": "x", "location": "y"}], "profile": "p",
+                                        "targets": {"remote": 5}}))
+            old = Criteria.load(path)
+        self.assertEqual((old.targets, old.max_missing, old.pool_days, old.job_types), ({"home": 100, "remote": 5}, 3, 30, ()))
+        self.assertEqual(old.skills_note, "Atlas/Work/Skills & Certifications.md")
+
+    def test_prompts_name_the_posting_the_status_and_the_inventory(self):
+        c = criteria()
+        e = passes.eligibility_prompt(posting(desc="Must hold an EU work permit."), c)
+        self.assertTrue(e.startswith(passes.ELIGIBILITY_HEAD))
+        self.assertIn("EU citizen", e)
+        self.assertIn("Must hold an EU work permit.", e)
+        s = passes.skills_prompt(posting(), c, "- Python\n- FastAPI")
+        self.assertTrue(s.startswith(passes.SKILLS_HEAD))
+        self.assertIn("- FastAPI", s)
+        self.assertIn("Junior Backend Engineer at Keel", s)
+
+
+class PoolRecords(unittest.TestCase):
+    def test_seen_ledger_migrates_to_picked_records_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            path, seen = Path(d) / "pool.json", Path(d) / "seen.json"
+            seen.write_text(json.dumps({"4": "2026-10-07"}))
+            pool = poolmod.Pool.load(path, seen)
+            self.assertEqual(pool.known("4").status, "picked")
+            self.assertEqual(pool.known("4").picked, "2026-10-07")
+            self.assertFalse(seen.exists())
+            self.assertTrue(path.exists())
+            again = poolmod.Pool.load(path, seen)
+            self.assertEqual(again.known("4").status, "picked")
+            self.assertIsNone(again.known("5"))
+
+    def test_transitions_and_expiry(self):
+        with tempfile.TemporaryDirectory() as d:
+            pool = poolmod.Pool.load(Path(d) / "pool.json")
+            pool.drop(posting("1", desc=""), "detail", "asks 4 years", "2026-10-08")
+            pool.judged(posting("2", posted="2026-09-01"), "2026-10-08")
+            pool.judged(posting("3", posted="2026-10-07"), "2026-10-08")
+            pool.judged(posting("4", posted=""), "2026-10-08")
+            self.assertEqual(sorted(pool.live()), ["2", "3", "4"])
+            self.assertEqual(pool.expire(date(2026, 10, 8), 30), ["2"])
+            self.assertEqual(pool.known("2").status, "expired")
+            self.assertEqual(sorted(pool.live()), ["3", "4"])
+            pool.pick("3", "2026-10-08")
+            self.assertEqual((pool.known("3").status, pool.known("3").picked), ("picked", "2026-10-08"))
+            self.assertEqual((pool.known("1").stage, pool.known("1").why, pool.known("1").title),
+                             ("detail", "asks 4 years", "Junior Backend Engineer"))
+            with self.assertRaises(KeyError):
+                pool.pick("9", "2026-10-08")
+            pool.save()
+            back = poolmod.Pool.load(Path(d) / "pool.json")
+            self.assertEqual(back.records, pool.records)
 
 
 class Ranking(unittest.TestCase):

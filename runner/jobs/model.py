@@ -7,6 +7,7 @@ on its own and a reader can see what each one decided.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass, field
@@ -24,7 +25,8 @@ class Query:
 
 @dataclass(frozen=True)
 class Criteria:
-    """What to search for and what to throw away before any model reads a posting."""
+    """What to search for, what to throw away before any model reads a posting, and the
+    thresholds the model passes drop on."""
     queries: tuple[Query, ...]
     profile: str
     ranking: str
@@ -32,7 +34,7 @@ class Criteria:
     posted_within_days: int = 14
     experience_levels: tuple[str, ...] = ("2",)
     pages: int = 3
-    shortlist: int = 50
+    shortlist: int = 60
     max_years: int = 2
     title_deny: tuple[str, ...] = ()
     company_deny: tuple[str, ...] = ()
@@ -44,6 +46,14 @@ class Criteria:
     tailor: bool = True
     resume_deny: tuple[str, ...] = ()
     todo_directive: str = ""
+    targets: dict[str, int] = field(default_factory=lambda: {"home": 100, "remote": 100})
+    job_types: tuple[str, ...] = ()
+    job_functions: tuple[str, ...] = ()
+    work_status: str = ""
+    never_stack: tuple[str, ...] = ()
+    max_missing: int = 3
+    pool_days: int = 30
+    skills_note: str = "Atlas/Work/Skills & Certifications.md"
 
     @staticmethod
     def load(path: Path) -> "Criteria":
@@ -53,10 +63,11 @@ class Criteria:
         if not queries:
             raise ValueError(f"{path}: queries is empty")
         for key in ("title_deny", "company_deny", "description_deny", "resume_deny",
-                    "remote_says", "remote_denies"):
+                    "remote_says", "remote_denies", "never_stack"):
             for pattern in raw.get(key, ()):
                 re.compile(pattern)
         re.compile(raw.get("home_location", ""))
+        targets = {"home": 100, "remote": 100, **{k: int(v) for k, v in raw.get("targets", {}).items()}}
         return Criteria(
             queries=queries,
             profile=raw["profile"].strip(),
@@ -65,7 +76,7 @@ class Criteria:
             posted_within_days=int(raw.get("posted_within_days", 14)),
             experience_levels=tuple(str(x) for x in raw.get("experience_levels", ["2"])),
             pages=int(raw.get("pages", 3)),
-            shortlist=int(raw.get("shortlist", 50)),
+            shortlist=int(raw.get("shortlist", 60)),
             max_years=int(raw.get("max_years", 2)),
             title_deny=tuple(raw.get("title_deny", ())),
             company_deny=tuple(raw.get("company_deny", ())),
@@ -77,7 +88,22 @@ class Criteria:
             tailor=bool(raw.get("tailor", True)),
             resume_deny=tuple(raw.get("resume_deny", ())),
             todo_directive=str(raw.get("todo_directive", "")),
+            targets=targets,
+            job_types=tuple(str(x) for x in raw.get("job_types", ())),
+            job_functions=tuple(str(x) for x in raw.get("job_functions", ())),
+            work_status=str(raw.get("work_status", "")).strip(),
+            never_stack=tuple(raw.get("never_stack", ())),
+            max_missing=int(raw.get("max_missing", 3)),
+            pool_days=int(raw.get("pool_days", 30)),
+            skills_note=str(raw.get("skills_note", "Atlas/Work/Skills & Certifications.md")),
         )
+
+
+def criteria_hash(c: Criteria, skills_text: str) -> str:
+    """Twelve hex digits over the fields that shape a verdict, so a cached verdict is reused
+    only while the question it answered is unchanged."""
+    key = json.dumps([c.work_status, c.max_years, list(c.never_stack), c.max_missing, skills_text])
+    return hashlib.sha256(key.encode()).hexdigest()[:12]
 
 
 @dataclass
@@ -132,6 +158,58 @@ class Dropped:
     id: str
     stage: str
     why: str
+
+
+CITIZENSHIP = ("required", "not_required", "open")
+CLEARANCE = ("required", "obtainable", "none")
+SKILL_STATUS = ("has", "adjacent", "missing")
+
+
+@dataclass(frozen=True)
+class Eligibility:
+    """The eligibility pass's answer. `open` means open to the work status the criteria
+    name. Each fact carries the sentence it was read from, which becomes the drop reason."""
+    citizenship: str
+    citizenship_quote: str
+    clearance: str
+    clearance_quote: str
+    reposted: bool
+    reposted_quote: str
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @staticmethod
+    def from_dict(d: dict) -> "Eligibility":
+        return Eligibility(**{k: d[k] for k in Eligibility.__dataclass_fields__})
+
+
+@dataclass(frozen=True)
+class SkillMark:
+    name: str
+    status: str
+
+
+@dataclass(frozen=True)
+class Skills:
+    """The skills pass's answer: the years floor from the required section alone, the
+    primary stack as the posting names it, and each required hard skill against the
+    owner's inventory."""
+    years: int | None
+    years_quote: str
+    stack: str
+    skills: tuple[SkillMark, ...]
+
+    def missing(self) -> list[str]:
+        return [s.name for s in self.skills if s.status == "missing"]
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @staticmethod
+    def from_dict(d: dict) -> "Skills":
+        return Skills(d["years"], d["years_quote"], d["stack"],
+                      tuple(SkillMark(s["name"], s["status"]) for s in d["skills"]))
 
 
 @dataclass(frozen=True)
