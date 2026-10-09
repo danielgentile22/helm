@@ -68,12 +68,12 @@
         "eligibility": {
           "model": "sonnet",
           "effort": "medium",
-          "why": "Three facts read off one posting into a fixed form. Sonnet reads the whole text and the code decides the drop; a hundred calls a morning is where cost compounds."
+          "why": "Three facts read off each posting into a fixed form, a batch of postings per call. Sonnet reads the whole text and the code decides the drop; the input is a hundred full postings a morning, which is where cost compounds."
         },
         "skills": {
           "model": "sonnet",
           "effort": "medium",
-          "why": "The years floor, the primary stack and each required skill against the owner's inventory, also a fixed form. Same reasoning: volume, and the ranker re-checks the survivors at the top of the scale."
+          "why": "The years floor, the primary stack and each required skill against the owner's inventory, also a fixed form per posting, a batch per call. Same reasoning: the volume of text read, and the ranker re-checks the survivors at the top of the scale."
         }
       },
       "writes": "~/Desktop/Jobs <day>.pdf and ~/Desktop/Jobs <day>/, Atlas/Work/research/<day>-jobs-top-10.md and <day>-jobs-dropped.md and Atlas/Work/files/applications/<day>/ in the vault, a todo on Work, and ~/.helm/status/job-search/ (the day's stage files and costs, the pool, the posting and verdict caches)"

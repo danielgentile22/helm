@@ -257,17 +257,20 @@ def skills(years=None, years_quote="", stack="Python", *marks) -> Skills:
     return Skills(years, years_quote, stack, tuple(SkillMark(n, st) for n, st in marks))
 
 
+CLEAN_ELIGIBILITY = ('{"citizenship": "open", "citizenship_quote": "EU work permit holders welcome",'
+                     ' "clearance": "none", "clearance_quote": "", "reposted": false, "reposted_quote": ""}')
+
+
 class Verdicts(unittest.TestCase):
     def test_eligibility_parses_a_clean_answer(self):
-        v = passes.parse_eligibility('{"citizenship": "open", "citizenship_quote": "EU work permit holders welcome",'
-                                     ' "clearance": "none", "clearance_quote": "", "reposted": false, "reposted_quote": ""}')
+        v = passes.parse_eligibility('{"1001": ' + CLEAN_ELIGIBILITY + '}')["1001"]
         self.assertEqual((v.citizenship, v.clearance, v.reposted), ("open", "none", False))
         self.assertEqual(v.citizenship_quote, "EU work permit holders welcome")
         self.assertEqual(Eligibility.from_dict(v.to_dict()), v)
 
     def test_eligibility_maps_sloppy_values_to_the_dropping_side(self):
-        v = passes.parse_eligibility('Sure:\n```json\n{"citizenship": "Unclear", "clearance": "Not Required",'
-                                     ' "reposted": "yes", "reposted_quote": "Posted  by\\n Recruit Co"}\n```')
+        v = passes.parse_eligibility('Sure:\n```json\n{"1": {"citizenship": "Unclear", "clearance": "Not Required",'
+                                     ' "reposted": "yes", "reposted_quote": "Posted  by\\n Recruit Co"}}\n```')["1"]
         self.assertEqual((v.citizenship, v.clearance, v.reposted), ("required", "required", True))
         self.assertEqual(v.reposted_quote, "Posted by Recruit Co")
         with self.assertRaises(ValueError):
@@ -275,25 +278,36 @@ class Verdicts(unittest.TestCase):
 
     def test_a_form_missing_a_key_is_unparsable_so_the_call_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "lacks reposted"):
-            passes.parse_eligibility('{"citizenship": "not_required", "clearance": "none"}')
+            passes.eligibility_from({"citizenship": "not_required", "clearance": "none"})
         with self.assertRaisesRegex(ValueError, "lacks stack, skills"):
-            passes.parse_skills('{"years": null}')
+            passes.skills_from({"years": None})
+        with self.assertRaisesRegex(ValueError, "posting 7: the answer lacks reposted"):
+            passes.parse_eligibility('{"1": ' + CLEAN_ELIGIBILITY + ', "7": {"citizenship": "not_required", "clearance": "none"}}')
+
+    def test_a_batch_answer_strips_ids_and_fails_on_a_value_that_is_not_a_form(self):
+        v = passes.parse_eligibility('{" 7 ": ' + CLEAN_ELIGIBILITY + ', "8": ' + CLEAN_ELIGIBILITY.replace("open", "required") + '}')
+        self.assertEqual(sorted(v), ["7", "8"])
+        self.assertEqual((v["7"].citizenship, v["8"].citizenship), ("open", "required"))
+        with self.assertRaisesRegex(ValueError, "posting 8: the value is not a JSON object"):
+            passes.parse_eligibility('{"7": ' + CLEAN_ELIGIBILITY + ', "8": null}')
+        with self.assertRaisesRegex(ValueError, "posting 9: the value is not a JSON object"):
+            passes.parse_skills('{"9": "no required section"}')
 
     def test_a_remark_after_the_object_is_ignored(self):
-        v = passes.parse_eligibility('{"citizenship": "not_required", "citizenship_quote": "", "clearance": "none",'
-                                     ' "clearance_quote": "", "reposted": false, "reposted_quote": ""}\n'
-                                     'Note: the posting also says {benefits} apply after 90 days.')
+        v = passes.parse_eligibility('{"1": {"citizenship": "not_required", "citizenship_quote": "", "clearance": "none",'
+                                     ' "clearance_quote": "", "reposted": false, "reposted_quote": ""}}\n'
+                                     'Note: the posting also says {benefits} apply after 90 days.')["1"]
         self.assertEqual(v.citizenship, "not_required")
 
     def test_skills_parses_years_stack_and_marks(self):
-        v = passes.parse_skills('{"years": "4+", "years_quote": "4+ years required", "stack": "Java, Spring",'
+        v = passes.parse_skills('{"2": {"years": "4+", "years_quote": "4+ years required", "stack": "Java, Spring",'
                                 ' "skills": [{"name": "Java", "status": "Missing"}, {"name": "SQL", "status": "has"},'
-                                ' {"name": "Kafka", "status": "nope"}, "Terraform"]}')
+                                ' {"name": "Kafka", "status": "nope"}, "Terraform"]}}')["2"]
         self.assertEqual((v.years, v.stack), (4, "Java, Spring"))
         self.assertEqual([(m.name, m.status) for m in v.skills],
                          [("Java", "missing"), ("SQL", "has"), ("Kafka", "missing"), ("Terraform", "missing")])
-        self.assertIsNone(passes.parse_skills('{"years": null, "stack": "", "skills": []}').years)
-        self.assertIsNone(passes.parse_skills('{"years": "none stated", "stack": "", "skills": []}').years)
+        self.assertIsNone(passes.skills_from({"years": None, "stack": "", "skills": []}).years)
+        self.assertIsNone(passes.skills_from({"years": "none stated", "stack": "", "skills": []}).years)
         self.assertEqual(Skills.from_dict(json.loads(json.dumps(v.to_dict()))), v)
 
     def test_eligibility_reason_covers_every_branch(self):
@@ -343,17 +357,28 @@ class Verdicts(unittest.TestCase):
             old = Criteria.load(path)
         self.assertEqual((old.targets, old.max_missing, old.pool_days, old.job_types), ({"home": 100, "remote": 5}, 3, 30, ()))
         self.assertEqual(old.skills_note, "Atlas/Work/Skills & Certifications.md")
+        self.assertEqual((c.batch_size, old.batch_size), (4, 8))
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "c.json"
+            path.write_text(json.dumps({"queries": [{"keywords": "x", "location": "y"}], "profile": "p", "batch_size": 0}))
+            self.assertEqual(Criteria.load(path).batch_size, 1)
 
-    def test_prompts_name_the_posting_the_status_and_the_inventory(self):
+    def test_prompts_fence_each_posting_and_name_the_status_and_the_inventory(self):
         c = criteria()
-        e = passes.eligibility_prompt(posting(desc="Must hold an EU work permit."), c)
+        e = passes.eligibility_prompt([posting(desc="Must hold an EU work permit."), posting("2", desc="Go only.")], c)
         self.assertTrue(e.startswith(passes.ELIGIBILITY_HEAD))
         self.assertIn("EU citizen", e)
+        self.assertIn("every id below present", e)
+        self.assertIn("never answers for another", e)
+        self.assertIn("=== posting 1001 ===\nPosting:\nJunior Backend Engineer at Keel", e)
         self.assertIn("Must hold an EU work permit.", e)
-        s = passes.skills_prompt(posting(), c, "- Python\n- FastAPI")
+        self.assertIn("=== posting 2 ===", e)
+        self.assertLess(e.index("=== posting 1001 ==="), e.index("=== posting 2 ==="))
+        self.assertEqual(e.count("For each posting report:"), 1)
+        s = passes.skills_prompt([posting()], c, "- Python\n- FastAPI")
         self.assertTrue(s.startswith(passes.SKILLS_HEAD))
         self.assertIn("- FastAPI", s)
-        self.assertIn("Junior Backend Engineer at Keel", s)
+        self.assertIn("=== posting 1001 ===\nPosting:\nJunior Backend Engineer at Keel", s)
 
 
 class PoolRecords(unittest.TestCase):
@@ -635,6 +660,8 @@ class Orchestration(unittest.TestCase):
         self.overturn = {"9": "says US persons only, which is a citizenship line the pass missed"}
         self.fail_calls = {"API Engineer at Compiler"}
         self.flaky = set()
+        self.omit = set()
+        self.prompts: list[str] = []
         self.search_cards = None
         self.tex: list[str] = []
 
@@ -658,34 +685,50 @@ class Orchestration(unittest.TestCase):
         p.applicants = "12 applicants"
         return p
 
+    @staticmethod
+    def eligibility_answer(body: str) -> dict:
+        answer = {"citizenship": "not_required", "citizenship_quote": "", "clearance": "none",
+                  "clearance_quote": "", "reposted": False, "reposted_quote": ""}
+        if "clearance needed" in body:
+            answer.update(clearance="required", clearance_quote="Active Secret clearance needed on day one.")
+        if "on behalf of" in body:
+            answer.update(reposted=True, reposted_quote="Posted on behalf of our client by Keel Recruiting.")
+        if "EU citizenship" in body:
+            answer.update(citizenship="open", citizenship_quote="Must hold EU citizenship or an EU work permit.")
+        return answer
+
+    @staticmethod
+    def skills_answer(body: str) -> dict:
+        answer = {"years": None, "years_quote": "", "stack": "Python", "skills": [{"name": "Python", "status": "has"}]}
+        if "Required: 4+" in body:
+            answer.update(years=4, years_quote="Required: 4+ years of Python.")
+        if "Spring Boot" in body:
+            answer.update(stack="Java, Spring Boot", skills=[{"name": "Java", "status": "missing"}])
+        if "Kubernetes" in body:
+            answer.update(skills=[{"name": n, "status": "missing"} for n in ("Kubernetes", "Go", "Terraform")])
+        if "some Go" in body:
+            answer["skills"].append({"name": "Go", "status": "missing"})
+        return answer
+
     def fake_claude(self, prompt, model, effort, cwd, timeout_s, read_only=False, stream=False):
+        """Answers each fenced posting from its own text, so a batch's answer is the per-posting
+        answers keyed by id; a batch holding a posting named in `fail_calls` fails outright, one
+        named in `flaky` fails once, and an id in `omit` is left out of every answer."""
+        self.prompts.append(prompt)
         usage = Usage(100, 10, 0, 0, 0.01)
-        body = prompt.split("Posting:\n", 1)[-1]
+        chunks = prompt.split("=== posting ")[1:]
+        body = "".join(chunks) if chunks else prompt
         if any(name in body for name in self.fail_calls):
             return self.run.claude.Outcome("rate limited", "", 1, False, usage=usage)
         once = {name for name in self.flaky if name in body}
         if once:
             self.flaky -= once
             return self.run.claude.Outcome("rate limited", "", 1, False, usage=usage)
+        postings = dict(chunk.split(" ===\n", 1) for chunk in chunks)
         if prompt.startswith(passes.ELIGIBILITY_HEAD):
-            answer = {"citizenship": "not_required", "citizenship_quote": "", "clearance": "none",
-                      "clearance_quote": "", "reposted": False, "reposted_quote": ""}
-            if "clearance needed" in body:
-                answer.update(clearance="required", clearance_quote="Active Secret clearance needed on day one.")
-            if "on behalf of" in body:
-                answer.update(reposted=True, reposted_quote="Posted on behalf of our client by Keel Recruiting.")
-            if "EU citizenship" in body:
-                answer.update(citizenship="open", citizenship_quote="Must hold EU citizenship or an EU work permit.")
+            answer = {pid: self.eligibility_answer(text) for pid, text in postings.items() if pid not in self.omit}
         elif prompt.startswith(passes.SKILLS_HEAD):
-            answer = {"years": None, "years_quote": "", "stack": "Python", "skills": [{"name": "Python", "status": "has"}]}
-            if "Required: 4+" in body:
-                answer.update(years=4, years_quote="Required: 4+ years of Python.")
-            if "Spring Boot" in body:
-                answer.update(stack="Java, Spring Boot", skills=[{"name": "Java", "status": "missing"}])
-            if "Kubernetes" in body:
-                answer.update(skills=[{"name": n, "status": "missing"} for n in ("Kubernetes", "Go", "Terraform")])
-            if "some Go" in body:
-                answer["skills"].append({"name": "Go", "status": "missing"})
+            answer = {pid: self.skills_answer(text) for pid, text in postings.items() if pid not in self.omit}
         elif prompt.startswith(rank.HEAD):
             ids = [line.split()[1] for line in prompt.splitlines() if line.startswith("id ")]
             answer = {"picks": [{"id": i, "tier": "A", "why": f"fits {i}"} for i in ids
@@ -727,6 +770,11 @@ class Orchestration(unittest.TestCase):
     def dropped(self, day: str, stage: str) -> dict[str, str]:
         return {d["id"]: d["why"] for d in self.read(day, f"dropped-{stage}.json")}
 
+    def batches(self, head: str) -> list[list[str]]:
+        """The ids each call under `head` carried, sorted, since batches run in parallel."""
+        return sorted([chunk.split(" ===", 1)[0] for chunk in p.split("=== posting ")[1:]]
+                      for p in self.prompts if p.startswith(head))
+
     def test_two_mornings_through_the_cascade_and_the_pool(self):
         self.seed_pool()
         rc = self.main("--day", "2026-10-08")
@@ -743,14 +791,17 @@ class Orchestration(unittest.TestCase):
         self.assertEqual(elig["5"], "clearance required: Active Secret clearance needed on day one.")
         self.assertEqual(elig["7"], "reposted: Posted on behalf of our client by Keel Recruiting.")
         self.assertTrue(elig["13"].startswith("call failed (1): rate limited"))
+        self.assertTrue(elig["12"].startswith("call failed (1): rate limited"))
+        self.assertEqual(self.batches(passes.ELIGIBILITY_HEAD),
+                         [["1", "5", "6", "7"], ["12", "13"], ["12", "13"], ["8", "9", "10", "11"]])
         self.assertEqual(sorted((r["posting"]["id"] for r in self.read(day, "eligible.json")), key=int),
-                         ["1", "6", "8", "9", "10", "11", "12"])
+                         ["1", "6", "8", "9", "10", "11"])
         self.assertEqual(self.read(day, "eligible.json")[1]["eligibility"]["citizenship"], "open")
 
         sk = self.dropped(day, "skills")
         self.assertEqual(sk, {"8": "asks 4 years: Required: 4+ years of Python.",
-                              "11": "primary stack Java, Spring Boot is on the never list",
-                              "12": "missing 3 of 3 required skills: Kubernetes, Go, Terraform"})
+                              "11": "primary stack Java, Spring Boot is on the never list"})
+        self.assertEqual(self.batches(passes.SKILLS_HEAD), [["1", "6", "8", "9"], ["10", "11"]])
         self.assertEqual(sorted((r["posting"]["id"] for r in self.read(day, "judged.json")), key=int), ["1", "6", "9", "10"])
 
         ranked = self.read(day, "ranked.json")
@@ -763,24 +814,25 @@ class Orchestration(unittest.TestCase):
         self.assertEqual({k: v["status"] for k, v in pool.items()},
                          {"1": "picked", "2": "dropped", "3": "dropped", "4": "picked", "5": "dropped", "6": "judged",
                           "7": "dropped", "8": "dropped", "9": "dropped", "10": "picked", "11": "dropped",
-                          "12": "dropped", "14": "expired"})
+                          "14": "expired"})
+        self.assertNotIn("12", pool)
         self.assertNotIn("13", pool)
         self.assertEqual((pool["9"]["stage"], pool["1"]["picked"], pool["5"]["title"]),
                          ("rank", day, "Platform Engineer"))
 
         costs = self.read(day, "costs.json")
-        self.assertEqual((costs["eligibility"]["calls"], costs["eligibility"]["failed"], costs["eligibility"]["cached"]), (10, 1, 0))
-        self.assertEqual((costs["skills"]["calls"], costs["rank"]["calls"]), (7, 1))
-        self.assertAlmostEqual(costs["eligibility"]["usage"]["usd"], 0.11)
+        self.assertEqual((costs["eligibility"]["calls"], costs["eligibility"]["failed"], costs["eligibility"]["cached"]), (4, 2, 0))
+        self.assertEqual((costs["skills"]["calls"], costs["rank"]["calls"]), (2, 1))
+        self.assertAlmostEqual(costs["eligibility"]["usage"]["usd"], 0.04)
 
         note = (self.vault / "Atlas/Work/research" / f"{day}-jobs-top-10.md").read_text()
-        line = "13 pulled (7 home, 6 remote), 1 known, 1 cut by title, 0 unfetched, 1 cut by the screen, 3 by eligibility, 3 by skills, 0 carried, 4 ranked, 1 overturned, 2 picked, $0.19"
+        line = "13 pulled (7 home, 6 remote), 1 known, 1 cut by title, 0 unfetched, 1 cut by the screen, 4 by eligibility, 2 by skills, 0 carried, 4 ranked, 1 overturned, 2 picked, $0.07"
         self.assertIn(line, note)
         self.assertIn(f"[[{day}-jobs-dropped]]", note)
         self.assertIn("**Keel**, [Junior Backend Engineer](https://www.linkedin.com/jobs/view/1/)", note)
         self.assertNotIn("Lisbon Ferries", note)
         dropped_note = (self.vault / "Atlas/Work/research" / f"{day}-jobs-dropped.md").read_text()
-        self.assertIn("## Eligibility (3)", dropped_note)
+        self.assertIn("## Eligibility (4)", dropped_note)
         self.assertIn("- [Platform Engineer at Alex Reed Defence](https://www.linkedin.com/jobs/view/5/): clearance required: Active Secret clearance needed on day one.", dropped_note)
         self.assertIn("- [Python Developer at Compiler Labs](https://www.linkedin.com/jobs/view/8/): asks 4 years: Required: 4+ years of Python.", dropped_note)
         self.assertIn("## Overturned by the ranker (1)", dropped_note)
@@ -788,16 +840,16 @@ class Orchestration(unittest.TestCase):
         self.assertIn("- [Engineer I at Sam Ltd](https://www.linkedin.com/jobs/view/4/): picked 2026-10-07", dropped_note)
         self.assertEqual(self.read(day, "funnel.json")["picked"], 2)
         self.assertIn(line.replace("$", "\\$"), self.tex[-1])
-        self.assertIn(r"Eligibility & 10 & 0 & 1 &", self.tex[-1])
+        self.assertIn(r"Eligibility & 4 & 0 & 2 &", self.tex[-1])
         status = json.loads((self.state / "status/job-search.json").read_text())
         self.assertEqual((status["result"], status["picks"], status["pool_live"]), ("pass", 2, 1))
-        self.assertAlmostEqual(status["cost_usd"], 0.19)
+        self.assertAlmostEqual(status["cost_usd"], 0.07)
         work = (self.vault / "Atlas/Work/Work.md").read_text()
         self.assertIn(f"- [ ] Apply to the 2 jobs in [[{day}-jobs-top-10]] (due: {day})", work)
 
         self.assertEqual(self.main("--day", day, "--only", "eligibility"), 0)
         costs = self.read(day, "costs.json")
-        self.assertEqual((costs["eligibility"]["calls"], costs["eligibility"]["cached"], costs["eligibility"]["failed"]), (1, 9, 1))
+        self.assertEqual((costs["eligibility"]["calls"], costs["eligibility"]["cached"], costs["eligibility"]["failed"]), (2, 8, 2))
 
         self.day_two = True
         self.pass_over = set()
@@ -807,7 +859,7 @@ class Orchestration(unittest.TestCase):
         search = self.dropped(day, "search")
         self.assertEqual((search["1"], search["6"], search["10"]), ("picked 2026-10-08", "judged 2026-10-08", "picked 2026-10-08"))
         self.assertNotIn("13", search)
-        self.assertEqual(self.read(day, "costs.json")["eligibility"]["calls"], 2)
+        self.assertEqual(self.read(day, "costs.json")["eligibility"]["calls"], 1)
         ranked = {r["id"]: r["source"] for r in self.read(day, "ranked.json")}
         self.assertEqual(ranked, {"15": "new", "6": "carried", "13": "new"})
         picks = sorted((p["posting"]["id"] for p in self.read(day, "picks.json")), key=int)
@@ -842,7 +894,7 @@ class Orchestration(unittest.TestCase):
         self.assertNotIn("4", search)
         self.assertEqual(self.dropped(day, "detail")["4"], "not cached")
         costs = self.read(day, "costs.json")
-        self.assertEqual((costs["eligibility"]["calls"], costs["eligibility"]["cached"]), (1, 9))
+        self.assertEqual((costs["eligibility"]["calls"], costs["eligibility"]["cached"]), (1, 8))
         self.assertEqual(sorted((r["id"] for r in self.read(day, "ranked.json")), key=int), ["1", "6", "9", "10", "13"])
         md = (self.jobs / day / "funnel.md").read_text()
         self.assertTrue(md.startswith("13 pulled (7 home, 6 remote), 0 known, 1 cut by title, 1 unfetched, 1 cut by the screen, 2 by eligibility"))
@@ -872,12 +924,29 @@ class Orchestration(unittest.TestCase):
         self.assertNotIn("The run failed", note)
         self.assertEqual(json.loads((self.state / "status/job-search.json").read_text())["result"], "pass")
 
-    def test_a_call_that_fails_once_is_asked_again(self):
+    def test_a_batch_that_fails_once_is_asked_again(self):
         self.fail_calls = set()
         self.flaky = {"API Engineer at Compiler"}
         self.assertEqual(self.main("--day", "2026-10-08"), 0)
         self.assertNotIn("13", self.dropped("2026-10-08", "eligibility"))
-        self.assertEqual(self.read("2026-10-08", "costs.json")["eligibility"]["failed"], 0)
+        self.assertEqual(self.batches(passes.ELIGIBILITY_HEAD),
+                         [["1", "4", "5", "6"], ["11", "12", "13"], ["11", "12", "13"], ["7", "8", "9", "10"]])
+        costs = self.read("2026-10-08", "costs.json")["eligibility"]
+        self.assertEqual((costs["calls"], costs["failed"], costs["cached"]), (4, 0, 0))
+
+    def test_an_id_missing_from_the_answer_is_asked_again_then_dropped_alone(self):
+        self.fail_calls = set()
+        self.omit = {"10"}
+        self.assertEqual(self.main("--day", "2026-10-08"), 0)
+        self.assertEqual(self.batches(passes.ELIGIBILITY_HEAD),
+                         [["1", "4", "5", "6"], ["10"], ["11", "12", "13"], ["7", "8", "9", "10"]])
+        elig = self.dropped("2026-10-08", "eligibility")
+        self.assertEqual(elig["10"], "call failed (no verdict for this posting in the answer)")
+        self.assertEqual(sorted(elig), ["10", "5", "7"])
+        self.assertIn("9", {r["posting"]["id"] for r in self.read("2026-10-08", "eligible.json")})
+        costs = self.read("2026-10-08", "costs.json")["eligibility"]
+        self.assertEqual((costs["calls"], costs["failed"], costs["cached"]), (4, 1, 0))
+        self.assertNotIn("10", json.loads((self.jobs / "pool.json").read_text()))
 
     def test_every_pass_call_failing_is_a_failed_run(self):
         self.fail_calls = {" at "}
@@ -888,7 +957,8 @@ class Orchestration(unittest.TestCase):
         self.assertIn("eligibility failed: every eligibility call failed: call failed (1): rate limited", note)
         status = json.loads((self.state / "status/job-search.json").read_text())
         self.assertEqual(status["result"], "fail")
-        self.assertEqual(self.read("2026-10-08", "costs.json")["eligibility"]["failed"], 11)
+        costs = self.read("2026-10-08", "costs.json")["eligibility"]
+        self.assertEqual((costs["calls"], costs["failed"]), (6, 11))
         pool = json.loads((self.jobs / "pool.json").read_text())
         self.assertEqual(sorted(pool), ["2", "3"])
 

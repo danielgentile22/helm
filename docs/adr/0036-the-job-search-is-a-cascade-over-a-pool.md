@@ -24,14 +24,15 @@ Seven stages, each reading the previous stage's file and writing its own under
 2. `detail` fetches each page once into the cache and runs the description regexes, the
    years floor and the remote check. These are kept as the cheap first cut; the funnel
    shows what they caught.
-3. `eligibility` asks a cheaper model one question per posting and gets a fixed JSON
-   form: citizenship (required, not required, or open to the owner's work status),
-   clearance (required, obtainable, none, with Public Trust counting as required) and
-   whether a board or agency posted it on behalf of another employer, each with the
-   sentence it rests on. Code drops from the form; the sentence is the reason.
-4. `skills` asks the same model for the years floor from the required section alone, the
-   primary stack, and each required hard skill marked has, adjacent or missing against
-   the owner's skills inventory, read whole from the vault. The thresholds (`max_years`,
+3. `eligibility` asks a cheaper model one question per batch of `batch_size` postings and
+   gets a fixed JSON form per posting, keyed by id: citizenship (required, not required,
+   or open to the owner's work status), clearance (required, obtainable, none, with Public
+   Trust counting as required) and whether a board or agency posted it on behalf of
+   another employer, each with the sentence it rests on. Code drops from the form; the
+   sentence is the reason.
+4. `skills` asks the same model, per batch again, for the years floor from the required
+   section alone, the primary stack, and each required hard skill marked has, adjacent or
+   missing against the owner's skills inventory, read whole from the vault. The thresholds (`max_years`,
    `never_stack`, `max_missing`) live in the criteria file.
 5. `rank` shows the strongest model every candidate in full with both verdicts, asks it
    to re-check each against the same rules and name any it overturns, then order the
@@ -44,8 +45,9 @@ question: the owner's work status for eligibility, the skills inventory for skil
 thresholds are applied to the cached form at drop time, so tuning one re-judges nothing,
 and editing the inventory re-buys only the skills verdicts. Each call runs from an empty
 directory under the state folder rather than the vault, so no instructions file rides
-along on every prompt, and a call that fails or will not parse is asked once more before
-its posting is dropped closed. Prompts travel on stdin, since a
+along on every prompt. A batch whose call fails, will not parse, or leaves a posting
+unanswered is asked once more for the postings still without a verdict, and a posting
+without one after that is dropped closed. Prompts travel on stdin, since a
 full-text rank prompt is longer than an argument may be, and every call asks for JSON
 output so its token counts and list-rate cost are recorded per stage in `costs.json`.
 
@@ -91,5 +93,5 @@ PDF, no status. A filter change is measured on real data before it runs live.
   and no pool record, so an outage never produces a bad pick and the posting is tried
   again tomorrow. A stage where every call fails raises, and the failure path writes the
   note and the status as before.
-- The cost is now visible every morning. A hundred eligibility calls, a few dozen skills
-  calls and one large rank call is the standing bill beside the tailorings.
+- The cost is now visible every morning. A dozen or so eligibility calls, a handful of
+  skills calls and one large rank call is the standing bill beside the tailorings.

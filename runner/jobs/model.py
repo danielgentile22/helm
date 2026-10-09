@@ -54,6 +54,7 @@ class Criteria:
     max_missing: int = 3
     pool_days: int = 30
     skills_note: str = "Atlas/Work/Skills & Certifications.md"
+    batch_size: int = 8
 
     @staticmethod
     def load(path: Path) -> "Criteria":
@@ -96,6 +97,7 @@ class Criteria:
             max_missing=int(raw.get("max_missing", 3)),
             pool_days=int(raw.get("pool_days", 30)),
             skills_note=str(raw.get("skills_note", "Atlas/Work/Skills & Certifications.md")),
+            batch_size=max(1, int(raw.get("batch_size", 8))),
         )
 
 
@@ -244,8 +246,8 @@ class Usage:
 
 @dataclass
 class Cost:
-    """One stage's sum: how many calls it made, how many verdicts it reused, how many calls
-    failed, and the bill."""
+    """One stage's sum: how many calls it made, how many verdicts it reused, how many
+    postings it dropped closed for want of one, and the bill."""
     calls: int = 0
     cached: int = 0
     failed: int = 0

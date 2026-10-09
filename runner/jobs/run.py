@@ -170,7 +170,7 @@ class Run:
         self.pool.save()
         self.say(f"detail  {len(cards)} fetched ({failed} failed), {len(kept)} kept after the description screen")
 
-    # eligibility and skills: one model call per posting, a fixed JSON form, code decides the drop
+    # eligibility and skills: one model call per batch of postings, a fixed JSON form each, code decides the drop
 
     def skills_text(self) -> str:
         if not self.skills_path.exists():
@@ -212,59 +212,74 @@ class Run:
 
     def judge(self, stage: str, rows: list[dict], prompt_for, parse, reason) -> tuple[list[dict], list[Dropped]]:
         """Run `stage` over `rows`: a cached verdict under the pass's current key is reused,
-        anything else costs one model call, two when the first fails or will not parse. A
-        posting whose second call fails too is dropped closed. The calls run from an empty
-        directory, not the vault, so no instructions file rides along on every prompt. Returns the rows that passed, each with the verdict added, and the
+        the rest are asked in batches of `batch_size`, one model call each. A batch whose call
+        fails, will not parse, or leaves an id unanswered is asked once more for the postings
+        still without a verdict; a posting without one after that is dropped closed. The calls
+        run from an empty directory, not the vault, so no instructions file rides along on
+        every prompt. Returns the rows that passed, each with the verdict added, and the
         drops."""
         c = self.criteria
         model, effort = claude.pass_registry(ROUTINE, stage)
         key = verdict_key(stage, c, self.skills_text())
         self.sandbox.mkdir(parents=True, exist_ok=True)
-
-        def ask(p: Posting) -> tuple[dict | None, str, Usage]:
-            out = claude.run(prompt_for(p), model, effort, cwd=self.sandbox, timeout_s=PASS_TIMEOUT_S, read_only=True)
-            if not out.ok:
-                return None, f"call failed ({'timed out' if out.timed_out else out.returncode}): {out.tail(300)}", out.usage
-            try:
-                return parse(out.stdout).to_dict(), "", out.usage
-            except (ValueError, json.JSONDecodeError) as e:
-                return None, f"call failed (unparsable answer: {e}): {out.tail(300)}", out.usage
-
-        def one(row: dict) -> tuple[dict, dict | None, str | None, Usage | None]:
+        cost = Cost()
+        verdicts: dict[str, dict] = {}
+        pending: list[Posting] = []
+        for row in rows:
             p: Posting = row["posting"]
             cached = self.cached_verdict(p.id, stage, key)
             if cached:
-                return row, cached, None, None
-            verdict, failure, usage = ask(p)
-            if verdict is None:
-                verdict, failure, more = ask(p)
-                usage = usage + more
-            if verdict is None:
-                return row, None, failure, usage
-            self.remember(p.id, stage, key, verdict)
-            return row, verdict, None, usage
-
-        with ThreadPoolExecutor(max_workers=PASS_WORKERS) as workers:
-            results = list(workers.map(one, rows))
-        cost = Cost()
-        kept: list[dict] = []
-        dropped: list[Dropped] = []
-        for row, verdict, failure, usage in results:
-            p: Posting = row["posting"]
-            if usage is None:
+                verdicts[p.id] = cached
                 cost.cached += 1
             else:
+                pending.append(p)
+        batches = [pending[i:i + c.batch_size] for i in range(0, len(pending), c.batch_size)]
+
+        def ask(batch: list[Posting]) -> tuple[dict[str, dict], str, Usage]:
+            out = claude.run(prompt_for(batch), model, effort, cwd=self.sandbox, timeout_s=PASS_TIMEOUT_S, read_only=True)
+            if not out.ok:
+                return {}, f"call failed ({'timed out' if out.timed_out else out.returncode}): {out.tail(300)}", out.usage
+            try:
+                forms = parse(out.stdout)
+            except (ValueError, json.JSONDecodeError) as e:
+                return {}, f"call failed (unparsable answer: {e}): {out.tail(300)}", out.usage
+            return {p.id: forms[p.id].to_dict() for p in batch if p.id in forms}, "", out.usage
+
+        def one(batch: list[Posting]) -> tuple[dict[str, dict], str, list[Usage]]:
+            got, failure, usage = ask(batch)
+            attempts = [usage]
+            if len(got) < len(batch):
+                more, failure, usage = ask([p for p in batch if p.id not in got])
+                got.update(more)
+                attempts.append(usage)
+            return got, failure, attempts
+
+        with ThreadPoolExecutor(max_workers=PASS_WORKERS) as workers:
+            results = list(workers.map(one, batches))
+        failures: dict[str, str] = {}
+        for batch, (got, failure, attempts) in zip(batches, results):
+            for usage in attempts:
                 cost.add(usage)
-            if failure:
+            for p in batch:
+                if p.id in got:
+                    verdicts[p.id] = got[p.id]
+                    self.remember(p.id, stage, key, got[p.id])
+                else:
+                    failures[p.id] = failure or "call failed (no verdict for this posting in the answer)"
+        kept: list[dict] = []
+        dropped: list[Dropped] = []
+        for row in rows:
+            p = row["posting"]
+            if p.id in failures:
                 cost.failed += 1
-                dropped.append(Dropped(p.id, stage, failure))
+                dropped.append(Dropped(p.id, stage, failures[p.id]))
                 continue
-            why = reason(verdict)
+            why = reason(verdicts[p.id])
             if why:
                 dropped.append(Dropped(p.id, stage, why))
                 self.pool.drop(p, stage, why, self.today)
             else:
-                kept.append({**row, stage: verdict})
+                kept.append({**row, stage: verdicts[p.id]})
         self.add_cost(stage, cost)
         if rows and cost.failed == len(rows):
             raise RuntimeError(f"every {stage} call failed: {dropped[0].why}")
@@ -273,7 +288,7 @@ class Run:
     def eligibility(self) -> None:
         c = self.criteria
         rows = [{"posting": p} for p in load_postings(self.dir / "postings.json")]
-        kept, dropped = self.judge("eligibility", rows, lambda p: passes.eligibility_prompt(p, c),
+        kept, dropped = self.judge("eligibility", rows, lambda batch: passes.eligibility_prompt(batch, c),
                                    passes.parse_eligibility,
                                    lambda v: passes.eligibility_reason(Eligibility.from_dict(v), c))
         dump(self.dir / "eligible.json", kept)
@@ -285,7 +300,7 @@ class Run:
         c = self.criteria
         text = self.skills_text()
         rows = self.rows("eligible.json")
-        kept, dropped = self.judge("skills", rows, lambda p: passes.skills_prompt(p, c, text),
+        kept, dropped = self.judge("skills", rows, lambda batch: passes.skills_prompt(batch, c, text),
                                    passes.parse_skills, lambda v: passes.skills_reason(Skills.from_dict(v), c))
         dump(self.dir / "judged.json", kept)
         dump(self.dir / "dropped-skills.json", dropped)

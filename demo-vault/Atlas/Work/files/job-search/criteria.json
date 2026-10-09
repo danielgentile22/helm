@@ -10,6 +10,7 @@
   "max_years": 2,
   "max_missing": 3,
   "pool_days": 30,
+  "batch_size": 4,
   "tailor": false,
   "todo_directive": "Launch",
   "targets": {

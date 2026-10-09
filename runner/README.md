@@ -136,8 +136,8 @@ reason, so one can be rerun alone with `--only` and a bad morning can be read ba
 |---|---|---|
 | `search` | Every query in the vault's `Atlas/Work/files/job-search/criteria.json` against LinkedIn's public listings, with the experience, posted-within, remote, `job_types` and `job_functions` filters on the request, per bucket (near home, remote) until the bucket's `targets` of cards the pool has never met is reached. Titles and employers screened by `title_deny` and `company_deny`; cards already in the pool recorded as such | none |
 | `detail` | Each posting page fetched once (cached under `cache/`), descriptions screened by `description_deny`, the years floor, and the remote check (a posting outside `home_location` must match `remote_says` and none of `remote_denies`) | none |
-| `eligibility` | One call per posting, a fixed JSON form: citizenship against the owner's `work_status`, clearance (Public Trust counts), reposted on behalf of another employer, each with the sentence it rests on. Code drops from the form | `passes.eligibility` |
-| `skills` | One call per posting with the owner's skills inventory (`skills_note`): the years floor from the required section only, the primary stack, each required skill marked has, adjacent or missing. Drops on `max_years`, `never_stack` and `max_missing` | `passes.skills` |
+| `eligibility` | One call per batch of `batch_size` postings, a fixed JSON form per posting: citizenship against the owner's `work_status`, clearance (Public Trust counts), reposted on behalf of another employer, each with the sentence it rests on. Code drops from the form | `passes.eligibility` |
+| `skills` | One call per batch of `batch_size` postings with the owner's skills inventory (`skills_note`): the years floor from the required section only, the primary stack, each required skill marked has, adjacent or missing. Drops on `max_years`, `never_stack` and `max_missing` | `passes.skills` |
 | `rank` | Today's survivors plus the pool's live entries from earlier days, expired past `pool_days`, cut to `shortlist` by a cheap score; one read-only Claude call reads each in full with both verdicts, may overturn any, and picks at most `count`, best first, with a tier and a sentence each | the routine's entry |
 | `tailor` | One headless `resume-tailor` run per pick into `~/Desktop/Jobs <day>/<rank> <Company> - <Title>/`, two at a time; a folder that already holds both PDFs is skipped, so a rerun resumes | the skill's entry |
 | `report` | The funnel (`funnel.json`), the research note `Atlas/Work/research/<day>-jobs-top-<count>.md` opening with it, the dropped note `<day>-jobs-dropped.md` listing every drop with link, stage and reason plus the pool carryovers, a mirror of the folders under `Atlas/Work/files/applications/<day>/`, a vault commit, a due-today todo on Work, and `~/Desktop/Jobs <day>.pdf` with the funnel line and the cost per stage | none |
@@ -148,14 +148,14 @@ met: `judged` (passed, never shown), `dropped` (stage and reason), `picked` (the
 so the list is the best of everything live. Verdicts are cached under `verdicts/<id>.json`
 beside a key over what shaped that pass's question (the work status, or the skills
 inventory), so a posting is judged once per version of that question and the thresholds
-can be tuned without re-judging. A pass call that fails is asked once more, then its
-posting is dropped closed. Every model call asks for JSON output and its token counts and
+can be tuned without re-judging. A batch call that fails, or leaves a posting unanswered,
+is asked once more for what is still missing, then those postings are dropped closed. Every model call asks for JSON output and its token counts and
 list-rate cost are summed per stage in `costs.json`.
 
 The criteria file is the only thing that knows who is searching: the queries, the deny
 regexes, the owner's work status, profile and thresholds, and the path of the skills
-inventory the skills pass reads. `demo-vault/` carries a fictional one. A single failed
-model call drops its posting closed with the failure as the reason; a stage where every
+inventory the skills pass reads. `demo-vault/` carries a fictional one. A batch call that
+fails twice drops its postings closed with the failure as the reason; a stage where every
 call fails, or any other failure, still writes the note and the PDF, saying what failed,
 and `status/job-search.json` reads `fail`. It is the one routine that is not silent on
 success: the report is the point.
