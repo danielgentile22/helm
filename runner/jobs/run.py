@@ -31,19 +31,23 @@ sys.path.insert(0, str(HERE))
 
 import claude  # noqa: E402
 import linkedin  # noqa: E402
+import passes  # noqa: E402
 import rank  # noqa: E402
 import report  # noqa: E402
 import screen  # noqa: E402
 import tailor  # noqa: E402
-from model import CRITERIA_PATH, Criteria, Dropped, Pick, Posting, dump, load_picks, load_postings  # noqa: E402
+from model import (CRITERIA_PATH, Cost, Criteria, Dropped, Eligibility, Pick, Posting, Skills,  # noqa: E402
+                   Usage, criteria_hash, dump, load_picks, load_postings)
 from pool import Pool  # noqa: E402
 
 ENGINE = HERE.parents[1]
 STATE = Path(os.environ.get("HELM_STATE") or Path.home() / ".helm")
 VAULT = Path(os.environ.get("HELM_VAULT_ROOT") or Path.home() / "Vault")
 ROUTINE = "job-search"
-STAGES = ("search", "detail", "rank", "tailor", "report")
+STAGES = ("search", "detail", "eligibility", "skills", "rank", "tailor", "report")
 RANK_TIMEOUT_S = 15 * 60
+PASS_TIMEOUT_S = 4 * 60
+PASS_WORKERS = 4
 TAILOR_WORKERS = 2
 
 
@@ -63,6 +67,8 @@ class Run:
         self.cache = STATE / "status" / ROUTINE / "cache"
         self.cache.mkdir(parents=True, exist_ok=True)
         self.pool = Pool.load(STATE / "status" / ROUTINE / "pool.json", STATE / "status" / ROUTINE / "seen.json")
+        self.verdicts = STATE / "status" / ROUTINE / "verdicts"
+        self.skills_path = VAULT / self.criteria.skills_note
         self.folder = desktop / f"Jobs {day.isoformat()}"
         self.pdf = desktop / f"Jobs {day.isoformat()}.pdf"
         self.note_path = VAULT / "Atlas/Work/research" / f"{report.note_stem(day, self.criteria.count)}.md"
@@ -155,13 +161,122 @@ class Run:
         self.pool.save()
         self.say(f"detail  {len(cards)} fetched ({failed} failed), {len(kept)} kept after the description screen")
 
+    # eligibility and skills: one model call per posting, a fixed JSON form, code decides the drop
+
+    def skills_text(self) -> str:
+        if not self.skills_path.exists():
+            raise RuntimeError(f"the skills inventory {self.criteria.skills_note} is not in the vault; "
+                               f"criteria.json names it under skills_note")
+        return self.skills_path.read_text()
+
+    def rows(self, name: str) -> list[dict]:
+        """The rows of a verdict file, each `{"posting": Posting, ...verdict dicts}`."""
+        out = []
+        for row in json.loads((self.dir / name).read_text()):
+            row["posting"] = Posting.from_dict(row["posting"])
+            out.append(row)
+        return out
+
+    def verdict(self, pid: str, key: str) -> dict:
+        path = self.verdicts / f"{pid}.json"
+        if path.exists():
+            data = json.loads(path.read_text())
+            if data.get("criteria") == key:
+                return data
+        return {"criteria": key, "eligibility": None, "skills": None}
+
+    def remember(self, pid: str, key: str, stage: str, verdict: dict) -> None:
+        data = self.verdict(pid, key)
+        data[stage] = verdict
+        self.verdicts.mkdir(parents=True, exist_ok=True)
+        tmp = self.verdicts / f"{pid}.json.tmp"
+        tmp.write_text(json.dumps(data, ensure_ascii=False))
+        tmp.replace(self.verdicts / f"{pid}.json")
+
+    def add_cost(self, stage: str, cost: Cost) -> None:
+        path = self.dir / "costs.json"
+        costs = json.loads(path.read_text()) if path.exists() else {}
+        costs[stage] = cost.to_dict()
+        path.write_text(json.dumps(costs, indent=1))
+
+    def judge(self, stage: str, rows: list[dict], prompt_for, parse, reason) -> list[dict]:
+        """Run `stage` over `rows`: a cached verdict under the current criteria hash is reused,
+        anything else costs one model call. A call that fails or will not parse drops its
+        posting closed. Returns the rows that passed, each with the verdict added."""
+        c = self.criteria
+        model, effort = claude.pass_registry(ROUTINE, stage)
+        key = criteria_hash(c, self.skills_text())
+
+        def one(row: dict) -> tuple[dict, dict | None, str | None, Usage | None]:
+            p: Posting = row["posting"]
+            cached = self.verdict(p.id, key).get(stage)
+            if cached:
+                return row, cached, None, None
+            out = claude.run(prompt_for(p), model, effort, cwd=VAULT, timeout_s=PASS_TIMEOUT_S, read_only=True)
+            if not out.ok:
+                return row, None, f"call failed ({'timed out' if out.timed_out else out.returncode}): {out.tail(300)}", out.usage
+            try:
+                verdict = parse(out.stdout).to_dict()
+            except (ValueError, json.JSONDecodeError) as e:
+                return row, None, f"call failed (unparsable answer: {e}): {out.tail(300)}", out.usage
+            self.remember(p.id, key, stage, verdict)
+            return row, verdict, None, out.usage
+
+        with ThreadPoolExecutor(max_workers=PASS_WORKERS) as workers:
+            results = list(workers.map(one, rows))
+        cost = Cost()
+        kept: list[dict] = []
+        dropped: list[Dropped] = []
+        for row, verdict, failure, usage in results:
+            p: Posting = row["posting"]
+            if usage is None:
+                cost.cached += 1
+            else:
+                cost.add(usage)
+            if failure:
+                cost.failed += 1
+                dropped.append(Dropped(p.id, stage, failure))
+                continue
+            why = reason(verdict)
+            if why:
+                dropped.append(Dropped(p.id, stage, why))
+                self.pool.drop(p, stage, why, self.today)
+            else:
+                kept.append({**row, stage: verdict})
+        self.add_cost(stage, cost)
+        if rows and cost.failed == len(rows):
+            raise RuntimeError(f"every {stage} call failed: {dropped[0].why}")
+        return kept, dropped
+
+    def eligibility(self) -> None:
+        c = self.criteria
+        rows = [{"posting": p} for p in load_postings(self.dir / "postings.json")]
+        kept, dropped = self.judge("eligibility", rows, lambda p: passes.eligibility_prompt(p, c),
+                                   passes.parse_eligibility,
+                                   lambda v: passes.eligibility_reason(Eligibility.from_dict(v), c))
+        dump(self.dir / "eligible.json", kept)
+        dump(self.dir / "dropped-eligibility.json", dropped)
+        self.pool.save()
+        self.say(f"eligibility  {len(rows)} judged, {len(kept)} eligible")
+
+    def skills(self) -> None:
+        c = self.criteria
+        text = self.skills_text()
+        rows = self.rows("eligible.json")
+        kept, dropped = self.judge("skills", rows, lambda p: passes.skills_prompt(p, c, text),
+                                   passes.parse_skills, lambda v: passes.skills_reason(Skills.from_dict(v), c))
+        dump(self.dir / "judged.json", kept)
+        dump(self.dir / "dropped-skills.json", dropped)
+        self.pool.save()
+        self.say(f"skills  {len(rows)} judged, {len(kept)} match")
+
     # rank: one model call over the shortlist
 
     def rank(self) -> None:
         c = self.criteria
-        postings = load_postings(self.dir / "postings.json")
+        postings = [row["posting"] for row in self.rows("judged.json")]
         if not postings:
-            raise RuntimeError("nothing survived the screen, so there is nothing to rank")
+            raise RuntimeError("nothing survived the passes, so there is nothing to rank")
         short = screen.shortlist(postings, c, self.day)
         text = rank.prompt(short, c, self.day, "Atlas/Work/Job Search.md")
         (self.dir / "rank-prompt.txt").write_text(text)

@@ -254,11 +254,21 @@ class Cost:
                     Usage.from_dict(d.get("usage", {})))
 
 
+def plain(x):
+    """`x` with every dataclass inside it, however nested, turned into a dict."""
+    if hasattr(x, "__dataclass_fields__"):
+        return asdict(x)
+    if isinstance(x, dict):
+        return {k: plain(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [plain(v) for v in x]
+    return x
+
+
 def dump(path: Path, rows: list) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps([asdict(r) if hasattr(r, "__dataclass_fields__") else r for r in rows],
-                              indent=1, ensure_ascii=False))
+    tmp.write_text(json.dumps(plain(rows), indent=1, ensure_ascii=False))
     tmp.replace(path)
 
 

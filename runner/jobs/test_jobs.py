@@ -541,10 +541,16 @@ class Orchestration(unittest.TestCase):
         p.applicants = "12 applicants"
         return p
 
-    def fake_claude(self, prompt, model, effort, cwd, timeout_s, read_only=False):
-        ids = [line.split()[1] for line in prompt.splitlines() if line.startswith("id ")]
-        picks = [{"id": i, "tier": "A", "why": f"fits {i}"} for i in ids]
-        return self.run.claude.Outcome(json.dumps({"picks": picks, "dropped": []}), "", 0, False)
+    def fake_claude(self, prompt, model, effort, cwd, timeout_s, read_only=False, stream=False):
+        if prompt.startswith(passes.ELIGIBILITY_HEAD):
+            answer = {"citizenship": "not_required", "citizenship_quote": "", "clearance": "none",
+                      "clearance_quote": "", "reposted": False, "reposted_quote": ""}
+        elif prompt.startswith(passes.SKILLS_HEAD):
+            answer = {"years": None, "years_quote": "", "stack": "Python", "skills": [{"name": "Python", "status": "has"}]}
+        else:
+            ids = [line.split()[1] for line in prompt.splitlines() if line.startswith("id ")]
+            answer = {"picks": [{"id": i, "tier": "A", "why": f"fits {i}"} for i in ids], "dropped": []}
+        return self.run.claude.Outcome(json.dumps(answer), "", 0, False, usage=Usage(100, 10, 0, 0, 0.01))
 
     def test_full_run_with_the_ledger_hiding_an_earlier_pick(self):
         (self.state / "status/job-search").mkdir(parents=True)
