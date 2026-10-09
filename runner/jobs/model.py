@@ -134,6 +134,48 @@ class Dropped:
     why: str
 
 
+@dataclass(frozen=True)
+class Usage:
+    """One model call's bill, zeros when the run gave none. `usd` is Claude's own estimate at
+    API list rates; the subscription does not bill per token, so it is a drift gauge."""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    usd: float = 0.0
+
+    def __add__(self, other: "Usage") -> "Usage":
+        return Usage(self.input_tokens + other.input_tokens, self.output_tokens + other.output_tokens,
+                     self.cache_read_tokens + other.cache_read_tokens,
+                     self.cache_write_tokens + other.cache_write_tokens, self.usd + other.usd)
+
+    @staticmethod
+    def from_dict(d: dict) -> "Usage":
+        return Usage(**{k: d[k] for k in Usage.__dataclass_fields__ if k in d})
+
+
+@dataclass
+class Cost:
+    """One stage's sum: how many calls it made, how many verdicts it reused, how many calls
+    failed, and the bill."""
+    calls: int = 0
+    cached: int = 0
+    failed: int = 0
+    usage: Usage = field(default_factory=Usage)
+
+    def add(self, u: Usage) -> None:
+        self.calls += 1
+        self.usage = self.usage + u
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @staticmethod
+    def from_dict(d: dict) -> "Cost":
+        return Cost(int(d.get("calls", 0)), int(d.get("cached", 0)), int(d.get("failed", 0)),
+                    Usage.from_dict(d.get("usage", {})))
+
+
 def dump(path: Path, rows: list) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")

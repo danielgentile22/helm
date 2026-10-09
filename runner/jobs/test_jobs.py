@@ -18,12 +18,13 @@ from unittest import mock
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import claude  # noqa: E402
 import linkedin  # noqa: E402
 import rank  # noqa: E402
 import report  # noqa: E402
 import screen  # noqa: E402
 import tailor  # noqa: E402
-from model import Criteria, Dropped, Pick, Posting, Query  # noqa: E402
+from model import Cost, Criteria, Dropped, Pick, Posting, Query, Usage  # noqa: E402
 
 DEMO = HERE.parents[1] / "demo-vault"
 TODAY = date(2026, 10, 8)
@@ -71,6 +72,72 @@ def posting(pid="1001", title="Junior Backend Engineer", company="Keel", desc="P
             applicants="42 applicants", posted="2026-10-06") -> Posting:
     return Posting(id=pid, title=title, company=company, location="Lisbon, Portugal", posted=posted,
                    query="software engineer python", description=desc, applicants=applicants)
+
+
+class ClaudeRuns(unittest.TestCase):
+    RESULT = {"type": "result", "is_error": False, "result": "{\"picks\": []}", "total_cost_usd": 0.0421,
+              "usage": {"input_tokens": 1200, "output_tokens": 80, "cache_creation_input_tokens": 300,
+                        "cache_read_input_tokens": 4000}}
+
+    def capture(self, stdout: str):
+        calls = []
+
+        def fake(argv, cwd, env, input, capture_output, text, timeout):
+            calls.append((argv, input))
+            return mock.Mock(stdout=stdout, stderr="", returncode=0)
+        return calls, fake
+
+    def test_prompt_goes_on_stdin_and_the_result_text_and_usage_come_back(self):
+        calls, fake = self.capture(json.dumps(self.RESULT))
+        with mock.patch.object(claude.subprocess, "run", fake):
+            out = claude.run("rank these", "opus", "high", Path("/tmp"), 5, read_only=True)
+        argv, stdin = calls[0]
+        self.assertEqual(stdin, "rank these")
+        self.assertNotIn("rank these", argv)
+        self.assertEqual(argv[argv.index("--output-format") + 1], "json")
+        self.assertIn("--allowedTools", argv)
+        self.assertEqual(out.stdout, '{"picks": []}')
+        self.assertEqual(out.usage, Usage(1200, 80, 4000, 300, 0.0421))
+        self.assertTrue(out.ok)
+        self.assertIn('"total_cost_usd"', out.raw)
+
+    def test_stream_mode_keeps_the_events_and_reads_the_last_result(self):
+        lines = "\n".join([json.dumps({"type": "system"}), json.dumps({"type": "assistant", "x": 1}),
+                           json.dumps(self.RESULT)])
+        calls, fake = self.capture(lines)
+        with mock.patch.object(claude.subprocess, "run", fake):
+            out = claude.run("tailor", "opus", "high", Path("/tmp"), 5, stream=True)
+        self.assertEqual(calls[0][0][calls[0][0].index("--output-format") + 1], "stream-json")
+        self.assertEqual(out.stdout, lines)
+        self.assertEqual(out.usage.input_tokens, 1200)
+
+    def test_output_that_is_not_json_passes_through_with_zero_usage(self):
+        calls, fake = self.capture("plain text")
+        with mock.patch.object(claude.subprocess, "run", fake):
+            out = claude.run("x", "opus", "high", Path("/tmp"), 5)
+        self.assertEqual((out.stdout, out.usage), ("plain text", Usage()))
+
+    def test_usage_sums_and_a_cost_round_trips(self):
+        total = Usage(1, 2, 3, 4, 0.5) + Usage(10, 20, 30, 40, 0.25)
+        self.assertEqual(total, Usage(11, 22, 33, 44, 0.75))
+        c = Cost()
+        c.add(Usage(1, 2, 3, 4, 0.5))
+        c.cached += 2
+        self.assertEqual(Cost.from_dict(json.loads(json.dumps(c.to_dict()))), c)
+
+    def test_registry_rejects_what_the_policy_forbids(self):
+        data = {"policy": {"forbidden_models": ["haiku"], "forbidden_effort": ["xhigh", "max"]},
+                "routines": {"job-search": {"model": "opus", "effort": "high",
+                                            "passes": {"eligibility": {"model": "haiku", "effort": "low"},
+                                                       "skills": {"model": "sonnet", "effort": "max"},
+                                                       "fine": {"model": "sonnet", "effort": "medium"}}}}}
+        with mock.patch.object(claude, "_models", lambda: data):
+            self.assertEqual(claude.registry("routines", "job-search"), ("opus", "high"))
+            self.assertEqual(claude.pass_registry("job-search", "fine"), ("sonnet", "medium"))
+            with self.assertRaises(ValueError):
+                claude.pass_registry("job-search", "eligibility")
+            with self.assertRaises(ValueError):
+                claude.pass_registry("job-search", "skills")
 
 
 class Parsing(unittest.TestCase):
