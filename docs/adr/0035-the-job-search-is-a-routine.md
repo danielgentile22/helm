@@ -19,7 +19,8 @@ materials are waiting when the day starts.
   `demo-vault/` carries a fictional one, and the tests run against it.
 - Clearance, citizenship and years are cut by regex before any model reads a posting,
   and the ranker is told the profile and forbidden to pick against it. A posting the
-  owner cannot take never reaches a tailoring run.
+  owner cannot take never reaches a tailoring run. Superseded by ADR 0036: the regexes
+  stay as the first cut, and two model passes over the full text decide the rest.
 - The resume-tailor skill gained a headless mode: no questions, red flags recorded
   rather than raised, unknown tools treated as not used, and no edits to the skills
   inventory. An unattended run has nobody to answer.

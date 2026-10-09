@@ -51,7 +51,7 @@ runner/
 |---|---|---|---|
 | `integrity-check` | daily 07:00 | sonnet, low | Verifies every router pointer, every wikilink, every repo against its project note, and the dashboard checks and tests. Writes a report only when something is broken |
 | `capture` | every 30 min | none | Refreshes `status/agenda.json` and `status/projects.json` from the deterministic producers. No Claude call |
-| `job-search` | daily 04:00 | opus, high | Searches LinkedIn against the vault's criteria, screens, picks the day's ten, tailors a resume and cover letter for each, and leaves a PDF with the apply links on the desktop. The record goes in the vault |
+| `job-search` | daily 04:00 | opus, high; sonnet, medium for the two passes | Searches LinkedIn against the vault's criteria, screens, judges each posting's eligibility and skills, ranks the live pool, tailors a resume and cover letter for each pick, and leaves a PDF with the funnel and the apply links on the desktop. The record goes in the vault |
 
 A routine is a script on a timer. A service is a process launchd keeps alive, and
 there are two:
@@ -128,20 +128,33 @@ worth reading if their pointers are real.
 
 ## Job search
 
-`jobs/run.py` runs five stages, each leaving its result as JSON under
-`status/job-search/<day>/` so one can be rerun alone with `--only`:
+`jobs/run.py` runs seven stages, each leaving its result as JSON under
+`status/job-search/<day>/` beside a `dropped-<stage>.json` naming every drop and its
+reason, so one can be rerun alone with `--only` and a bad morning can be read back:
 
 | Stage | Does | Model |
 |---|---|---|
-| `search` | Every query in the vault's `Atlas/Work/files/job-search/criteria.json` against LinkedIn's public listings, deduplicated, titles and employers screened by `title_deny` and `company_deny`, postings reported on an earlier day hidden by `seen.json` | none |
+| `search` | Every query in the vault's `Atlas/Work/files/job-search/criteria.json` against LinkedIn's public listings, with the experience, posted-within, remote, `job_types` and `job_functions` filters on the request, per bucket (near home, remote) until the bucket's `targets` of cards the pool has never met is reached. Titles and employers screened by `title_deny` and `company_deny`; cards already in the pool recorded as such | none |
 | `detail` | Each posting page fetched once (cached under `cache/`), descriptions screened by `description_deny`, the years floor, and the remote check (a posting outside `home_location` must match `remote_says` and none of `remote_denies`) | none |
-| `rank` | A cheap score keeps the `shortlist`; one read-only Claude call picks `count`, best first, with a tier and a sentence each | the routine's entry |
+| `eligibility` | One call per posting, a fixed JSON form: citizenship against the owner's `work_status`, clearance (Public Trust counts), reposted on behalf of another employer, each with the sentence it rests on. Code drops from the form | `passes.eligibility` |
+| `skills` | One call per posting with the owner's skills inventory (`skills_note`): the years floor from the required section only, the primary stack, each required skill marked has, adjacent or missing. Drops on `max_years`, `never_stack` and `max_missing` | `passes.skills` |
+| `rank` | Today's survivors plus the pool's live entries from earlier days, expired past `pool_days`, cut to `shortlist` by a cheap score; one read-only Claude call reads each in full with both verdicts, may overturn any, and picks at most `count`, best first, with a tier and a sentence each | the routine's entry |
 | `tailor` | One headless `resume-tailor` run per pick into `~/Desktop/Jobs <day>/<rank> <Company> - <Title>/`, two at a time; a folder that already holds both PDFs is skipped, so a rerun resumes | the skill's entry |
-| `report` | The research note `Atlas/Work/research/<day>-jobs-top-<count>.md`, a mirror of the folders under `Atlas/Work/files/applications/<day>/`, a vault commit, a due-today todo on Work, and `~/Desktop/Jobs <day>.pdf` compiled with xelatex | none |
+| `report` | The funnel (`funnel.json`), the research note `Atlas/Work/research/<day>-jobs-top-<count>.md` opening with it, the dropped note `<day>-jobs-dropped.md` listing every drop with link, stage and reason plus the pool carryovers, a mirror of the folders under `Atlas/Work/files/applications/<day>/`, a vault commit, a due-today todo on Work, and `~/Desktop/Jobs <day>.pdf` with the funnel line and the cost per stage | none |
+
+The pool, `status/job-search/pool.json`, holds one record per posting the search has
+met: `judged` (passed, never shown), `dropped` (stage and reason), `picked` (the day) or
+`expired`. A judged posting is ranked again each morning until it is picked or ages out,
+so the list is the best of everything live. Verdicts are cached under `verdicts/<id>.json`
+with a hash of the criteria that shaped them, so a posting is judged once per criteria
+version. Every model call asks for JSON output and its token counts and list-rate cost
+are summed per stage in `costs.json`.
 
 The criteria file is the only thing that knows who is searching: the queries, the deny
-regexes, the owner's profile and what the ranker should weigh. `demo-vault/` carries a
-fictional one. A stage that fails still writes the note and the PDF, saying what failed,
+regexes, the owner's work status, profile and thresholds, and the path of the skills
+inventory the skills pass reads. `demo-vault/` carries a fictional one. A single failed
+model call drops its posting closed with the failure as the reason; a stage where every
+call fails, or any other failure, still writes the note and the PDF, saying what failed,
 and `status/job-search.json` reads `fail`. It is the one routine that is not silent on
 success: the report is the point.
 
@@ -150,6 +163,7 @@ python3 runner/jobs/run.py                      # what launchd runs
 python3 runner/jobs/run.py --limit 2            # tailor the first two picks only
 python3 runner/jobs/run.py --only rank          # rerun one stage from the previous stage's file
 python3 runner/jobs/run.py --desktop /tmp/d     # the morning folder somewhere else
+python3 runner/jobs/run.py --replay --day D     # a past day again from the cache, pool untouched, funnel in the day dir
 ```
 
 The Mac has to be awake at 04:00 for the folder to be ready by morning; launchd runs a

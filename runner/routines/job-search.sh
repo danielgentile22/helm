@@ -2,14 +2,16 @@
 # Routine: job search.
 #
 # Every morning: search LinkedIn's public listings against the criteria in the
-# vault, screen them, have Claude pick the day's ten, tailor a resume and cover
-# letter for each, and leave a PDF on the desktop with the apply links. The
-# record goes in the vault. runner/jobs/run.py does all of it; this script
-# only bounds its time and writes the status file if it dies before doing so.
+# vault, screen them, have a cheaper model judge each posting's eligibility and
+# skills, have Claude rank the live pool and pick the day's ten, tailor a resume
+# and cover letter for each, and leave a PDF on the desktop with the funnel and
+# the apply links. The record goes in the vault. runner/jobs/run.py does all of
+# it; this script only bounds its time and writes the status file if it dies
+# before doing so.
 #
 # Safe to run late (the day is the date it starts) and safe to run twice (every
-# file is overwritten, and a posting reported on an earlier day is not reported
-# again). Not silent on success: the report is the point.
+# file is overwritten, and a posting picked on an earlier day stays picked in
+# the pool). Not silent on success: the report is the point.
 
 set -u
 ENGINE="$(cd "$(dirname "$0")/../.." && pwd)"

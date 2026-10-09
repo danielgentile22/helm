@@ -81,6 +81,26 @@ A prompt helm sends to itself on a schedule, run headlessly through `claude -p`
 under launchd.
 _Avoid_: job, cron, task, automation
 
+**Pool**:
+The job search's record of every posting it has met, one entry per posting with a
+status: judged, dropped, picked or expired. A judged posting waits for a thinner
+morning; a picked one is never shown again. `~/.helm/status/job-search/pool.json`.
+_Avoid_: seen ledger, seen.json (replaced), history
+
+**Verdict**:
+A model pass's answer about one posting, in a fixed JSON form (eligibility: citizenship,
+clearance, reposted; skills: years floor, primary stack, each required skill). Code
+decides the drop from the form; the quoted sentence is the reason. Cached per posting
+with a hash of the criteria that shaped it.
+_Avoid_: judgement, assessment, score
+
+**Funnel**:
+What a job-search morning did, computed from the stage files: pulled per bucket,
+already in the pool, removed by each stage, carried, ranked, overturned, picked, and
+the cost per stage. Opens the morning note, sits on the PDF, and lands in the day's
+state as `funnel.json`.
+_Avoid_: stats, summary, pipeline metrics
+
 **Runner**:
 The component that holds schedules, run records, and metrics, and invokes Claude
 for routines. Successor to HELM's runner, without its file-based queue.

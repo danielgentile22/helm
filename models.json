@@ -63,7 +63,7 @@
       "model": "opus",
       "effort": "high",
       "schedule": "daily 04:00",
-      "why": "Picking ten postings the owner can actually interview for is a judgment call over fifty descriptions, and the ten tailorings that follow run the resume-tailor skill at its own entry. Runs before the owner wakes so the desktop folder is waiting.",
+      "why": "Ranking the live pool is a judgment call over up to sixty full postings and their verdicts, with the right to overturn a cheaper pass, so it runs at the top of the scale; the two passes before it have their own entries below, and the ten tailorings that follow run the resume-tailor skill at its own entry. Runs before the owner wakes so the desktop folder is waiting.",
       "passes": {
         "eligibility": {
           "model": "sonnet",
@@ -76,7 +76,7 @@
           "why": "The years floor, the primary stack and each required skill against the owner's inventory, also a fixed form. Same reasoning: volume, and the ranker re-checks the survivors at the top of the scale."
         }
       },
-      "writes": "~/Desktop/Jobs <day>.pdf and ~/Desktop/Jobs <day>/, Atlas/Work/research/<day>-jobs-top-10.md and Atlas/Work/files/applications/<day>/ in the vault, a todo on Work, and ~/.helm/status/job-search/"
+      "writes": "~/Desktop/Jobs <day>.pdf and ~/Desktop/Jobs <day>/, Atlas/Work/research/<day>-jobs-top-10.md and <day>-jobs-dropped.md and Atlas/Work/files/applications/<day>/ in the vault, a todo on Work, and ~/.helm/status/job-search/ (the day's stage files and costs, the pool, the posting and verdict caches)"
     },
     "capture": {
       "model": null,
