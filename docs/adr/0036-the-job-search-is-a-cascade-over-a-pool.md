@@ -39,8 +39,13 @@ Seven stages, each reading the previous stage's file and writing its own under
 6. `tailor` is unchanged.
 7. `report` computes the funnel and writes the two notes and the PDF.
 
-A verdict is cached under `verdicts/<id>.json` with a hash of the criteria that shaped
-it, so a posting is judged once per criteria version. Prompts travel on stdin, since a
+A verdict is cached under `verdicts/<id>.json` beside a key over what shaped that pass's
+question: the owner's work status for eligibility, the skills inventory for skills. The
+thresholds are applied to the cached form at drop time, so tuning one re-judges nothing,
+and editing the inventory re-buys only the skills verdicts. Each call runs from an empty
+directory under the state folder rather than the vault, so no instructions file rides
+along on every prompt, and a call that fails or will not parse is asked once more before
+its posting is dropped closed. Prompts travel on stdin, since a
 full-text rank prompt is longer than an argument may be, and every call asks for JSON
 output so its token counts and list-rate cost are recorded per stage in `costs.json`.
 
@@ -67,9 +72,9 @@ diagnosed from the vault.
 ## Replay
 
 `--replay --day D` reruns the cascade over a past day's cards from the posting cache,
-against a scratch pool, writing to that day's state directory and leaving the funnel
-there. No LinkedIn, no note, no PDF, no status. A filter change is measured on real data
-before it runs live.
+against a scratch pool, writing its stage files and the funnel under `<day>/replay/` so
+the record of the morning the owner was shown stays as it was. No LinkedIn, no note, no
+PDF, no status. A filter change is measured on real data before it runs live.
 
 ## Consequences
 

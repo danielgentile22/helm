@@ -10,7 +10,7 @@ what every stage decided. The pool at `pool.json` carries judged postings across
     run.py --only tailor --force  tailor every pick again, even the folders already done
     run.py --desktop /tmp/d     write the morning folder somewhere other than ~/Desktop
     run.py --replay --day D     rerun the cascade over a past day's cards from the cache, no LinkedIn,
-                                no pool, no note, no PDF; the funnel lands in the day dir
+                                no pool, no note, no PDF; the files and the funnel land in <day>/replay/
 
 Safe to run late (the day is today's date at the start, not 04:00) and safe to run twice (every
 file is overwritten, a pool record written today counts as new again, and a todo already on
@@ -41,7 +41,7 @@ import report  # noqa: E402
 import screen  # noqa: E402
 import tailor  # noqa: E402
 from model import (CRITERIA_PATH, Cost, Criteria, Dropped, Eligibility, Pick, Posting, Skills,  # noqa: E402
-                   Usage, criteria_hash, dump, load_picks, load_postings)
+                   Usage, dump, load_picks, load_postings, verdict_key)
 from pool import Pool  # noqa: E402
 
 ENGINE = HERE.parents[1]
@@ -66,13 +66,15 @@ class Run:
         self.no_tailor = no_tailor
         self.force = force
         self.criteria = Criteria.load(VAULT / CRITERIA_PATH)
-        self.dir = STATE / "status" / ROUTINE / day.isoformat()
+        self.source = STATE / "status" / ROUTINE / day.isoformat()
+        self.dir = self.source / "replay" if replay else self.source
         self.dir.mkdir(parents=True, exist_ok=True)
         self.cache = STATE / "status" / ROUTINE / "cache"
         self.cache.mkdir(parents=True, exist_ok=True)
         self.pool = Pool(None, {}) if replay else \
             Pool.load(STATE / "status" / ROUTINE / "pool.json", STATE / "status" / ROUTINE / "seen.json")
         self.verdicts = STATE / "status" / ROUTINE / "verdicts"
+        self.sandbox = STATE / "status" / ROUTINE / "sandbox"
         self.skills_path = VAULT / self.criteria.skills_note
         self.folder = desktop / f"Jobs {day.isoformat()}"
         self.pdf = desktop / f"Jobs {day.isoformat()}.pdf"
@@ -184,17 +186,19 @@ class Run:
             out.append(row)
         return out
 
-    def verdict(self, pid: str, key: str) -> dict:
+    def verdicts_of(self, pid: str) -> dict:
+        """The verdict file: each pass's form under its name, beside the key it was asked
+        under, so the two passes expire independently."""
         path = self.verdicts / f"{pid}.json"
-        if path.exists():
-            data = json.loads(path.read_text())
-            if data.get("criteria") == key:
-                return data
-        return {"criteria": key, "eligibility": None, "skills": None}
+        return json.loads(path.read_text()) if path.exists() else {}
 
-    def remember(self, pid: str, key: str, stage: str, verdict: dict) -> None:
-        data = self.verdict(pid, key)
-        data[stage] = verdict
+    def cached_verdict(self, pid: str, stage: str, key: str) -> dict | None:
+        data = self.verdicts_of(pid)
+        return data.get(stage) if data.get(f"{stage}_key") == key else None
+
+    def remember(self, pid: str, stage: str, key: str, verdict: dict) -> None:
+        data = self.verdicts_of(pid)
+        data[stage], data[f"{stage}_key"] = verdict, key
         self.verdicts.mkdir(parents=True, exist_ok=True)
         tmp = self.verdicts / f"{pid}.json.tmp"
         tmp.write_text(json.dumps(data, ensure_ascii=False))
@@ -207,28 +211,38 @@ class Run:
         path.write_text(json.dumps(costs, indent=1))
 
     def judge(self, stage: str, rows: list[dict], prompt_for, parse, reason) -> tuple[list[dict], list[Dropped]]:
-        """Run `stage` over `rows`: a cached verdict under the current criteria hash is reused,
-        anything else costs one model call. A call that fails or will not parse drops its
-        posting closed. Returns the rows that passed, each with the verdict added, and the
+        """Run `stage` over `rows`: a cached verdict under the pass's current key is reused,
+        anything else costs one model call, two when the first fails or will not parse. A
+        posting whose second call fails too is dropped closed. The calls run from an empty
+        directory, not the vault, so no instructions file rides along on every prompt. Returns the rows that passed, each with the verdict added, and the
         drops."""
         c = self.criteria
         model, effort = claude.pass_registry(ROUTINE, stage)
-        key = criteria_hash(c, self.skills_text())
+        key = verdict_key(stage, c, self.skills_text())
+        self.sandbox.mkdir(parents=True, exist_ok=True)
+
+        def ask(p: Posting) -> tuple[dict | None, str, Usage]:
+            out = claude.run(prompt_for(p), model, effort, cwd=self.sandbox, timeout_s=PASS_TIMEOUT_S, read_only=True)
+            if not out.ok:
+                return None, f"call failed ({'timed out' if out.timed_out else out.returncode}): {out.tail(300)}", out.usage
+            try:
+                return parse(out.stdout).to_dict(), "", out.usage
+            except (ValueError, json.JSONDecodeError) as e:
+                return None, f"call failed (unparsable answer: {e}): {out.tail(300)}", out.usage
 
         def one(row: dict) -> tuple[dict, dict | None, str | None, Usage | None]:
             p: Posting = row["posting"]
-            cached = self.verdict(p.id, key).get(stage)
+            cached = self.cached_verdict(p.id, stage, key)
             if cached:
                 return row, cached, None, None
-            out = claude.run(prompt_for(p), model, effort, cwd=VAULT, timeout_s=PASS_TIMEOUT_S, read_only=True)
-            if not out.ok:
-                return row, None, f"call failed ({'timed out' if out.timed_out else out.returncode}): {out.tail(300)}", out.usage
-            try:
-                verdict = parse(out.stdout).to_dict()
-            except (ValueError, json.JSONDecodeError) as e:
-                return row, None, f"call failed (unparsable answer: {e}): {out.tail(300)}", out.usage
-            self.remember(p.id, key, stage, verdict)
-            return row, verdict, None, out.usage
+            verdict, failure, usage = ask(p)
+            if verdict is None:
+                verdict, failure, more = ask(p)
+                usage = usage + more
+            if verdict is None:
+                return row, None, failure, usage
+            self.remember(p.id, stage, key, verdict)
+            return row, verdict, None, usage
 
         with ThreadPoolExecutor(max_workers=PASS_WORKERS) as workers:
             results = list(workers.map(one, rows))
@@ -284,14 +298,14 @@ class Run:
         """The pool's live records from earlier days, as rank rows, from the posting cache and
         the verdict cache. A record missing either is left in the pool and logged."""
         rows = []
-        for pid, rec in self.pool.rankable(self.today).items():
+        for pid, rec in self.pool.live().items():
             if pid in skip:
                 continue
-            cached, verdict = self.cache / f"{pid}.json", self.verdicts / f"{pid}.json"
-            if not cached.exists() or not verdict.exists():
+            cached = self.cache / f"{pid}.json"
+            v = self.verdicts_of(pid)
+            if not cached.exists() or not v:
                 self.say(f"rank    {pid} ({rec.title} at {rec.company}) carried but not cached, skipped")
                 continue
-            v = json.loads(verdict.read_text())
             if not v.get("eligibility") or not v.get("skills"):
                 self.say(f"rank    {pid} ({rec.title} at {rec.company}) carried without both verdicts, skipped")
                 continue
@@ -301,6 +315,7 @@ class Run:
 
     def rank(self) -> None:
         c = self.criteria
+        self.pool.unpick(self.today)
         expired = self.pool.expire(self.day, c.pool_days)
         if expired:
             self.say(f"rank    {len(expired)} pool entries expired")
@@ -311,8 +326,11 @@ class Run:
                 self.pool.judged(row["posting"], self.today)
         rows = new + self.carried({row["posting"].id for row in new})
         if not rows:
+            for name in ("ranked.json", "picks.json", "dropped-rank.json"):
+                dump(self.dir / name, [])
             self.pool.save()
-            raise RuntimeError("nothing survived the passes and the pool is empty, so there is nothing to rank")
+            self.say("rank    nothing survived the passes and the pool is empty; no picks today")
+            return
         rows.sort(key=lambda r: screen.prescore(r["posting"], c, self.day), reverse=True)
         short = rows[: c.shortlist]
         dump(self.dir / "ranked.json", [{"id": r["posting"].id, "source": r["source"]} for r in short])
@@ -329,8 +347,11 @@ class Run:
             self.pool.save()
             raise RuntimeError(f"the ranker failed ({'timed out' if out.timed_out else out.returncode}): {out.tail()}")
         self.add_cost("rank", cost)
-        picks, overturned, _ = rank.parse(out.stdout, [r["posting"] for r in short], c.count)
+        picks, overturned, passed = rank.parse(out.stdout, [r["posting"] for r in short], c.count)
         by_id = {r["posting"].id: r["posting"] for r in short}
+        why = {d.id: d.why for d in passed}
+        dump(self.dir / "ranked.json", [{"id": r["posting"].id, "source": r["source"], "why": why.get(r["posting"].id, "")}
+                                        for r in short])
         for d in overturned:
             self.pool.drop(by_id[d.id], "rank", d.why, self.today)
         for pk in picks:
@@ -462,7 +483,9 @@ class Run:
     # replay: the cascade again over a past day's cards, from the cache, against no pool
 
     def replay_day(self) -> None:
-        cards = load_postings(self.dir / "cards.json")
+        """The day's cards again through every stage after search, into `<day>/replay/`, so
+        the files of the morning the owner was shown stay as they were."""
+        cards = load_postings(self.source / "cards.json")
         (self.dir / "costs.json").unlink(missing_ok=True)
         self.say(f"replay  {self.today}: {len(cards)} cards from cards.json, "
                  f"{self.screen_cards(cards)} kept after the title screen")
@@ -508,8 +531,8 @@ def main(argv: list[str] | None = None) -> int:
         if day >= date.today():
             ap.error("--replay is for a past day; today's run is the live one")
         run = Run(day, Path(args.desktop).expanduser(), None, True, replay=True)
-        if not (run.dir / "cards.json").exists():
-            ap.error(f"{run.dir / 'cards.json'} does not exist; nothing to replay")
+        if not (run.source / "cards.json").exists():
+            ap.error(f"{run.source / 'cards.json'} does not exist; nothing to replay")
         run.replay_day()
         return 0
 

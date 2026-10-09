@@ -91,7 +91,7 @@ _Avoid_: seen ledger, seen.json (replaced), history
 A model pass's answer about one posting, in a fixed JSON form (eligibility: citizenship,
 clearance, reposted; skills: years floor, primary stack, each required skill). Code
 decides the drop from the form; the quoted sentence is the reason. Cached per posting
-with a hash of the criteria that shaped it.
+with a key over what shaped the pass's question.
 _Avoid_: judgement, assessment, score
 
 **Funnel**:

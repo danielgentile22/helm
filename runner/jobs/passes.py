@@ -2,8 +2,9 @@
 code applies to their answers.
 
 Each pass asks one question per posting and gets back a fixed JSON form. Parsing is strict on
-shape and lenient on text: an unknown enum value lands on the side that drops, so a sloppy
-answer never lets a posting through. The drop rules are pure functions over a verdict and the
+shape and lenient on text: a form missing a key is unparsable and the call fails closed, and
+an unknown enum value lands on the side that drops, so a sloppy answer never lets a posting
+through. The drop rules are pure functions over a verdict and the
 criteria, and each returns the reason the note will show or None.
 """
 from __future__ import annotations
@@ -66,13 +67,21 @@ Candidate's skills inventory:
 
 
 def _object(text: str) -> dict:
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end < start:
+    """The first JSON object in the answer; a fence, a preamble or a remark after it is
+    ignored."""
+    start = text.find("{")
+    if start < 0:
         raise ValueError("no JSON object in the answer")
-    data = json.loads(text[start:end + 1])
+    data, _ = json.JSONDecoder().raw_decode(text[start:])
     if not isinstance(data, dict):
         raise ValueError("the answer is not a JSON object")
     return data
+
+
+def _require(d: dict, keys: tuple[str, ...]) -> None:
+    missing = [k for k in keys if k not in d]
+    if missing:
+        raise ValueError(f"the answer lacks {', '.join(missing)}")
 
 
 def _enum(value, allowed: tuple[str, ...], fallback: str) -> str:
@@ -92,6 +101,7 @@ def _flag(value) -> bool:
 
 def parse_eligibility(text: str) -> Eligibility:
     d = _object(text)
+    _require(d, ("citizenship", "clearance", "reposted"))
     return Eligibility(
         citizenship=_enum(d.get("citizenship"), CITIZENSHIP, "required"),
         citizenship_quote=_quote(d.get("citizenship_quote")),
@@ -113,6 +123,7 @@ def _years(value) -> int | None:
 
 def parse_skills(text: str) -> Skills:
     d = _object(text)
+    _require(d, ("years", "stack", "skills"))
     marks = []
     for row in d.get("skills") or []:
         if isinstance(row, dict):

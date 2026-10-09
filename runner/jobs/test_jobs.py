@@ -28,7 +28,7 @@ import rank  # noqa: E402
 import report  # noqa: E402
 import screen  # noqa: E402
 import tailor  # noqa: E402
-from model import Cost, Criteria, Dropped, Eligibility, Pick, Posting, Query, SkillMark, Skills, Usage, criteria_hash, dump  # noqa: E402
+from model import Cost, Criteria, Dropped, Eligibility, Pick, Posting, Query, SkillMark, Skills, Usage, dump, verdict_key  # noqa: E402
 
 DEMO = HERE.parents[1] / "demo-vault"
 TODAY = date(2026, 10, 8)
@@ -207,9 +207,9 @@ class Screen(unittest.TestCase):
         self.assertIsNone(screen.title_reason(posting(title="Seniority is not a word here"), c))
 
     def test_company_deny_is_a_regex_on_the_company(self):
-        c = criteria(company_deny=(r"\bjobright\b",))
+        c = criteria(company_deny=(r"\brecruit co\b",))
         self.assertIsNone(screen.title_reason(posting(), c))
-        self.assertIn("jobright", screen.title_reason(posting(company="Jobright.ai"), c))
+        self.assertIn("recruit co", screen.title_reason(posting(company="Recruit Co"), c))
 
     def test_min_years_reads_the_low_end_of_a_range(self):
         self.assertEqual(screen.min_years("3-5 years of experience"), 3)
@@ -272,6 +272,18 @@ class Verdicts(unittest.TestCase):
         with self.assertRaises(ValueError):
             passes.parse_eligibility("I cannot tell.")
 
+    def test_a_form_missing_a_key_is_unparsable_so_the_call_fails_closed(self):
+        with self.assertRaisesRegex(ValueError, "lacks reposted"):
+            passes.parse_eligibility('{"citizenship": "not_required", "clearance": "none"}')
+        with self.assertRaisesRegex(ValueError, "lacks stack, skills"):
+            passes.parse_skills('{"years": null}')
+
+    def test_a_remark_after_the_object_is_ignored(self):
+        v = passes.parse_eligibility('{"citizenship": "not_required", "citizenship_quote": "", "clearance": "none",'
+                                     ' "clearance_quote": "", "reposted": false, "reposted_quote": ""}\n'
+                                     'Note: the posting also says {benefits} apply after 90 days.')
+        self.assertEqual(v.citizenship, "not_required")
+
     def test_skills_parses_years_stack_and_marks(self):
         v = passes.parse_skills('{"years": "4+", "years_quote": "4+ years required", "stack": "Java, Spring",'
                                 ' "skills": [{"name": "Java", "status": "Missing"}, {"name": "SQL", "status": "has"},'
@@ -279,8 +291,8 @@ class Verdicts(unittest.TestCase):
         self.assertEqual((v.years, v.stack), (4, "Java, Spring"))
         self.assertEqual([(m.name, m.status) for m in v.skills],
                          [("Java", "missing"), ("SQL", "has"), ("Kafka", "missing"), ("Terraform", "missing")])
-        self.assertIsNone(passes.parse_skills('{"years": null, "skills": []}').years)
-        self.assertIsNone(passes.parse_skills('{"years": "none stated", "skills": []}').years)
+        self.assertIsNone(passes.parse_skills('{"years": null, "stack": "", "skills": []}').years)
+        self.assertIsNone(passes.parse_skills('{"years": "none stated", "stack": "", "skills": []}').years)
         self.assertEqual(Skills.from_dict(json.loads(json.dumps(v.to_dict()))), v)
 
     def test_eligibility_reason_covers_every_branch(self):
@@ -291,8 +303,8 @@ class Verdicts(unittest.TestCase):
                          "citizenship required: US citizens only")
         self.assertEqual(passes.eligibility_reason(eligibility(clearance="required", clearance_quote="active TS/SCI"), c),
                          "clearance required: active TS/SCI")
-        self.assertEqual(passes.eligibility_reason(eligibility(reposted=True, reposted_quote="via Jobright"), c),
-                         "reposted: via Jobright")
+        self.assertEqual(passes.eligibility_reason(eligibility(reposted=True, reposted_quote="via Recruit Co"), c),
+                         "reposted: via Recruit Co")
 
     def test_skills_reason_covers_years_stack_and_missing_count(self):
         c = criteria(max_years=2, max_missing=3, never_stack=(r"\bjava\b",))
@@ -306,13 +318,15 @@ class Verdicts(unittest.TestCase):
                          "missing 3 of 4 required skills: Go, K8s, Rust")
         self.assertIsNone(passes.skills_reason(skills(None, "", "Python", ("Go", "missing"), ("K8s", "missing")), c))
 
-    def test_criteria_hash_follows_the_fields_that_shape_a_verdict(self):
+    def test_verdict_key_follows_only_what_shaped_that_pass(self):
         c = criteria()
-        h = criteria_hash(c, "Python")
-        self.assertEqual(len(h), 12)
-        self.assertEqual(h, criteria_hash(criteria(count=3), "Python"))
-        self.assertNotEqual(h, criteria_hash(criteria(max_years=5), "Python"))
-        self.assertNotEqual(h, criteria_hash(c, "Python, Java"))
+        e, s = verdict_key("eligibility", c, "Python"), verdict_key("skills", c, "Python")
+        self.assertEqual((len(e), len(s)), (12, 12))
+        self.assertNotEqual(e, s)
+        self.assertEqual(e, verdict_key("eligibility", criteria(max_years=5, max_missing=1), "Python, Java"))
+        self.assertNotEqual(e, verdict_key("eligibility", criteria(work_status="a US citizen"), "Python"))
+        self.assertEqual(s, verdict_key("skills", criteria(max_years=5, work_status="a US citizen"), "Python"))
+        self.assertNotEqual(s, verdict_key("skills", c, "Python, Java"))
 
     def test_criteria_loads_the_new_keys_with_defaults(self):
         c = criteria()
@@ -360,12 +374,16 @@ class PoolRecords(unittest.TestCase):
             pool.judged(posting("2", posted="2026-09-01"), "2026-10-08")
             pool.judged(posting("3", posted="2026-10-07"), "2026-10-08")
             pool.judged(posting("4", posted=""), "2026-10-08")
-            self.assertEqual(sorted(pool.live()), ["2", "3", "4"])
-            self.assertEqual(pool.expire(date(2026, 10, 8), 30), ["2"])
+            pool.judged(posting("5", posted=""), "2026-08-01")
+            self.assertEqual(sorted(pool.live()), ["2", "3", "4", "5"])
+            self.assertEqual(pool.expire(date(2026, 10, 8), 30), ["2", "5"])
             self.assertEqual(pool.known("2").status, "expired")
             self.assertEqual(sorted(pool.live()), ["3", "4"])
             pool.pick("3", "2026-10-08")
             self.assertEqual((pool.known("3").status, pool.known("3").picked), ("picked", "2026-10-08"))
+            self.assertEqual(pool.unpick("2026-10-09"), [])
+            self.assertEqual(pool.unpick("2026-10-08"), ["3"])
+            self.assertEqual((pool.known("3").status, pool.known("3").picked), ("judged", ""))
             self.assertEqual((pool.known("1").stage, pool.known("1").why, pool.known("1").title),
                              ("detail", "asks 4 years", "Junior Backend Engineer"))
             with self.assertRaises(KeyError):
@@ -613,6 +631,8 @@ class Orchestration(unittest.TestCase):
         self.pass_over = {"6"}
         self.overturn = {"9": "says US persons only, which is a citizenship line the pass missed"}
         self.fail_calls = {"API Engineer at Compiler"}
+        self.flaky = set()
+        self.search_cards = None
         self.tex: list[str] = []
 
     def tearDown(self):
@@ -623,6 +643,8 @@ class Orchestration(unittest.TestCase):
         return Posting(pid, title, company, "Remote" if q.remote else "Lisbon, Portugal", "2026-10-06", q.keywords, q.remote)
 
     def fake_search(self, q, c, known, want, pause_s=0.6):
+        if self.search_cards is not None:
+            return list(self.search_cards)
         rows = REMOTE_CARDS if q.remote else HOME_CARDS
         if self.day_two and not q.remote:
             rows = rows + DAY_TWO_CARDS
@@ -637,6 +659,10 @@ class Orchestration(unittest.TestCase):
         usage = Usage(100, 10, 0, 0, 0.01)
         body = prompt.split("Posting:\n", 1)[-1]
         if any(name in body for name in self.fail_calls):
+            return self.run.claude.Outcome("rate limited", "", 1, False, usage=usage)
+        once = {name for name in self.flaky if name in body}
+        if once:
+            self.flaky -= once
             return self.run.claude.Outcome("rate limited", "", 1, False, usage=usage)
         if prompt.startswith(passes.ELIGIBILITY_HEAD):
             answer = {"citizenship": "not_required", "citizenship_quote": "", "clearance": "none",
@@ -678,7 +704,8 @@ class Orchestration(unittest.TestCase):
         (self.jobs / "cache/14.json").write_text(json.dumps(old.__dict__))
         (self.jobs / "verdicts").mkdir()
         (self.jobs / "verdicts/14.json").write_text(json.dumps(
-            {"criteria": "stale", "eligibility": eligibility().to_dict(), "skills": skills().to_dict()}))
+            {"eligibility": eligibility().to_dict(), "eligibility_key": "stale",
+             "skills": skills().to_dict(), "skills_key": "stale"}))
         (self.jobs / "pool.json").write_text(json.dumps({
             "4": {"status": "picked", "day": "2026-10-07", "picked": "2026-10-07"},
             "14": {"status": "judged", "day": "2026-09-01", "posted": "2026-08-20", "title": "Backend Engineer",
@@ -741,10 +768,10 @@ class Orchestration(unittest.TestCase):
         costs = self.read(day, "costs.json")
         self.assertEqual((costs["eligibility"]["calls"], costs["eligibility"]["failed"], costs["eligibility"]["cached"]), (10, 1, 0))
         self.assertEqual((costs["skills"]["calls"], costs["rank"]["calls"]), (7, 1))
-        self.assertAlmostEqual(costs["eligibility"]["usage"]["usd"], 0.10)
+        self.assertAlmostEqual(costs["eligibility"]["usage"]["usd"], 0.11)
 
         note = (self.vault / "Atlas/Work/research" / f"{day}-jobs-top-10.md").read_text()
-        line = "13 pulled (7 home, 6 remote), 1 known, 1 cut by title, 0 unfetched, 1 cut by the screen, 3 by eligibility, 3 by skills, 0 carried, 4 ranked, 1 overturned, 2 picked, $0.18"
+        line = "13 pulled (7 home, 6 remote), 1 known, 1 cut by title, 0 unfetched, 1 cut by the screen, 3 by eligibility, 3 by skills, 0 carried, 4 ranked, 1 overturned, 2 picked, $0.19"
         self.assertIn(line, note)
         self.assertIn(f"[[{day}-jobs-dropped]]", note)
         self.assertIn("**Keel**, [Junior Backend Engineer](https://www.linkedin.com/jobs/view/1/)", note)
@@ -761,7 +788,7 @@ class Orchestration(unittest.TestCase):
         self.assertIn(r"Eligibility & 10 & 0 & 1 &", self.tex[-1])
         status = json.loads((self.state / "status/job-search.json").read_text())
         self.assertEqual((status["result"], status["picks"], status["pool_live"]), ("pass", 2, 1))
-        self.assertAlmostEqual(status["cost_usd"], 0.18)
+        self.assertAlmostEqual(status["cost_usd"], 0.19)
         work = (self.vault / "Atlas/Work/Work.md").read_text()
         self.assertIn(f"- [ ] Apply to the 2 jobs in [[{day}-jobs-top-10]] (due: {day})", work)
 
@@ -803,7 +830,8 @@ class Orchestration(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.main("--day", date.today().isoformat(), "--replay")
         self.assertEqual(self.main("--day", "2026-10-08", "--replay"), 0)
-        day = "2026-10-08"
+        day = "2026-10-08/replay"
+        self.assertIn("4", self.dropped("2026-10-08", "search"))
         self.assertEqual((self.jobs / "pool.json").read_text(), pool_before)
         self.assertFalse(note.exists())
         self.assertFalse((self.state / "status/job-search.json").exists())
@@ -816,6 +844,37 @@ class Orchestration(unittest.TestCase):
         md = (self.jobs / day / "funnel.md").read_text()
         self.assertTrue(md.startswith("13 pulled (7 home, 6 remote), 0 known, 1 cut by title, 1 unfetched, 1 cut by the screen, 2 by eligibility"))
         self.assertEqual(self.read(day, "funnel.json")["ranked"], 5)
+
+    def test_a_rerun_of_the_same_morning_ranks_the_same_set_and_strands_nothing(self):
+        self.seed_pool()
+        self.assertEqual(self.main("--day", "2026-10-08"), 0)
+        picks = [p["posting"]["id"] for p in self.read("2026-10-08", "picks.json")]
+        ranked = sorted(r["id"] for r in self.read("2026-10-08", "ranked.json"))
+        self.pass_over = {"6", picks[0]}
+        self.assertEqual(self.main("--day", "2026-10-08", "--only", "rank"), 0)
+        pool = json.loads((self.jobs / "pool.json").read_text())
+        self.assertEqual(pool[picks[0]]["status"], "judged")
+        self.assertEqual(sorted(r["id"] for r in self.read("2026-10-08", "ranked.json")), ranked)
+        self.assertEqual([r["why"] for r in self.read("2026-10-08", "ranked.json") if r["id"] == "6"], ["crowded"])
+
+    def test_an_empty_live_set_is_a_quiet_morning_not_a_failure(self):
+        self.fail_calls = set()
+        self.search_cards = [Posting("2", "Senior Engineer", "Compiler", "Lisbon", "2026-10-05", "q")]
+        self.assertEqual(self.main("--day", "2026-10-08"), 0)
+        self.assertEqual(self.read("2026-10-08", "picks.json"), [])
+        note = (self.vault / "Atlas/Work/research/2026-10-08-jobs-top-0.md").read_text() \
+            if (self.vault / "Atlas/Work/research/2026-10-08-jobs-top-0.md").exists() \
+            else (self.vault / "Atlas/Work/research/2026-10-08-jobs-top-10.md").read_text()
+        self.assertIn("## No picks", note)
+        self.assertNotIn("The run failed", note)
+        self.assertEqual(json.loads((self.state / "status/job-search.json").read_text())["result"], "pass")
+
+    def test_a_call_that_fails_once_is_asked_again(self):
+        self.fail_calls = set()
+        self.flaky = {"API Engineer at Compiler"}
+        self.assertEqual(self.main("--day", "2026-10-08"), 0)
+        self.assertNotIn("13", self.dropped("2026-10-08", "eligibility"))
+        self.assertEqual(self.read("2026-10-08", "costs.json")["eligibility"]["failed"], 0)
 
     def test_every_pass_call_failing_is_a_failed_run(self):
         self.fail_calls = {" at "}

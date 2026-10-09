@@ -99,11 +99,13 @@ class Criteria:
         )
 
 
-def criteria_hash(c: Criteria, skills_text: str) -> str:
-    """Twelve hex digits over the fields that shape a verdict, so a cached verdict is reused
-    only while the question it answered is unchanged."""
-    key = json.dumps([c.work_status, c.max_years, list(c.never_stack), c.max_missing, skills_text])
-    return hashlib.sha256(key.encode()).hexdigest()[:12]
+def verdict_key(stage: str, c: Criteria, skills_text: str) -> str:
+    """Twelve hex digits over what shaped a pass's question, so a cached verdict is reused
+    only while that question is unchanged. The eligibility form depends on the owner's work
+    status alone; the skills form on the inventory alone. The thresholds are applied to the
+    cached form at drop time, so changing one never re-buys a verdict."""
+    shaped = c.work_status if stage == "eligibility" else skills_text
+    return hashlib.sha256(json.dumps([stage, shaped]).encode()).hexdigest()[:12]
 
 
 @dataclass
@@ -221,6 +223,10 @@ class Usage:
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     usd: float = 0.0
+
+    @property
+    def tokens_in(self) -> int:
+        return self.input_tokens + self.cache_read_tokens + self.cache_write_tokens
 
     def __add__(self, other: "Usage") -> "Usage":
         return Usage(self.input_tokens + other.input_tokens, self.output_tokens + other.output_tokens,

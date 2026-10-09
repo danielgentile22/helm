@@ -18,9 +18,6 @@ from pathlib import Path
 
 from model import Posting
 
-STATUSES = ("judged", "dropped", "picked", "expired")
-
-
 @dataclass
 class Record:
     status: str
@@ -77,20 +74,24 @@ class Pool:
             raise KeyError(f"{pid} is not in the pool")
         r.status, r.picked = "picked", day
 
+    def unpick(self, today: str) -> list[str]:
+        """Today's picks back to judged, so a rerun of the same morning ranks the same set and
+        a posting the second run passes over is not stranded as picked."""
+        back = [pid for pid, r in self.records.items() if r.status == "picked" and r.picked == today]
+        for pid in back:
+            self.records[pid].status, self.records[pid].picked = "judged", ""
+        return back
+
     def expire(self, today: date, pool_days: int) -> list[str]:
+        """Judged records older than `pool_days` from their posting date, or from the day the
+        pool met them when LinkedIn gave no date."""
         cutoff = (today - timedelta(days=pool_days)).isoformat()
         gone = []
         for pid, r in self.records.items():
-            if r.status == "judged" and r.posted and r.posted < cutoff:
+            if r.status == "judged" and (r.posted or r.day) < cutoff:
                 r.status = "expired"
                 gone.append(pid)
         return gone
 
     def live(self) -> dict[str, Record]:
         return {pid: r for pid, r in self.records.items() if r.status == "judged"}
-
-    def rankable(self, today: str) -> dict[str, Record]:
-        """What the ranker may read: every live record, plus the ones already picked today,
-        so a rerun of the same day builds the same list."""
-        return {pid: r for pid, r in self.records.items()
-                if r.status == "judged" or (r.status == "picked" and r.picked == today)}

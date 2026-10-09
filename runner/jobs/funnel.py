@@ -110,6 +110,6 @@ def _cost(f: Funnel, stage: str) -> str:
         bits.append(f"{c.cached} cached")
     if c.failed:
         bits.append(f"{c.failed} failed")
-    bits.append(f"{c.usage.input_tokens + c.usage.cache_read_tokens + c.usage.cache_write_tokens} in, "
+    bits.append(f"{c.usage.tokens_in} in, "
                 f"{c.usage.output_tokens} out, ${c.usage.usd:.2f}")
     return ", ".join(bits)

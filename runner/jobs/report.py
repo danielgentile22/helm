@@ -123,7 +123,7 @@ def cost_table_tex(f: Funnel) -> str:
     if not f.costs:
         return ""
     rows = "".join(f"{tex(label)} & {c.calls} & {c.cached} & {c.failed} & "
-                   f"{c.usage.input_tokens + c.usage.cache_read_tokens + c.usage.cache_write_tokens} & "
+                   f"{c.usage.tokens_in} & "
                    f"{c.usage.output_tokens} & {c.usage.usd:.2f} \\\\\n"
                    for key, label in funnelmod.STAGE_LABELS if (c := f.costs.get(key)) is not None)
     return ("{\\small\\begin{tabular}{lrrrrrr}\n"

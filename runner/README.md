@@ -146,9 +146,11 @@ The pool, `status/job-search/pool.json`, holds one record per posting the search
 met: `judged` (passed, never shown), `dropped` (stage and reason), `picked` (the day) or
 `expired`. A judged posting is ranked again each morning until it is picked or ages out,
 so the list is the best of everything live. Verdicts are cached under `verdicts/<id>.json`
-with a hash of the criteria that shaped them, so a posting is judged once per criteria
-version. Every model call asks for JSON output and its token counts and list-rate cost
-are summed per stage in `costs.json`.
+beside a key over what shaped that pass's question (the work status, or the skills
+inventory), so a posting is judged once per version of that question and the thresholds
+can be tuned without re-judging. A pass call that fails is asked once more, then its
+posting is dropped closed. Every model call asks for JSON output and its token counts and
+list-rate cost are summed per stage in `costs.json`.
 
 The criteria file is the only thing that knows who is searching: the queries, the deny
 regexes, the owner's work status, profile and thresholds, and the path of the skills
@@ -163,7 +165,7 @@ python3 runner/jobs/run.py                      # what launchd runs
 python3 runner/jobs/run.py --limit 2            # tailor the first two picks only
 python3 runner/jobs/run.py --only rank          # rerun one stage from the previous stage's file
 python3 runner/jobs/run.py --desktop /tmp/d     # the morning folder somewhere else
-python3 runner/jobs/run.py --replay --day D     # a past day again from the cache, pool untouched, funnel in the day dir
+python3 runner/jobs/run.py --replay --day D     # a past day again from the cache, pool untouched, files and funnel in <day>/replay/
 ```
 
 The Mac has to be awake at 04:00 for the folder to be ready by morning; launchd runs a
