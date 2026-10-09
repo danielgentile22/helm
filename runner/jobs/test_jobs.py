@@ -374,27 +374,43 @@ class PoolRecords(unittest.TestCase):
             self.assertEqual(back.records, pool.records)
 
 
-class Ranking(unittest.TestCase):
-    def test_prompt_names_count_profile_and_every_card(self):
-        c = criteria(count=3)
-        text = rank.prompt([posting("1"), posting("2")], c, TODAY, "Atlas/Work/Work.md")
-        self.assertIn("exactly 3", text)
-        self.assertIn("Jordan", text)
-        self.assertIn("id 1 |", text)
-        self.assertIn("id 2 |", text)
+def rank_row(p: Posting, source="new", **marks) -> dict:
+    return {"posting": p, "eligibility": eligibility().to_dict(),
+            "skills": skills(1, "1+ years", "Python", *marks.items()).to_dict(), "source": source}
 
-    def test_parse_binds_ids_in_order_and_cuts_to_count(self):
-        ps = [posting("1"), posting("2"), posting("3")]
+
+class Ranking(unittest.TestCase):
+    def test_prompt_carries_the_full_text_the_verdicts_and_the_thresholds(self):
+        c = criteria(count=3, max_missing=2)
+        long = "Python. " * 400
+        text = rank.prompt([rank_row(posting("1", desc=long)), rank_row(posting("2"), "carried", Go="missing")],
+                           c, TODAY, "Atlas/Work/Work.md")
+        self.assertTrue(text.startswith(rank.HEAD))
+        self.assertIn("at most 3", text)
+        self.assertIn("missing 2 or more", text)
+        self.assertIn("Jordan", text)
+        self.assertIn("EU citizen", text)
+        self.assertIn("id 1 |", text)
+        self.assertIn(long.strip(), text)
+        self.assertIn("id 2 |", text)
+        self.assertIn("carried from an earlier day", text)
+        self.assertIn("Go (missing)", text)
+
+    def test_parse_binds_ids_in_order_cuts_to_count_and_keeps_overturns(self):
+        ps = [posting("1"), posting("2"), posting("3"), posting("4")]
         answer = ('Here you go:\n{"picks": [{"id": "2", "tier": "a", "why": "fits"}, {"id": "999", "tier": "A", "why": "x"},'
                   ' {"id": "2", "why": "dup"}, {"id": "1", "tier": "C", "why": "stretch"}, {"id": "3", "tier": "B", "why": "n"}],'
-                  ' "dropped": [{"id": "3", "why": "far"}]}')
-        picks, dropped = rank.parse(answer, ps, 2)
+                  ' "overturned": [{"id": "4", "why": "says US persons only"}, {"id": "2", "why": "already picked"}],'
+                  ' "passed": [{"id": "3", "why": "far"}]}')
+        picks, overturned, passed = rank.parse(answer, ps, 2)
         self.assertEqual([(p.rank, p.posting.id, p.tier) for p in picks], [(1, "2", "A"), (2, "1", "C")])
-        self.assertEqual([d.id for d in dropped], ["3"])
+        self.assertEqual([(d.id, d.stage, d.why) for d in overturned], [("4", "rank", "says US persons only")])
+        self.assertEqual([d.id for d in passed], ["3"])
 
-    def test_parse_rejects_an_answer_with_no_picks(self):
-        with self.assertRaises(ValueError):
-            rank.parse('{"picks": [], "dropped": []}', [posting("1")], 1)
+    def test_parse_allows_no_picks_but_not_no_json(self):
+        picks, overturned, passed = rank.parse('{"picks": [], "overturned": [{"id": "1", "why": "clearance"}], "passed": []}',
+                                               [posting("1")], 1)
+        self.assertEqual((picks, [d.id for d in overturned], passed), ([], ["1"], []))
         with self.assertRaises(ValueError):
             rank.parse("I cannot do that.", [posting("1")], 1)
 
@@ -549,7 +565,7 @@ class Orchestration(unittest.TestCase):
             answer = {"years": None, "years_quote": "", "stack": "Python", "skills": [{"name": "Python", "status": "has"}]}
         else:
             ids = [line.split()[1] for line in prompt.splitlines() if line.startswith("id ")]
-            answer = {"picks": [{"id": i, "tier": "A", "why": f"fits {i}"} for i in ids], "dropped": []}
+            answer = {"picks": [{"id": i, "tier": "A", "why": f"fits {i}"} for i in ids], "overturned": [], "passed": []}
         return self.run.claude.Outcome(json.dumps(answer), "", 0, False, usage=Usage(100, 10, 0, 0, 0.01))
 
     def test_full_run_with_the_ledger_hiding_an_earlier_pick(self):

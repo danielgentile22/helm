@@ -270,31 +270,68 @@ class Run:
         self.pool.save()
         self.say(f"skills  {len(rows)} judged, {len(kept)} match")
 
-    # rank: one model call over the shortlist
+    # rank: one model call over today's judged postings and the pool's live ones
+
+    def carried(self, skip: set[str]) -> list[dict]:
+        """The pool's live records from earlier days, as rank rows, from the posting cache and
+        the verdict cache. A record missing either is left in the pool and logged."""
+        rows = []
+        for pid, rec in self.pool.rankable(self.today).items():
+            if pid in skip:
+                continue
+            cached, verdict = self.cache / f"{pid}.json", self.verdicts / f"{pid}.json"
+            if not cached.exists() or not verdict.exists():
+                self.say(f"rank    {pid} ({rec.title} at {rec.company}) carried but not cached, skipped")
+                continue
+            v = json.loads(verdict.read_text())
+            if not v.get("eligibility") or not v.get("skills"):
+                self.say(f"rank    {pid} ({rec.title} at {rec.company}) carried without both verdicts, skipped")
+                continue
+            rows.append({"posting": Posting.from_dict(json.loads(cached.read_text())),
+                         "eligibility": v["eligibility"], "skills": v["skills"], "source": "carried"})
+        return rows
 
     def rank(self) -> None:
         c = self.criteria
-        postings = [row["posting"] for row in self.rows("judged.json")]
-        if not postings:
-            raise RuntimeError("nothing survived the passes, so there is nothing to rank")
-        short = screen.shortlist(postings, c, self.day)
+        expired = self.pool.expire(self.day, c.pool_days)
+        if expired:
+            self.say(f"rank    {len(expired)} pool entries expired")
+        new = [{**row, "source": "new"} for row in self.rows("judged.json")]
+        for row in new:
+            rec = self.pool.known(row["posting"].id)
+            if rec is None or rec.day == self.today:
+                self.pool.judged(row["posting"], self.today)
+        rows = new + self.carried({row["posting"].id for row in new})
+        if not rows:
+            self.pool.save()
+            raise RuntimeError("nothing survived the passes and the pool is empty, so there is nothing to rank")
+        rows.sort(key=lambda r: screen.prescore(r["posting"], c, self.day), reverse=True)
+        short = rows[: c.shortlist]
+        dump(self.dir / "ranked.json", [{"id": r["posting"].id, "source": r["source"]} for r in short])
         text = rank.prompt(short, c, self.day, "Atlas/Work/Job Search.md")
         (self.dir / "rank-prompt.txt").write_text(text)
         model, effort = claude.registry("routines", ROUTINE)
         out = claude.run(text, model, effort, cwd=VAULT, timeout_s=RANK_TIMEOUT_S, read_only=True)
         (self.dir / "rank-answer.txt").write_text(out.stdout + "\n--- stderr ---\n" + out.stderr)
+        cost = Cost()
+        cost.add(out.usage)
         if not out.ok:
+            cost.failed += 1
+            self.add_cost("rank", cost)
+            self.pool.save()
             raise RuntimeError(f"the ranker failed ({'timed out' if out.timed_out else out.returncode}): {out.tail()}")
-        picks, dropped = rank.parse(out.stdout, short, c.count)
-        for p in short:
-            if self.pool.known(p.id) is None:
-                self.pool.judged(p, self.today)
+        self.add_cost("rank", cost)
+        picks, overturned, _ = rank.parse(out.stdout, [r["posting"] for r in short], c.count)
+        by_id = {r["posting"].id: r["posting"] for r in short}
+        for d in overturned:
+            self.pool.drop(by_id[d.id], "rank", d.why, self.today)
         for pk in picks:
             self.pool.pick(pk.posting.id, self.today)
         self.pool.save()
         dump(self.dir / "picks.json", [pk.to_dict() for pk in picks])
-        dump(self.dir / "dropped-rank.json", dropped)
-        self.say(f"rank    {len(short)} read, {len(picks)} picked")
+        dump(self.dir / "dropped-rank.json", overturned)
+        carried = sum(1 for r in short if r["source"] == "carried")
+        self.say(f"rank    {len(short)} read ({carried} carried), {len(overturned)} overturned, {len(picks)} picked")
 
     # tailor: one headless resume-tailor run per pick, into the morning folder
 
