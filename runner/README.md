@@ -285,3 +285,7 @@ The cwd key is the folder's path under `$HOME` with `/` replaced by `__`, so
 session's own working directory, which is why a note helm writes cannot make a repo
 read as dirty. `producers/sources/repos.py` joins the newest note onto each repo row
 as `last_session`.
+
+Sessions inside the vault (`HELM_VAULT_ROOT`, any depth) get no note and no recap. The
+vault holds every topic, so its last session is unrelated to the next one and often
+private.

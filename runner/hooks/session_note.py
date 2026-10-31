@@ -20,6 +20,10 @@ can never make a repo look dirty (runner/producers/sources/repos.py reads `dirty
 The note is overwritten every turn, which makes it the latest recap rather than a log,
 and the folder keeps only the newest 5 sessions. A routine that runs `claude -p` from
 helm sets `HELM_NO_SESSION_NOTE=1` so its output never replaces a real session's recap.
+
+The vault, and every folder inside it, gets no note at all. It is one folder holding every
+topic, so its "last session" is whatever ran last, often private, and replaying that into
+an unrelated session is exactly the copy the vault forbids. `start` and `stop` skip it.
 """
 from __future__ import annotations
 
@@ -54,6 +58,15 @@ def cwd_key(cwd: str) -> str:
     if rel in ("", "."):
         return "_home"
     return rel.replace("/", "__")
+
+
+def skipped(cwd: str) -> bool:
+    """True inside the vault, which never gets a note (see the module docstring)."""
+    try:
+        Path(cwd).expanduser().resolve().relative_to(common.VAULT.expanduser().resolve())
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def note_path(cwd: str, session_id: str) -> Path:
@@ -109,6 +122,8 @@ def cmd_stop(data: dict) -> int:
     if not body or os.environ.get("HELM_NO_SESSION_NOTE"):
         return 0
     cwd = data.get("cwd") or os.getcwd()
+    if skipped(cwd):
+        return 0
     session_id = data.get("session_id") or "unknown"
     now = datetime.now(common.local_tz(common.load_env()))
     path = note_path(cwd, session_id)
@@ -129,7 +144,10 @@ def cmd_end(data: dict) -> int:
 
 
 def cmd_start(data: dict) -> int:
-    note = newest_note(data.get("cwd") or os.getcwd())
+    cwd = data.get("cwd") or os.getcwd()
+    if skipped(cwd):
+        return 0
+    note = newest_note(cwd)
     if note is None:
         return 0
     header, body = parse(note.read_text())
