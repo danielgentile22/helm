@@ -101,7 +101,8 @@ Six deterministic checks, then Claude only if one fails.
   is a valid target but never a source, so a dead link in an old report cannot
   fail the check forever
 - `checks/check_registry.py` - every repo under `~/Projects` has a project note,
-  and every note's `repo:` points at a folder that exists
+  and every note's `repo:` points at a folder that exists. Folders listed in the
+  vault's `Atlas/Projects/_registry-ignore.md` are not projects, as for `update-vault`
 - `checks/check_freshness.py` - every capture source in `agenda.json` and
   `projects.json` is succeeding and produced its rows within twice its cadence,
   read from those two files rather than from a status file summarising them
@@ -120,8 +121,12 @@ Six deterministic checks, then Claude only if one fails.
 
 On failure it writes `Inbox/runs/integrity/YYYY-MM-DD.md` in the vault with the raw
 output, then asks Claude (Sonnet, low effort, per `models.json`) for one bullet
-per problem: what broke, likely cause, and the fix. On success it writes nothing
-but `status/integrity-check.json`.
+per problem: what broke, likely cause, and the fix. When the FAIL lines hash the same
+as the last explained run's, it reuses that explanation from
+`status/integrity-check-explained.md` instead of asking again, so a failure that
+lingers for a week costs one call. On success it deletes today's report and writes
+nothing but `status/integrity-check.json`. Either way it commits the report folder,
+and only that folder, in the vault; it never pushes.
 
 This is the routine that makes everything else trustworthy. Routers are only
 worth reading if their pointers are real.

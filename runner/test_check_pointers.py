@@ -24,5 +24,14 @@ class UnmountedTest(unittest.TestCase):
         self.assertFalse(check_pointers.unmounted(Path.home() / "Vault", self.volumes))
 
 
+class SkipTest(unittest.TestCase):
+    def test_placeholders_are_not_pointers(self):
+        for raw in ("~/Desktop/Job Apps/{Company} - {Job Title}/", "~/Projects/<name>", "Inbox/runs/*.md"):
+            self.assertTrue(check_pointers.SKIP.search(raw), raw)
+
+    def test_a_plain_path_is_a_pointer(self):
+        self.assertFalse(check_pointers.SKIP.search("~/Projects/helm/CLAUDE.md"))
+
+
 if __name__ == "__main__":
     unittest.main()

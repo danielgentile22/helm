@@ -5,6 +5,9 @@ Every project note carries a `repo:` field. A folder with no note is invisible t
 the Projects router; a note pointing at a folder that no longer exists is a stale
 pointer with extra steps. Reports both and exits non-zero if either is found.
 
+Folders listed in the vault's `Atlas/Projects/_registry-ignore.md` are not projects,
+the same list `update-vault`'s scanner drops.
+
 This only reports. `update-vault` is what regenerates the registry.
 """
 import os
@@ -21,6 +24,15 @@ IGNORE = {"archive"}  # archive holds retired repos
 REPO_FIELD = re.compile(r"^repo:\s*(.+?)\s*$", re.M)
 
 
+def ignored() -> set[Path]:
+    """One `~/...` or absolute path per line of the ignore note; prose lines are skipped."""
+    f = NOTES_DIR / "_registry-ignore.md"
+    if not f.exists():
+        return set()
+    lines = (line.strip().lstrip("-").strip().strip("`") for line in f.read_text().splitlines())
+    return {Path(os.path.expanduser(line)).resolve() for line in lines if line.startswith(("~", "/"))}
+
+
 def main() -> int:
     if not NOTES_DIR.exists():
         print(f"FAIL  project notes missing: {NOTES_DIR}")
@@ -33,6 +45,7 @@ def main() -> int:
             claimed[Path(os.path.expanduser(m.group(1))).resolve()] = note.stem
 
     on_disk = {p.resolve() for p in PROJECTS_DIR.iterdir() if p.is_dir() and p.name not in IGNORE and not p.name.startswith(".")}
+    on_disk -= ignored()
 
     unnoted = sorted(on_disk - set(claimed))
     missing = sorted(p for p in claimed if not p.exists())
