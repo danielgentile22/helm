@@ -4,7 +4,7 @@
 # Every morning: search LinkedIn's public listings against the criteria in the
 # vault, screen them, have a cheaper model judge each posting's eligibility and
 # skills, have Claude rank the live pool and pick the day's ten, tailor a resume
-# and cover letter for each, and leave a PDF on the desktop with the funnel and
+# and cover letter for each, and leave a PDF in ~/Desktop/Job Apps with the funnel and
 # the apply links. The record goes in the vault. runner/jobs/run.py does all of
 # it; this script only bounds its time and writes the status file if it dies
 # before doing so.
