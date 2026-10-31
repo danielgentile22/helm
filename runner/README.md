@@ -51,7 +51,7 @@ runner/
 |---|---|---|---|
 | `integrity-check` | daily 07:00 | sonnet, low | Verifies every router pointer, every wikilink, every repo against its project note, and the dashboard checks and tests. Writes a report only when something is broken |
 | `capture` | every 30 min | none | Refreshes `status/agenda.json` and `status/projects.json` from the deterministic producers. No Claude call |
-| `job-search` | daily 04:00 | opus, high; sonnet, medium for the two passes | Searches LinkedIn against the vault's criteria, screens, judges each posting's eligibility and skills, ranks the live pool, tailors a resume and cover letter for each pick, and leaves a PDF with the funnel and the apply links on the desktop. The record goes in the vault |
+| `job-search` | daily 04:00 | opus, high; sonnet, medium for the two passes | Searches LinkedIn against the vault's criteria, screens, judges each posting's eligibility and skills, ranks the live pool, tailors a resume and cover letter for each pick, and leaves a PDF with the funnel and the apply links in `~/Desktop/Job Apps`. The record goes in the vault |
 
 A routine is a script on a timer. A service is a process launchd keeps alive, and
 there are two:
@@ -139,8 +139,8 @@ reason, so one can be rerun alone with `--only` and a bad morning can be read ba
 | `eligibility` | One call per batch of `batch_size` postings, a fixed JSON form per posting: citizenship against the owner's `work_status`, clearance (Public Trust counts), reposted on behalf of another employer, each with the sentence it rests on. Code drops from the form | `passes.eligibility` |
 | `skills` | One call per batch of `batch_size` postings with the owner's skills inventory (`skills_note`): the years floor from the required section only, the primary stack, each required skill marked has, adjacent or missing. Drops on `max_years`, `never_stack` and `max_missing` | `passes.skills` |
 | `rank` | Today's survivors plus the pool's live entries from earlier days, expired past `pool_days`, cut to `shortlist` by a cheap score; one read-only Claude call reads each in full with both verdicts, may overturn any, and picks at most `count`, best first, with a tier and a sentence each | the routine's entry |
-| `tailor` | One headless `resume-tailor` run per pick into `~/Desktop/Jobs <day>/<rank> <Company> - <Title>/`, two at a time; a folder that already holds both PDFs is skipped, so a rerun resumes | the skill's entry |
-| `report` | The funnel (`funnel.json`), the research note `Atlas/Work/research/<day>-jobs-top-<count>.md` opening with it, the dropped note `<day>-jobs-dropped.md` listing every drop with link, stage and reason plus the pool carryovers, a mirror of the folders under `Atlas/Work/files/applications/<day>/`, a vault commit, a due-today todo on Work, and `~/Desktop/Jobs <day>.pdf` with the funnel line and the cost per stage | none |
+| `tailor` | One headless `resume-tailor` run per pick into `~/Desktop/Job Apps/Jobs <day>/<rank> <Company> - <Title>/`, two at a time; a folder that already holds both PDFs is skipped, so a rerun resumes | the skill's entry |
+| `report` | The funnel (`funnel.json`), the research note `Atlas/Work/research/<day>-jobs-top-<count>.md` opening with it, the dropped note `<day>-jobs-dropped.md` listing every drop with link, stage and reason plus the pool carryovers, a mirror of the folders under `Atlas/Work/files/applications/<day>/`, a vault commit, a due-today todo on Work, and `~/Desktop/Job Apps/Jobs <day>.pdf` with the funnel line and the cost per stage | none |
 
 The pool, `status/job-search/pool.json`, holds one record per posting the search has
 met: `judged` (passed, never shown), `dropped` (stage and reason), `picked` (the day) or
@@ -164,7 +164,7 @@ success: the report is the point.
 python3 runner/jobs/run.py                      # what launchd runs
 python3 runner/jobs/run.py --limit 2            # tailor the first two picks only
 python3 runner/jobs/run.py --only rank          # rerun one stage from the previous stage's file
-python3 runner/jobs/run.py --desktop /tmp/d     # the morning folder somewhere else
+python3 runner/jobs/run.py --desktop /tmp/d     # the morning folder somewhere other than ~/Desktop/Job Apps
 python3 runner/jobs/run.py --replay --day D     # a past day again from the cache, pool untouched, files and funnel in <day>/replay/
 ```
 

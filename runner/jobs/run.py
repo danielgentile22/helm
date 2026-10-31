@@ -8,7 +8,7 @@ what every stage decided. The pool at `pool.json` carries judged postings across
     run.py --only rank          rerun one stage from the previous stage's file
     run.py --limit 2            tailor only the first two picks, for a cheap end to end
     run.py --only tailor --force  tailor every pick again, even the folders already done
-    run.py --desktop /tmp/d     write the morning folder somewhere other than ~/Desktop
+    run.py --desktop /tmp/d     write the morning folder somewhere other than ~/Desktop/Job Apps
     run.py --replay --day D     rerun the cascade over a past day's cards from the cache, no LinkedIn,
                                 no pool, no note, no PDF; the files and the funnel land in <day>/replay/
 
@@ -533,7 +533,7 @@ class Run:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--day", default=date.today().isoformat())
-    ap.add_argument("--desktop", default=str(Path.home() / "Desktop"))
+    ap.add_argument("--desktop", default=str(Path.home() / "Desktop" / "Job Apps"))
     ap.add_argument("--only", choices=STAGES)
     ap.add_argument("--limit", type=int, help="tailor only the first N picks")
     ap.add_argument("--no-tailor", action="store_true")
