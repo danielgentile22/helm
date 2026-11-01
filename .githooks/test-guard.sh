@@ -14,7 +14,7 @@ printf 'Zanzibar Quuxley\nFrobnitz\nre:host-[0-9]+\\.example-tailnet\n' > "$tmp/
 export HELM_GUARD_DENY="$tmp/deny.txt"
 git init -q -b main "$tmp/repo" && cd "$tmp/repo"
 git config user.email t@example.com; git config user.name t; git config core.hooksPath .githooks
-mkdir -p .githooks docs chat && cp "$here"/guard.py "$here"/paths "$here"/pre-commit "$here"/commit-msg "$here"/pre-push .githooks/
+mkdir -p .githooks docs dashboard && cp "$here"/guard.py "$here"/paths "$here"/pre-commit "$here"/commit-msg "$here"/pre-push .githooks/
 git add .githooks && git commit -qm "Add guard" || { echo "MISS  bootstrap commit"; exit 1; }
 git init -q --bare "$tmp/remote.git" && git remote add origin "$tmp/remote.git" && git push -q origin main 2>/dev/null
 
@@ -29,9 +29,9 @@ expect pass  "denied word only as a substring"      try docs/d.md "Frobnitzer is
 expect block "denied regex term"                    try docs/e.md "open https://host-12.example-tailnet/"
 expect block "denied term in a file name"           try docs/frobnitz.md "hi"
 expect block "path outside the allow list"          try notes/x.md "hi"
-expect block "denied path inside an allowed folder" try chat/.env "X=1"
-expect block "env file with a suffix"               try chat/.env.local "X=1"
-expect pass  "env example file"                     try chat/.env.example "X="
+expect block "denied path inside an allowed folder" try dashboard/.env "X=1"
+expect block "env file with a suffix"               try dashboard/.env.local "X=1"
+expect pass  "env example file"                     try dashboard/.env.example "X="
 expect block "run record"                           try docs/runs/2026.json "{}"
 expect block "Anthropic key"                        try docs/f.md "key sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123" # guard:allow
 expect pass  "code that mentions a token"           try docs/g0.md "{ token: \"requestAnimationFrame(\", owner: null }"

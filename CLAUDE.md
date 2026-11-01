@@ -21,8 +21,7 @@ Life sessions start in the vault, not here. Open this repo only to work on the e
 - **Three homes.** Code here, knowledge in the vault, state in `~/.helm`. Nothing the
   software writes goes in the repo or the vault, except todo edits and routine reports
   the vault owns (ADR 0030).
-- **Never Haiku, never effort above `high`.** `models.json` rejects both, and Helm
-  Chat's picker offers neither.
+- **Never Haiku, never effort above `high`.** `models.json` rejects both.
 - **Routines are host-portable.** No absolute paths to one machine. Plists are
   generated at install time.
 - **The four departments are hardcoded** (Work, Projects, Chess, Life). That is
@@ -34,7 +33,6 @@ Life sessions start in the vault, not here. Open this repo only to work on the e
 
 | Path | What it is |
 |---|---|
-| `chat/` | Helm Chat, the phone chat surface. Node, Svelte 5. Port 8420 |
 | `dashboard/` | The dashboard. Python standard library server, Svelte 5 build. Port 8642 |
 | `runner/` | Routines, capture producers, the job search, checks, the launchd generator |
 | `voice/` | The local speech server for talk. Port 3108 |
@@ -46,12 +44,10 @@ Life sessions start in the vault, not here. Open this repo only to work on the e
 ## Run and verify
 
 - Install or reinstall every job: `runner/install-routines.sh` (routines, dashboard,
-  voice) and `chat/ops/install.sh` (Helm Chat). Labels are `com.helm.*`; logs are in
+  voice). Labels are `com.helm.*`; logs are in
   `~/.helm/logs/`.
-- Live probes: `curl 127.0.0.1:8420/`, `127.0.0.1:8642/api/health`,
-  `127.0.0.1:3108/health`.
-- Tests: `npm test` and `npm run typecheck` in `chat/`; `npm run check` in
-  `dashboard/`; `python3 -m unittest discover -s <suite> -p 'test_*.py'` for
+- Live probes: `curl 127.0.0.1:8642/api/health`, `127.0.0.1:3108/health`.
+- Tests: `npm run check` in `dashboard/`; `python3 -m unittest discover -s <suite> -p 'test_*.py'` for
   `dashboard/server`, `runner`, `runner/producers`, `runner/jobs` and `bench/tiers`;
   `.githooks/test-guard.sh`.
   Point `HELM_STATE` and `HELM_VAULT_ROOT` at temporary folders when you run the
