@@ -38,18 +38,15 @@ Life sessions start in the vault, not here. Open this repo only to work on the e
 | `skills/` | `update-vault`, the skill that operates a vault |
 | `models.json` | Model and effort per skill and routine, plus the routine schedules |
 | `demo-vault/` | A vault of fictional data |
-| `bench/` | Benchmarks run by hand on the owner's machine. `bench/tiers` measures the tier ladder |
 
 ## Run and verify
 
 - Install or reinstall every job: `runner/install-routines.sh` (routines and the
   dashboard). Labels are `com.helm.*`; logs are in `~/.helm/logs/`.
 - Live probe: `curl 127.0.0.1:8642/api/health`.
-- Tests: `npm run check` in `dashboard/`; `python3 -m unittest discover -s <suite> -p 'test_*.py'` for
-  `dashboard/server`, `runner`, `runner/producers`, `runner/jobs` and `bench/tiers`;
+- Tests: `npm run check` in `dashboard/`; `python3 -m unittest discover -s <suite>
+  -p 'test_*.py'` for `dashboard/server`, `runner`, `runner/producers` and `runner/jobs`;
   `.githooks/test-guard.sh`.
   Point `HELM_STATE` and `HELM_VAULT_ROOT` at temporary folders when you run the
   Python suites. CI runs all of these on every push.
 - Against the demo vault: `HELM_VAULT_ROOT=demo-vault python3 runner/producers/capture.py --print`.
-- `python3 bench/tiers/bench.py` measures the tier ladder (Kev, a local model, memory) on this
-  machine; see `bench/tiers/README.md`. It needs the speech server up and never runs in CI.
