@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -512,6 +514,17 @@ class Reports(unittest.TestCase):
         self.assertIn(r"Eligibility & 25 & 5 & 1 & 1000 & 100 & 1.50 \\", text)
         self.assertIn(r"\end{document}", text)
 
+    def test_report_tex_with_no_picks_has_no_empty_list_and_compiles(self):
+        text = report.report_tex([], TODAY, self.funnel())
+        self.assertNotIn(r"\begin{description}", text)
+        self.assertIn("No postings made it through today.", text)
+        if not shutil.which("xelatex", path="/Library/TeX/texbin:" + os.environ.get("PATH", "")):
+            self.skipTest("xelatex is not installed")
+        with tempfile.TemporaryDirectory() as d:
+            tex_path = Path(d) / "report.tex"
+            tex_path.write_text(text)
+            self.assertIsNone(report.compile_pdf(tex_path, Path(d) / "report.pdf"))
+
     def test_todo_text_links_the_note(self):
         self.assertEqual(report.todo_text("2026-10-08-jobs-top-10", 10), "Apply to the 10 jobs in [[2026-10-08-jobs-top-10]]")
         self.assertEqual(report.todo_text("2026-10-08-jobs-top-10", 1), "Apply to the 1 job in [[2026-10-08-jobs-top-10]]")
@@ -976,6 +989,21 @@ class Orchestration(unittest.TestCase):
         status = json.loads((self.state / "status/job-search.json").read_text())
         self.assertEqual(status["result"], "fail")
         self.assertTrue((self.desktop / "Jobs 2026-10-08.pdf").exists())
+
+
+    def test_the_notes_are_committed_even_when_the_pdf_fails(self):
+        def git(*argv):
+            return subprocess.run(["git", "-C", str(self.vault), *argv], check=True, capture_output=True, text=True)
+        git("init", "-q")
+        git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "start")
+        self.fake_pdf = lambda tex_path, out_pdf: "LaTeX Error: Something's wrong"
+        with mock.patch.dict(os.environ, {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+                                          "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}):
+            rc = self.main("--day", "2026-10-08")
+        self.assertEqual(rc, 1)
+        tracked = git("ls-files", "Atlas/Work/research").stdout.split()
+        self.assertIn("Atlas/Work/research/2026-10-08-jobs-top-10.md", tracked)
+        self.assertIn("Atlas/Work/research/2026-10-08-jobs-dropped.md", tracked)
 
 
 if __name__ == "__main__":

@@ -412,7 +412,7 @@ class Run:
         picks = [by_rank.get(pk.rank, pk) for pk in picks]
         dump(self.dir / "picks.json", [pk.to_dict() for pk in picks])
 
-    # report: the funnel, the two vault notes, the mirror, the todo, the desktop PDF, the vault commit
+    # report: the funnel, the two vault notes, the mirror, the vault commit, the desktop PDF, the todo
 
     def dropped_rows(self) -> dict[str, list[report.Row]]:
         """Every drop the day recorded, by stage, each named from cards.json, the cache or the
@@ -458,13 +458,14 @@ class Run:
             if self.mirror.exists():
                 shutil.rmtree(self.mirror)
             shutil.copytree(self.folder, self.mirror)
+        # Commit the notes before the PDF, so a PDF failure never leaves them untracked.
+        self.commit_vault()
         self.desktop.mkdir(parents=True, exist_ok=True)
         tex_path = self.dir / "report.tex"
         tex_path.write_text(report.report_tex(picks, self.day, f, failed))
         problem = report.compile_pdf(tex_path, self.pdf)
         if problem:
             raise RuntimeError(f"the report PDF did not compile: {problem}")
-        self.commit_vault()
         if picks and not failed:
             self.add_todo(len(picks))
         self.say(f"report  {funnel.line(f)}")

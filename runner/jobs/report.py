@@ -148,6 +148,10 @@ def report_tex(picks: list[Pick], today: date, f: Funnel, failed: str | None = N
              f"{{\\small {tex(funnelmod.line(f))}}}\n\n" + cost_table_tex(f))
     if failed:
         return head + title + f"The run failed.\n\n{tex(failed)}\n\\end{{document}}\n"
+    if not picks:
+        # LaTeX refuses an empty description list, and a failed PDF stops the run before its
+        # vault commit.
+        return head + title + "No postings made it through today.\n\\end{document}\n"
     intro = (f"{count} postings, best first. Each title is the apply link. Each folder holds a tailored "
              f"resume, a cover letter and tailoring notes; read the notes before sending.\n\n")
     items = ""
