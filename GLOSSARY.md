@@ -1,6 +1,7 @@
 # helm
 
-A personal operating system: a public engine that reads one person's private vault.
+A personal project manager: a public engine that reads one person's private vault and shows
+their projects, ideas, background routines and devices.
 The words below mean specific things here.
 
 ## Language
@@ -47,39 +48,38 @@ This repo: code, generic docs, a demo vault. Knows nothing about its owner until
 reads a vault.
 _Avoid_: platform, framework
 
-**Helm Chat**:
-The phone chat surface, where the phone talks to the vault. Formerly Helm 2.0 and
-helm2.
-_Avoid_: helm2, phone app, Helm 2.0
-
 **Vault**:
 The second brain: the owner's Obsidian notes, at `HELM_VAULT_ROOT` (default `~/Vault`). Its own git repo, no
 remote, ever. Knowledge only, never runtime state and never code.
 _Avoid_: notes, Obsidian, knowledge base
 
-**Talk**:
-Speaking to helm: hold Space on the Mac, press the button on the phone. Belongs to
-helm's views, not to Helm Chat, which is typed (the phone keyboard dictates).
-Handles todos and short questions. A longer question gets a very brief answer and a
-spoken nudge to take it to chat.
-_Avoid_: voice mode, push-to-talk, assistant
-
 **State**:
-What the software writes for itself: chat threads, credentials, status files,
-metrics, logs. Lives at `~/.helm/` (`HELM_STATE`), never in the vault and never in the engine.
-Mostly disposable; chat threads and credentials are the parts worth backing up.
+What the software writes for itself: caches, credentials, run records, status files and
+logs. Lives at `~/.helm/` (`HELM_STATE`), never in the vault and never in the engine.
+Mostly disposable; credentials are the part worth backing up.
 _Avoid_: data, runtime, system folder
 
 **Atlas**:
 The canonical knowledge inside the vault, at `Vault/Atlas/`. The folder an agent
 opens to reach a fact. Holds the four departments and, inside each, the research
-and files that department owns. The only things outside it are `Vault/Inbox/`,
-which is transient, and `Vault/Archive/`, which is cold.
+and files that department owns, plus `Atlas/Ideas/`, which spans them. The only things
+outside it are `Vault/Inbox/`, which is transient, and `Vault/Archive/`, which is cold.
 
 **Routine**:
-A prompt helm sends to itself on a schedule, run headlessly through `claude -p`
-under launchd.
+Work helm runs for itself on a schedule under launchd: a script, a prompt sent to
+`claude -p`, or both. Listed with its schedule in `models.json`, and can be run now,
+paused or resumed.
 _Avoid_: job, cron, task, automation
+
+**Service**:
+Something that runs all the time rather than on a schedule: a local server, a tunnel, a
+keep-awake process. Shown beside routines but never paused from the phone.
+_Avoid_: daemon, agent
+
+**Paused**:
+A routine that is not loaded in launchd and whose settings file sits in `~/.helm/disabled/`.
+The only way a routine is stopped on purpose.
+_Avoid_: disabled, off, stopped
 
 **Pool**:
 The job search's record of every posting it has met, one entry per posting with a
@@ -111,33 +111,47 @@ which model each runs at in `models.json`; it owns only the two in `skills/`.
 
 **Directive**:
 A department's standing goal. Every department has them; three anywhere in the tree
-are starred as the current priorities, and the list in the vault's `CLAUDE.md` renders those three
-rather than holding a separate list. A star is written on the heading, `### Launch ★1`,
-and weights the todos under it (ADR 0020). A directive is never finished, so it is never
-escalated against.
+are starred as the current priorities, and the list in the vault's `CLAUDE.md` renders those
+three rather than holding a separate list. A star is written on the heading, `### Launch ★1`.
+A directive is never finished.
 _Avoid_: goal, objective, priority, OKR
 
-**Todo**:
-A unit of commitment that can be finished. Written as a markdown checkbox on a
-department note in the vault, hanging off a directive or off the department directly.
-May carry a `done-when` predicate that the nightly routine checks, so the box ticks
-itself.
-_Avoid_: task, item, action
+**Idea**:
+Anything the owner might do, thrown in as one sentence and kept as its own note. Belongs
+to a project or straight to a department. Open until it is done, dropped, or promoted. An
+idea with a due date is what used to be called a todo.
+_Avoid_: todo (retired), task, item, note
+
+**Promote**:
+To turn an idea into an issue in its project's tracker. The idea stays, marked promoted,
+and points at the issue.
+_Avoid_: convert, file, escalate
+
+**Project**:
+One thing the owner builds, with a note in the vault and one or more repos. Has exactly
+one tracker.
+_Avoid_: repo (a project can span several), app
+
+**Tracker**:
+Where a project's issues live: its GitHub Issues by default, or a workspace's local
+`.scratch/<slug>/issues/` folder when it has one, in which case the repos' GitHub Issues
+are not read.
+_Avoid_: backlog, board
 
 **Issue**:
-A tracked unit of engineering work living in a repo's tracker, GitHub Issues by
-default, or `.scratch/<slug>/issues/` in a workspace that has one. Not a Todo: a
-directive can have forty issues and no todos, or six todos and no repo.
+A tracked unit of engineering work in a project's tracker. Not an idea: an idea is a
+thought, an issue is work someone has decided to do.
 
 **In flight**:
 Work that is started and unfinished, derived from a repo rather than declared: an
 unmerged branch, an uncommitted change, an open effort. Nobody writes it down, so
 nobody has to remember to.
 
-**Instrument**:
-One pluggable renderer for the dashboard's hero slot. Swappable at runtime, always
-redundant with the panels around it, never the only copy of anything.
-_Avoid_: widget, visualisation, hero
+**Device**:
+A piece of hardware the owner owns, with one note in the vault: its specs, its role, and
+whether it hosts T3 Code, reaches it as a client, or neither. Online status comes live from
+the tailnet, never from the note.
+_Avoid_: machine (only computers), gadget, asset
 
 ### Boundaries
 

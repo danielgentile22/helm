@@ -5,6 +5,8 @@ date: 2026-07-11
 
 # Remote access = same app, method-based write lockout
 
+> Superseded in part by ADR 0038 (2026-11-01): the tailnet may add ideas and run, pause or resume named routines.
+
 ## Context and Problem Statement
 
 [ADR 0003](0003-loopback-only-bind.md) means the phone can't reach the Mac

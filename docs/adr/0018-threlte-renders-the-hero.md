@@ -1,5 +1,7 @@
 # Threlte renders the hero, but the slot does not require it
 
+> Superseded by ADR 0037 (2026-11-01): the pressure map interface and its hero slot were deleted.
+
 Scene-graph instruments are built with Threlte 8 on three.js, with the `postprocessing`
 library for effects. The hero slot itself stays a plain Svelte component boundary that
 knows nothing about either, so an instrument may ignore both and mount its own canvas.

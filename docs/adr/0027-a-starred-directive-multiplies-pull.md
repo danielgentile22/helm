@@ -1,5 +1,7 @@
 # A starred directive multiplies pull
 
+> Superseded in part by ADR 0037 (2026-11-01): todos are gone, so a star no longer weights them. Starred directives stand.
+
 A directive heading under `## Todos` may carry a star and a rank, `### Launch ★1`,
 and every todo under it pulls harder by that rank's weight: 1.6 for the first, 1.35 for
 the second, 1.15 for the third, 1 for anything unstarred. The star is not part of the

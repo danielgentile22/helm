@@ -1,5 +1,7 @@
 # The Approach is the first hero instrument
 
+> Superseded by ADR 0037 (2026-11-01): the pressure map interface and its hero slot were deleted.
+
 The first instrument built for real in the hero slot is The Approach: an orrery of
 dated things, where every event, due task and scheduled job is a body whose distance
 from the centre is the time until it lands. Decided 2026-09-16 after two prototype

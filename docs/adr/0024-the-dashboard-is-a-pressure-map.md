@@ -1,5 +1,7 @@
 # The dashboard is a pressure map
 
+> Superseded by ADR 0037 (2026-11-01): the pressure map interface was deleted and the dashboard is rebuilt as four tabs.
+
 > Superseded in part by ADR 0026 (2026-09-23): boxes are no longer sized by pressure.
 > The pressure model, the four corners and the rest of this record stand.
 

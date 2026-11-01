@@ -1,5 +1,7 @@
 # The tailnet door is a passkey, and the phone holds the microphone
 
+> Superseded in part by ADR 0037 (2026-11-01): talk was deleted, so the phone no longer holds a microphone. The passkey door stands.
+
 The dashboard now answers on two doors. On the Mac it is `http://127.0.0.1:8642/` and
 nothing is asked. On the phone it is `https://<mac>.<tailnet>.ts.net:8643/`, fronted by
 `tailscale serve`, and every `/api` request through that door carries a session cookie

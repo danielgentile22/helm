@@ -1,5 +1,7 @@
 # The hero is a band between two department rows
 
+> Superseded by ADR 0037 (2026-11-01): the pressure map interface and its hero slot were deleted.
+
 The dashboard's frame is two rows of department boxes with the hero slot in a wide
 band between them: Work and Chess across the top, Projects and Life across the
 bottom, each box exactly half its row. Decided 2026-09-22 after one prototype round,

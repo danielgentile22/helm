@@ -1,5 +1,7 @@
 # One phone app: Helm Chat is the shell
 
+> Superseded by ADR 0037 (2026-11-01): Helm Chat was deleted; T3 Code is the phone's conversation surface and the dashboard is the phone's helm.
+
 Supersedes ADR 0013, and the phone door in ADR 0025. The phone reaches helm through
 one address, one passkey and one home-screen app. Helm Chat is the shell and its
 server is the front door; the dashboard's views become tabs inside it, and their data

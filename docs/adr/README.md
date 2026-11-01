@@ -56,6 +56,14 @@ where it was the name at the time. Records that read "HELM" mean the first versi
 - [0035](0035-the-job-search-is-a-routine.md) The job search is a routine
 - [0036](0036-the-job-search-is-a-cascade-over-a-pool.md) The job search is a cascade over a pool
 
+## The project manager (0037 onward)
+
+On 2026-11-01 Helm Chat, talk and the pressure map were deleted, and helm became a
+project manager over the vault: projects, ideas, background routines and devices.
+
+- [0037](0037-helm-is-a-project-manager.md) Helm is a project manager over the vault
+- [0038](0038-the-tailnet-can-add-ideas-and-drive-routines.md) The tailnet can add ideas and drive routines
+
 ## Numbering after the merge
 
 helm's own records kept 0001 to 0009. otto's engine records continue from 0010 in

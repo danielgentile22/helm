@@ -1,5 +1,7 @@
 # Capture is deterministic, and every source fails on its own
 
+> Superseded in part by ADR 0037 (2026-11-01): capture now feeds the Projects tab. Determinism and per-source failure stand.
+
 The producers that feed the dashboard are plain Python under `runner/producers/`,
 run by launchd every 30 minutes. No Claude call sits anywhere in the capture path.
 Each source (Google Calendar, the todos on department notes, the routine schedule,

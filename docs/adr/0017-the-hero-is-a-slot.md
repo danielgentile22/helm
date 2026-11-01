@@ -1,5 +1,7 @@
 # The hero is a slot, not a thing
 
+> Superseded by ADR 0037 (2026-11-01): the pressure map interface and its hero slot were deleted.
+
 The centre of the dashboard is a contract, not a visualisation. It receives system
 state, renders, responds to the selected department, and pauses when hidden.
 Instruments plug into it and swap at runtime. Since ADR 0023 that centre is a wide

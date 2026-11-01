@@ -1,5 +1,7 @@
 # Departments hold directives, directives hold todos
 
+> Superseded in part by ADR 0037 (2026-11-01): todos become ideas, one note each in `Atlas/Ideas/`. Departments and directives stand.
+
 The dashboard is organised by department, not by directive. The four departments are
 the top level, each department holds its own directives, and a todo hangs off a
 directive or off the department directly.

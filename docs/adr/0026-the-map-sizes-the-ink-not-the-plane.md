@@ -1,5 +1,7 @@
 # The map sizes the ink, not the plane
 
+> Superseded by ADR 0037 (2026-11-01): the pressure map interface was deleted.
+
 The four departments keep their corners, but no box is sized by pressure any more. A
 department and a directive cell are as tall as what is in them. Pressure is carried by
 the ink instead: the lead's title steps through four sizes by pull, a rail beside every
