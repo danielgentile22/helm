@@ -1,8 +1,6 @@
 """The dashboard's HTTP layer: request and response types, the route table's shape, and dispatch.
 
-Python standard library only, in process with the producers (ADR 0021), so the one write
-reaches `todo_edit.set_done` as a function call with a typed error rather than a subprocess
-with an argv boundary around a client supplied id.
+Python standard library only, in process with the producers (ADR 0021).
 
 Every route is a row in a table with a typed reach, and `authorize` is the first statement of
 `dispatch`. The handlers and the table itself live in `routes.py`.
@@ -108,7 +106,7 @@ def host_is_ours(host: str | None, port: int) -> bool:
 
     The peer address alone does not say who the client thinks it is talking to. A page on
     any site can point a hostname it controls at 127.0.0.1, and the browser then treats the
-    dashboard as that site's own origin: loopback peer, same origin, and `/api/agenda` is
+    dashboard as that site's own origin: loopback peer, same origin, and the API is
     readable. The Host header is the one part of the request that carries the name the page
     used, so the names are an allowlist and anything else is refused.
     """
@@ -166,8 +164,8 @@ def refuse_cross_site(request: Request, tailnet: Tailnet | None) -> None:
     """A write from a page on another site is refused, whatever cookie it carries.
 
     Browsers attach Origin to every cross-site POST, and `Sec-Fetch-Site: cross-site` beside
-    it, so a page open in the desktop browser cannot tick or add a todo on the loopback door,
-    where no session is asked. The dashboard's own page sends its own origin, which is one
+    it, so a page open in the desktop browser cannot write through the loopback door, where
+    no session is asked. The dashboard's own page sends its own origin, which is one
     of this server's names, and passes. GET and HEAD are left alone: reads are already
     same-origin by the browser's own rules."""
     if request.method in ("GET", "HEAD"):

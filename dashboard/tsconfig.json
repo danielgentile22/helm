@@ -17,10 +17,7 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "allowJs": false,
-    "baseUrl": ".",
-    "paths": { "$lib": ["src/lib"], "$lib/*": ["src/lib/*"] }
+    "allowJs": false
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts"],
-  "exclude": ["src/sw.ts"]
+  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts"]
 }

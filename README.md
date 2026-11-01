@@ -3,31 +3,18 @@
 [![CI](https://github.com/danielgentile22/helm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/danielgentile22/helm/actions/workflows/ci.yml)
 
 A personal operating system that runs on one always-on Mac. It reads a private
-Obsidian vault, keeps the owner's todos and routines in view. This repo is the engine. It knows nothing about
-the person it serves until it reads their vault, so everything personal stays out of
-it.
+Obsidian vault and runs the owner's routines against it. This repo is the engine. It
+knows nothing about the person it serves until it reads their vault, so everything
+personal stays out of it.
 
-![The dashboard running against the demo vault](docs/dashboard.png)
-
-*The dashboard against `demo-vault/`, a vault of fictional data.*
-
-<p>
-  <img src="docs/dashboard-drawer.png" alt="A todo's detail drawer open beside the map" width="49%">
-  <img src="docs/dashboard-quick-add.png" alt="Quick add, opened with n, taking a new todo" width="49%">
-</p>
-<p>
-  <img src="docs/dashboard-phone.png" alt="The dashboard at phone width, one department per screen" width="30%">
-</p>
-
-*A todo's detail drawer, quick add (press `n`), and the same page at phone width.*
+The interface is being rebuilt. For now the dashboard server answers with a placeholder
+page.
 
 ## What runs
 
-- **The dashboard** (`dashboard/`). One screen of everything that is late, due or
-  starred across four departments (Work, Projects, Chess, Life), drawn as a pressure
-  map: position and ink come from due dates and directive stars. Todos can be ticked,
-  edited and added from it, and each write is a commit in the vault. A Python
-  standard library server and a Svelte 5 build.
+- **The dashboard server** (`dashboard/`). A Python standard library server on
+  loopback with a passkey door for the tailnet, a health route, and a placeholder
+  Svelte 5 page. The next interface is built on it.
 - **Routines** (`runner/`). launchd jobs generated from `models.json`: capture
   (deterministic producers that read todos, schedules and git state every 30
   minutes), a daily integrity check that proves every router pointer in the vault
@@ -38,9 +25,7 @@ it.
 
 ```mermaid
 flowchart LR
-  subgraph ways["Three ways in"]
-    D["Dashboard<br/>browser on the Mac"]
-  end
+  D["Browser"]
 
   subgraph engine["Engine: this repo"]
     DS["dashboard server<br/>:8642"]
@@ -53,8 +38,6 @@ flowchart LR
 
   D --> DS
   CC -- "reads and edits" --> V
-  DS -- "reads todos, ticks and adds them" --> V
-  DS -- "reads status" --> S
   R -- "capture reads" --> V
   R -- "writes status" --> S
 ```
@@ -98,7 +81,8 @@ onward cover the engine as it runs today.
 
 ## Tests
 
-CI runs the guard tests, the engine's Python suites and the dashboard's checks on every push to `main`. `CLAUDE.md` lists the commands.
+CI runs the guard tests, the engine's Python suites and the dashboard's checks on every
+push to `main`. `CLAUDE.md` lists the commands.
 
 ## License
 

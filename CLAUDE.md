@@ -33,7 +33,7 @@ Life sessions start in the vault, not here. Open this repo only to work on the e
 
 | Path | What it is |
 |---|---|
-| `dashboard/` | The dashboard. Python standard library server, Svelte 5 build. Port 8642 |
+| `dashboard/` | The dashboard server, Python standard library, and a placeholder Svelte 5 page. Port 8642 |
 | `runner/` | Routines, capture producers, the job search, checks, the launchd generator |
 | `skills/` | `update-vault`, the skill that operates a vault |
 | `models.json` | Model and effort per skill and routine, plus the routine schedules |

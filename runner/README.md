@@ -267,7 +267,7 @@ indented note under a todo, or a subtask box with `--sub`. `add` and `edit` refu
 that is already a box on that note, because the id is a hash of the note path and the
 text, so two of them would share one address. Only the text is hashed, so rescheduling or
 refiling a todo keeps its id. The `update-vault` skill and the
-dashboard's toggle endpoint both call it. `HELM_VAULT_ROOT` (an absolute path) points the
+job search call it. `HELM_VAULT_ROOT` (an absolute path) points the
 producers at a copy of the vault.
 
 ## Session notes
