@@ -35,24 +35,21 @@ Life sessions start in the vault, not here. Open this repo only to work on the e
 |---|---|
 | `dashboard/` | The dashboard. Python standard library server, Svelte 5 build. Port 8642 |
 | `runner/` | Routines, capture producers, the job search, checks, the launchd generator |
-| `voice/` | The local speech server for talk. Port 3108 |
-| `skills/` | `update-vault` and `voice-todo`, the two skills that operate a vault |
+| `skills/` | `update-vault`, the skill that operates a vault |
 | `models.json` | Model and effort per skill and routine, plus the routine schedules |
 | `demo-vault/` | A vault of fictional data |
 | `bench/` | Benchmarks run by hand on the owner's machine. `bench/tiers` measures the tier ladder |
 
 ## Run and verify
 
-- Install or reinstall every job: `runner/install-routines.sh` (routines, dashboard,
-  voice). Labels are `com.helm.*`; logs are in
-  `~/.helm/logs/`.
-- Live probes: `curl 127.0.0.1:8642/api/health`, `127.0.0.1:3108/health`.
+- Install or reinstall every job: `runner/install-routines.sh` (routines and the
+  dashboard). Labels are `com.helm.*`; logs are in `~/.helm/logs/`.
+- Live probe: `curl 127.0.0.1:8642/api/health`.
 - Tests: `npm run check` in `dashboard/`; `python3 -m unittest discover -s <suite> -p 'test_*.py'` for
   `dashboard/server`, `runner`, `runner/producers`, `runner/jobs` and `bench/tiers`;
   `.githooks/test-guard.sh`.
   Point `HELM_STATE` and `HELM_VAULT_ROOT` at temporary folders when you run the
   Python suites. CI runs all of these on every push.
 - Against the demo vault: `HELM_VAULT_ROOT=demo-vault python3 runner/producers/capture.py --print`.
-  `skills/voice-todo/check_fixture.py` grades the voice-todo skill against a copy of it.
 - `python3 bench/tiers/bench.py` measures the tier ladder (Kev, a local model, memory) on this
   machine; see `bench/tiers/README.md`. It needs the speech server up and never runs in CI.

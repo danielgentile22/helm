@@ -2,11 +2,9 @@
 // failure arrives as one shape, `{"error": {"code", "detail"}}` (ADR 0021).
 
 import { clock } from "./clock.svelte";
-import { action, isTurnPhase } from "./model/turn";
 import { ms, todoId } from "./model/types";
 import type { NewTodo } from "./model/capture";
 import type { TodoPatch } from "./model/edit";
-import type { Turn } from "./model/turn";
 import type { TodoId } from "./model/types";
 
 const BASE = "/api";
@@ -122,88 +120,6 @@ export function getAgenda(etag: string | null): Promise<Fetched> {
 
 export function getProjects(etag: string | null): Promise<Fetched> {
   return get("/projects", etag);
-}
-
-/** What POST /api/talk answers with once the clip is transcribed. The run itself is still
- *  going: `turn` is the id to poll. A 409 busy arrives as an ApiError like any other. */
-export type Started = { turn: string; transcript: string; ack: string; ms: { stt: number } };
-
-export async function postTalk(clip: Blob): Promise<Started> {
-  // The clip goes up raw, so the server reads the codec off the content type the recorder
-  // chose rather than a wrapper we would have to keep in step with it.
-  const headers: Record<string, string> = {};
-  if (clip.type !== "") headers["Content-Type"] = clip.type;
-  const response = await send(`${BASE}/talk`, { method: "POST", headers, body: clip });
-  if (!response.ok) throw await failure(response);
-  const body: unknown = await response.json();
-  if (!isObj(body)) {
-    throw new ApiError(response.status, "bad_body", "the turn answered with something other than an object");
-  }
-  const turn = body["turn"];
-  const transcript = body["transcript"];
-  const ack = body["ack"];
-  if (typeof turn !== "string" || typeof transcript !== "string" || typeof ack !== "string") {
-    throw new ApiError(response.status, "bad_body", "the turn answered without an id, a transcript, and an ack");
-  }
-  const took = body["ms"];
-  const stt = isObj(took) ? took["stt"] : null;
-  return { turn, transcript, ack, ms: { stt: typeof stt === "number" ? stt : 0 } };
-}
-
-/** The turn file as the server wrote it. A row that does not match the contract fails the
- *  whole body rather than being dropped: a written row the dashboard never shows is worse
- *  than a visible failure. */
-export function decodeTurn(body: unknown): Turn {
-  const bad = (detail: string): ApiError => new ApiError(200, "bad_body", detail);
-  if (!isObj(body)) throw bad("the turn came back as something other than an object");
-  const id = body["id"];
-  const transcript = body["transcript"];
-  const ack = body["ack"];
-  const phase = body["phase"];
-  if (typeof id !== "string" || typeof transcript !== "string" || typeof ack !== "string") {
-    throw bad("the turn came back without an id, a transcript, and an ack");
-  }
-  if (!isTurnPhase(phase)) throw bad("the turn came back in a phase that is not one of the five");
-  const rows = body["actions"];
-  if (!Array.isArray(rows)) throw bad("the turn came back without a list of actions");
-  const actions = rows.map((row: unknown) => {
-    const taken = action(row);
-    if (taken === null) throw bad("the turn came back with an action that is not one");
-    return taken;
-  });
-  const confirmation = body["confirmation"];
-  const error = body["error"];
-  return {
-    id,
-    transcript,
-    ack,
-    phase,
-    confirmation: typeof confirmation === "string" ? confirmation : null,
-    actions,
-    error: typeof error === "string" ? error : null,
-  };
-}
-
-export async function getTurn(id: string): Promise<Turn> {
-  const response = await send(`${BASE}/turns/${encodeURIComponent(id)}`, { cache: "no-store" });
-  if (!response.ok) throw await failure(response);
-  return decodeTurn(await response.json());
-}
-
-export async function postCancelTurn(id: string): Promise<Turn> {
-  const response = await send(`${BASE}/turns/${encodeURIComponent(id)}/cancel`, { method: "POST" });
-  if (!response.ok) throw await failure(response);
-  return decodeTurn(await response.json());
-}
-
-/** Resolves when the voice process is up and throws the usual ApiError when it is not. */
-export async function getVoiceHealth(): Promise<void> {
-  const response = await send(`${BASE}/voice/health`, { cache: "no-store" });
-  if (!response.ok) throw await failure(response);
-}
-
-export function speakUrl(text: string): string {
-  return `${BASE}/speak?text=${encodeURIComponent(text)}`;
 }
 
 /** The id is the todo's content id after the edit, which is a new one when the text changed. */

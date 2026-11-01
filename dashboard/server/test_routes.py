@@ -3,15 +3,8 @@
 Everything the routes touch is redirected at a temp directory for the whole module, not one
 class: the two status files, a fake vault that is its own git repo, and a fake `dist/`.
 WireTest serves over a real socket, so a fixture that ended with RouteTest would have it
-answering from the real vault. A fake voice process stands in for `voice/server.py`,
-so nothing here loads a speech model or claims :3108. The capture refresh is replaced in all
-but one test, since rerunning the todos source reads the vault and shells out to git for
-every line; that one test lets it run against the temp copy, so the re-merge path is covered.
-
-A stub executable stands in for `claude` the same way, wired in through `turns.CLAUDE_BIN`.
-Each turn test writes a control file first, saying how long the stub should take and what it
-should print, so the whole surface (an ack, a busy refusal, a cancel, a timeout, unreadable
-output, a nonzero exit) is covered without a model call.
+answering from the real vault. The capture refresh is replaced in all but one test, since
+rerunning the todos source reads the vault and shells out to git for every line; that one test lets it run against the temp copy, so the re-merge path is covered.
 
     python3 -m unittest dashboard/server/test_routes.py
 """
@@ -20,17 +13,13 @@ from __future__ import annotations
 import contextlib
 import io
 import json
-import os
 import socket
 import subprocess
 import sys
 import tempfile
 import threading
-import time
 import unittest
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Iterator
 
 HERE = Path(__file__).resolve().parent
 sys.path[:0] = [str(HERE), str(HERE.parents[1] / "runner" / "producers")]
@@ -41,8 +30,6 @@ import common  # noqa: E402
 import routes  # noqa: E402
 import todo_edit  # noqa: E402
 import test_passkey  # noqa: E402
-import turns  # noqa: E402
-import voice  # noqa: E402
 
 # Captured before the fixture replaces it, for the one test that lets the real merge run.
 REAL_REFRESH_TODOS = routes.refresh_todos
@@ -96,189 +83,8 @@ REL_NOTE: str
 TODO_ID: str
 SAVED: dict[tuple[object, str], object] = {}
 
-TRANSCRIPT = "what is on today"
-
-# What the fake transcribes. One test empties it, for the clip that carried no words.
-STT_TEXT = TRANSCRIPT
-
-SPEAK_CHUNKS =(b"RIFF" + b"w" * 40, b"the first sentence as audio", b"the second sentence as audio")
-VOICE_HEALTH = {"ok": True, "engine": "kokoro", "voice": "bm_george"}
-BOOM = b"the clip that makes the voice process fall over"
-
-# What the fake was asked for, cleared by each test that reads it. A route that refuses
-# before forwarding leaves this empty, which is the assertion.
-HEARD: list[dict[str, object]] = []
-
-# Held shut by the streaming test, so the fake cannot hand over the rest of the wav until
-# the test has already read the first chunk out of the response.
-SPEAK_GATE = threading.Event()
-
-VOICE_SERVER: ThreadingHTTPServer
-VOICE_THREAD: threading.Thread
-
-
-class FakeVoice(BaseHTTPRequestHandler):
-    """`voice/server.py` without the models: the same three paths, the same shapes."""
-
-    protocol_version = "HTTP/1.1"
-
-    def log_message(self, fmt: str, *args: object) -> None:
-        pass
-
-    def answer(self, status: int, content_type: str, body: bytes) -> None:
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_POST(self) -> None:
-        body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
-        HEARD.append({"path": self.path, "content_type": self.headers.get("Content-Type"),
-                      "length": len(body)})
-        if body == BOOM:
-            self.answer(500, "text/plain", b"whisper fell over")
-            return
-        self.answer(200, "application/json", json.dumps({"text": STT_TEXT, "ms": 42}).encode())
-
-    def do_GET(self) -> None:
-        HEARD.append({"path": self.path, "content_type": None, "length": 0})
-        if self.path == "/health":
-            self.answer(200, "application/json", json.dumps(VOICE_HEALTH).encode())
-        elif not self.path.startswith("/speak"):
-            self.answer(404, "text/plain", b"no such path")
-        elif "boom" in self.path:
-            self.answer(500, "text/plain", b"kokoro fell over")
-        else:
-            self.send_response(200)
-            self.send_header("Content-Type", "audio/wav")
-            self.send_header("Content-Length", str(len(b"".join(SPEAK_CHUNKS))))
-            self.end_headers()
-            self.wfile.write(SPEAK_CHUNKS[0])
-            self.wfile.flush()
-            SPEAK_GATE.wait(timeout=10)
-            self.wfile.write(b"".join(SPEAK_CHUNKS[1:]))
-
-
-def dead_port() -> int:
-    """A port with nothing behind it, taken from the kernel and handed straight back rather
-    than picked, so the offline test cannot collide with something already running."""
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
-# One request per voice row, for the tests that are about every one of them.
-VOICE_SAMPLES = (
-    ("POST", "/api/talk", {"body": b"a clip", "headers": {"content-type": "audio/webm"}}),
-    ("GET", "/api/speak", {"query": "text=say+this"}),
-    ("GET", "/api/voice/health", {}),
-)
-
-SAMPLE_TURN = "2026-09-22T21-04-11-3f9c"
-
-ACTION = {"op": "add", "id": "abc123abc123", "dept": "Projects",
-          "row": "- [ ] ship the explorer (due: 2026-09-25)"}
-RESULT = {"confirmation": "Added one to Projects", "actions": [ACTION]}
-NO_ACTIONS = {"confirmation": "Nothing to write down", "actions": []}
-
-# `claude -p` without the model. It reads what to do out of a control file the test writes
-# first, and records the argv it was handed so the prompt and the flags can be asserted.
-STUB = '''#!/usr/bin/env python3
-import json, os, subprocess, sys, time
-
-control = json.loads(open(os.environ["HELM_STUB_CONTROL"]).read())
-with open(os.environ["HELM_STUB_ARGV"], "w") as fh:
-    json.dump(sys.argv, fh)
-for argv in control.get("run", []):
-    subprocess.run(argv, check=True, capture_output=True)
-for argv in control.get("spawn", []):
-    subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-time.sleep(control.get("sleep", 0))
-for line in control.get("prose", []):
-    print(line)
-if control.get("result") is not None:
-    print(json.dumps(control["result"]))
-sys.exit(control.get("exit", 0))
-'''
-
-STUB_PATH: Path
-CONTROL: Path
-ARGV: Path
-
-
-def control(sleep: float = 0.0, prose: tuple[str, ...] = (), result: dict | None = RESULT,
-            exit_code: int = 0, run: tuple[list[str], ...] = (), spawn: tuple[list[str], ...] = ()) -> None:
-    """What the next stub run does. Written before the request, read by the stub itself.
-    `run` is commands the stub executes before it sleeps, which is how a test makes the run
-    write the vault the way the todo editor would. `spawn` is commands it starts and does
-    not wait for, the shape of a todo edit still in flight when the run is killed."""
-    CONTROL.write_text(json.dumps({"sleep": sleep, "prose": list(prose), "result": result,
-                                   "exit": exit_code, "run": list(run), "spawn": list(spawn)}))
-
-
-def late_writer(marker: Path, after_s: float) -> list[str]:
-    """A grandchild that writes `marker` after `after_s` seconds, unless it is killed first."""
-    return [sys.executable, "-c",
-            "import sys, time; time.sleep(float(sys.argv[2])); open(sys.argv[1], 'w').write('landed')",
-            str(marker), str(after_s)]
-
-
-def stub_argv() -> list[str]:
-    return json.loads(ARGV.read_text())
-
-
-def head_within(test: unittest.TestCase, subject: str, seconds: float = 5.0) -> None:
-    """Waits for the fake vault's head commit to carry `subject`, bounded."""
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        got = subprocess.run(["git", "-C", str(VAULT), "log", "-1", "--format=%s"],
-                             capture_output=True, text=True).stdout.strip()
-        if got == subject:
-            return
-        time.sleep(0.05)
-    test.fail(f"the stub never committed {subject!r}")
-
-
-def settle(test: unittest.TestCase) -> None:
-    """No run in flight and no run thread left, whether the test passed or failed.
-
-    A failing test can leave a sleeping stub behind, so this cancels whatever it finds rather
-    than waiting the run out, and then asserts. Without it one stuck run turns every later
-    talk into a busy refusal."""
-    stuck = turns.current()
-    if stuck is not None:
-        turns.cancel(stuck)
-    deadline = time.monotonic() + 10
-    while (turns.current() is not None or run_threads()) and time.monotonic() < deadline:
-        time.sleep(0.01)
-    test.assertIsNone(turns.current(), "a run still held the in flight slot")
-    test.assertEqual(run_threads(), [], "a run thread outlived its test")
-
-
-def run_threads() -> list[str]:
-    return [t.name for t in threading.enumerate() if t.name.startswith("turn-")]
-
-
-def turn_within(test: unittest.TestCase, turn_id: str, phase: str, seconds: float = 10) -> dict:
-    """The turn once it reaches that phase, polled the way the client polls it. Bounded and
-    reported rather than waited on forever, like `next_within`."""
-    deadline = time.monotonic() + seconds
-    payload: dict = {}
-    while time.monotonic() < deadline:
-        out = call("GET", f"/api/turns/{turn_id}")
-        test.assertEqual(out.status, 200)
-        payload = json.loads(out.body)
-        if payload["phase"] == phase:
-            return payload
-        time.sleep(0.02)
-    test.fail(f"turn {turn_id} was {payload.get('phase')!r}, not {phase!r}, within {seconds}s")
-    raise AssertionError
-
-
 def setUpModule() -> None:
-    global TMP, ROOT, VAULT, STATUS, DIST, NOTE, REL_NOTE, TODO_ID, VOICE_SERVER, VOICE_THREAD
-    global STUB_PATH, CONTROL, ARGV
+    global TMP, ROOT, VAULT, STATUS, DIST, NOTE, REL_NOTE, TODO_ID
     TMP = tempfile.TemporaryDirectory()
     ROOT = Path(TMP.name).resolve()
     VAULT = ROOT / "Vault"
@@ -308,20 +114,6 @@ def setUpModule() -> None:
     (DIST / "manifest.webmanifest").write_text('{"name": "helm", "id": "/"}\n')
     (ROOT / "secret.txt").write_text("not served\n")
 
-    STUB_PATH = ROOT / "claude-stub"
-    STUB_PATH.write_text(STUB)
-    STUB_PATH.chmod(0o755)
-    CONTROL = ROOT / "stub-control.json"
-    ARGV = ROOT / "stub-argv.json"
-    os.environ["HELM_STUB_CONTROL"] = str(CONTROL)
-    os.environ["HELM_STUB_ARGV"] = str(ARGV)
-    control()
-
-    SPEAK_GATE.set()
-    VOICE_SERVER = ThreadingHTTPServer(("127.0.0.1", 0), FakeVoice)
-    VOICE_THREAD = threading.Thread(target=VOICE_SERVER.serve_forever, daemon=True)
-    VOICE_THREAD.start()
-
     patched = {
         (common, "ENGINE"): ROOT,
         (common, "VAULT"): VAULT,
@@ -331,13 +123,6 @@ def setUpModule() -> None:
         # Otherwise every health request shells out to launchctl and the answer depends on
         # whether the machine running the tests happens to have the agent installed.
         (routes, "service_installed"): lambda: False,
-        # The voice process's address lives in exactly one name, so the fake is wired in by
-        # replacing that name and nothing else.
-        (voice, "VOICE_URL"): "http://%s:%d" % VOICE_SERVER.server_address[:2],
-        # The same one name trick for the headless run: the stub is wired in by replacing
-        # `CLAUDE_BIN`, so nothing here spawns a model.
-        (turns, "CLAUDE_BIN"): str(STUB_PATH),
-        (turns, "TURNS_DIR"): ROOT / "runner" / "voice" / "turns",
     }
     SAVED.update({key: getattr(*key) for key in patched})
     for (module, name), value in patched.items():
@@ -350,12 +135,6 @@ def setUpModule() -> None:
 def tearDownModule() -> None:
     for (module, name), value in SAVED.items():
         setattr(module, name, value)
-    for name in ("HELM_STUB_CONTROL", "HELM_STUB_ARGV"):
-        os.environ.pop(name, None)
-    SPEAK_GATE.set()
-    VOICE_SERVER.shutdown()
-    VOICE_SERVER.server_close()
-    VOICE_THREAD.join(timeout=5)
     TMP.cleanup()
 
 
@@ -644,12 +423,11 @@ class RouteTest(unittest.TestCase):
                 self.assertEqual(out.body, (DIST / path.lstrip("/")).read_bytes())
 
     def test_reach_is_the_strictest_row_and_an_unrouted_path_is_loopback(self) -> None:
-        """The page and its assets are open so a phone can sign in; every read and write, the
-        clip and the turn rows are tailnet; and a path no row claims gets the strictest
+        """The page and its assets are open so a phone can sign in; every read and write is
+        tailnet; and a path no row claims gets the strictest
         reach of all, so a stray file can never be reached from the tailnet by accident."""
         for path, reach in (("/sw.js", "open"), ("/manifest.webmanifest", "open"), ("/", "open"),
-                            ("/api/agenda", "tailnet"), ("/api/talk", "tailnet"),
-                            (f"/api/turns/{SAMPLE_TURN}", "tailnet"), ("/api/nothing", "loopback")):
+                            ("/api/agenda", "tailnet"), ("/api/nothing", "loopback")):
             with self.subTest(path=path):
                 self.assertEqual(app.reach_of(request("GET", path), routes.ROUTES), reach)
 
@@ -692,11 +470,6 @@ class RouteTest(unittest.TestCase):
             ("GET", "/index.html"),
             ("GET", "/sw.js"),
             ("GET", "/manifest.webmanifest"),
-            ("POST", "/api/talk"),
-            ("GET", "/api/speak"),
-            ("GET", "/api/voice/health"),
-            ("GET", f"/api/turns/{SAMPLE_TURN}"),
-            ("POST", f"/api/turns/{SAMPLE_TURN}/cancel"),
         ]
         for route in routes.ROUTES:
             hit = [p for method, p in rows if method == route.method and route.pattern.match(p)]
@@ -739,21 +512,19 @@ class RouteTest(unittest.TestCase):
 
     def test_every_write_refuses_a_foreign_origin_and_a_cross_site_fetch(self) -> None:
         """A page on another site open in the desktop browser reaches the loopback door with
-        no session asked, and its POST carries its own Origin. Refused in the gate, so the
-        talk route, a cancel and the auth ceremony are all covered without knowing it."""
+        no session asked, and its POST carries its own Origin. Refused in the gate, so every
+        write and the auth ceremony are covered without knowing it."""
         writes = [(m, p) for m, p in self.samples() if m not in ("GET", "HEAD")]
         self.assertTrue(writes)
-        audio = {"content-type": "audio/webm"}
         for method, path in writes:
-            for headers in ({"origin": "https://evil.example", **audio},
-                            {"origin": "null", **audio},
-                            {"sec-fetch-site": "cross-site", **audio}):
+            for headers in ({"origin": "https://evil.example"},
+                            {"origin": "null"},
+                            {"sec-fetch-site": "cross-site"}):
                 with self.subTest(path=path, headers=headers):
                     with self.assertRaises(app.ApiError) as caught:
                         call(method, path, headers=headers, body=b'{"done": true}')
                     self.assertEqual(caught.exception.status, 403)
                     self.assertIn("page", caught.exception.detail)
-        self.assertEqual(HEARD, [], "a clip from another site reached the voice process")
         self.assertNotIn("- [x] and leave this one alone", NOTE.read_text())
 
     def test_the_page_s_own_origin_passes_and_a_read_ignores_origin(self) -> None:
@@ -977,371 +748,6 @@ def passkey_challenge(encoded: str) -> bytes:
     return test_passkey.passkey.b64url_decode(encoded)
 
 
-def next_within(test: unittest.TestCase, chunks: Iterator[bytes], seconds: float) -> bytes:
-    """The next chunk, or a failure. A handler that collected the whole body before returning
-    would block here for as long as the fake holds its gate, so the wait is bounded and
-    reported instead of hanging the suite."""
-    got: list[bytes] = []
-    reader = threading.Thread(target=lambda: got.extend([next(chunks)]), daemon=True)
-    reader.start()
-    reader.join(seconds)
-    test.assertTrue(got, "nothing arrived while the voice process still held the rest of the body")
-    return got[0]
-
-
-class VoiceTest(unittest.TestCase):
-    """The three proxy routes, against the fake voice process."""
-
-    def setUp(self) -> None:
-        HEARD.clear()
-        control()
-        self.addCleanup(settle, self)
-
-    def test_talk_takes_audio_and_nothing_else(self) -> None:
-        """The simple-request shapes a cross-site fetch can send are text and form types, and
-        the recorder always names its codec, so anything but audio is refused at the handler
-        before the voice process hears of it."""
-        for content_type in (None, "text/plain", "application/x-www-form-urlencoded", "multipart/form-data"):
-            with self.subTest(content_type=content_type):
-                headers = {"content-type": content_type} if content_type else {}
-                out = call("POST", "/api/talk", body=b"o" * 32, headers=headers)
-                self.assertEqual(out.status, 415)
-                self.assertEqual(json.loads(out.body)["error"]["code"], "unsupported_media_type")
-        self.assertEqual(HEARD, [])
-        out = call("POST", "/api/talk", body=b"o" * 32, headers={"content-type": "Audio/WEBM;codecs=opus"})
-        self.assertEqual(out.status, 200)
-        self.assertEqual(HEARD[0]["content_type"], "Audio/WEBM;codecs=opus")
-
-    def test_the_clip_cap_is_the_row_s_own_column(self) -> None:
-        """8 MB is the voice process's own cap on a clip, and 64 KB is plenty for a toggle.
-        Neither number has to suit the other, because the limit belongs to the route."""
-        self.assertEqual(app.body_limit("POST", "/api/talk", routes.ROUTES), voice.MAX_STT_BYTES)
-        self.assertEqual(app.body_limit("PUT", f"/api/todos/{TODO_ID}/done", routes.ROUTES), app.MAX_BODY)
-        self.assertEqual(app.body_limit("GET", "/api/nowhere", routes.ROUTES), app.MAX_BODY)
-
-    def test_speak_hands_on_the_first_chunk_before_the_rest_is_generated(self) -> None:
-        """The whole point of the voice process streaming sentence by sentence is that the
-        browser starts playing after the first one. The fake holds everything after the first
-        chunk shut, so a handler that collected the body would never reach this assertion."""
-        SPEAK_GATE.clear()
-        self.addCleanup(SPEAK_GATE.set)
-        out = call("GET", "/api/speak", query="text=say+this")
-        self.assertEqual(out.status, 200)
-        self.assertEqual(out.headers["Content-Type"], "audio/wav")
-        self.assertEqual(out.headers["Cache-Control"], "no-store")
-        self.assertEqual(out.body, b"")
-        self.assertIsNotNone(out.stream)
-
-        chunks = iter(out.stream)
-        first = next_within(self, chunks, 5)
-        self.assertTrue(SPEAK_CHUNKS[0].startswith(first),
-                        "more arrived than the voice process had generated, so the body was collected")
-        SPEAK_GATE.set()
-        self.assertEqual(first + b"".join(chunks), b"".join(SPEAK_CHUNKS))
-        self.assertEqual(HEARD[0]["path"], "/speak?text=say%20this")
-
-    def test_speak_without_text_is_400_and_never_asks_upstream(self) -> None:
-        for query in ("", "text=", "text=%20%20", "other=1"):
-            with self.subTest(query=query):
-                out = call("GET", "/api/speak", query=query)
-                self.assertEqual(out.status, 400)
-                self.assertEqual(json.loads(out.body)["error"]["code"], "bad_request")
-        self.assertEqual(HEARD, [])
-
-    def test_voice_health_is_the_upstream_answer(self) -> None:
-        out = call("GET", "/api/voice/health")
-        self.assertEqual(out.status, 200)
-        self.assertEqual(json.loads(out.body), VOICE_HEALTH)
-        self.assertEqual(HEARD[0]["path"], "/health")
-
-    def test_every_voice_route_is_503_with_the_command_when_nothing_is_listening(self) -> None:
-        """The one thing Daniel can do about an unreachable voice process is start it, so the
-        answer carries the command."""
-        self.addCleanup(setattr, voice, "VOICE_URL", voice.VOICE_URL)
-        voice.VOICE_URL = "http://127.0.0.1:%d" % dead_port()
-        for method, path, kw in VOICE_SAMPLES:
-            with self.subTest(path=path):
-                out = call(method, path, **kw)
-                self.assertEqual(out.status, 503)
-                error = json.loads(out.body)["error"]
-                self.assertEqual(error["code"], "voice_offline")
-                self.assertIn("voice/server.py", error["detail"])
-        self.assertEqual(HEARD, [])
-
-    def test_an_upstream_that_answers_badly_is_502_and_not_503(self) -> None:
-        """A process that is running and unhappy is a different thing from one that is not
-        running, and only one of the two is fixed by starting it."""
-        for method, path, kw in (("POST", "/api/talk", {"body": BOOM, "headers": {"content-type": "audio/webm"}}),
-                                 ("GET", "/api/speak", {"query": "text=boom"})):
-            with self.subTest(path=path):
-                out = call(method, path, **kw)
-                self.assertEqual(out.status, 502)
-                error = json.loads(out.body)["error"]
-                self.assertEqual(error["code"], "voice_failed")
-                self.assertIn("500", error["detail"])
-
-
-class TurnTest(unittest.TestCase):
-    """One spoken sentence end to end, with the voice process and `claude` both faked."""
-
-    def setUp(self) -> None:
-        HEARD.clear()
-        control()
-        self.addCleanup(settle, self)
-
-    def talk(self) -> dict:
-        out = call("POST", "/api/talk", body=b"o" * 2000,
-                   headers={"content-type": "audio/webm;codecs=opus"})
-        self.assertEqual(out.status, 200)
-        return json.loads(out.body)
-
-    def test_talk_answers_with_the_turn_and_the_ack_before_the_run_is_done(self) -> None:
-        """The answer is the id and the word to say. A sentence takes helm half a minute to
-        land, which is far too long to hold the request open for."""
-        control(sleep=0.3)
-        payload = self.talk()
-        self.assertEqual(set(payload), {"turn", "transcript", "ack", "ms"})
-        self.assertRegex(payload["turn"], "^" + turns.ID_PATTERN + "$")
-        self.assertEqual(payload["transcript"], TRANSCRIPT)
-        self.assertEqual(payload["ack"], "On it")
-        self.assertEqual(payload["ms"], {"stt": 42})
-        self.assertEqual(HEARD, [{"path": "/stt", "content_type": "audio/webm;codecs=opus",
-                                  "length": 2000}])
-        self.assertEqual(json.loads(call("GET", f"/api/turns/{payload['turn']}").body)["phase"],
-                         "working")
-
-    def test_a_turn_goes_heard_then_working_then_done(self) -> None:
-        """The store's own three steps, taken by hand, because the route moves through heard
-        too fast to poll for."""
-        turn = turns.new_turn("write this down", 11)
-        self.assertEqual(json.loads(call("GET", f"/api/turns/{turn.id}").body)["phase"], "heard")
-
-        control(sleep=0.3)
-        turns.start(turn)
-        self.assertEqual(json.loads(call("GET", f"/api/turns/{turn.id}").body)["phase"], "working")
-        turn_within(self, turn.id, "done")
-
-    def test_a_done_turn_carries_the_actions_the_confirmation_and_the_run_time(self) -> None:
-        landed = turn_within(self, self.talk()["turn"], "done")
-        self.assertEqual(landed["confirmation"], RESULT["confirmation"])
-        self.assertEqual(landed["actions"], [ACTION])
-        self.assertIsNone(landed["error"])
-        self.assertEqual(landed["ms"]["stt"], 42)
-        self.assertGreaterEqual(landed["ms"]["run"], 0)
-        self.assertEqual(landed["model"], turns.registry_entry()[0])
-
-    def test_the_prompt_carries_the_transcript_and_the_run_carries_the_flags(self) -> None:
-        """models.json decides the model and the effort, and the skill reads the vault for
-        itself, so the prompt is the sentence, the clock and the vault root to read under."""
-        turn_within(self, self.talk()["turn"], "done")
-        argv = stub_argv()
-        self.assertEqual(argv[1], "-p")
-        prompt = argv[2]
-        self.assertTrue(prompt.startswith("/voice-todo\n"), prompt)
-        self.assertIn(f"transcript: {TRANSCRIPT}", prompt)
-        self.assertIn("(America/New_York)", prompt)
-        self.assertIn(f"vault: {common.VAULT}", prompt)
-
-        model, effort = turns.registry_entry()
-        self.assertEqual(argv[argv.index("--model") + 1], model)
-        self.assertEqual(argv[argv.index("--effort") + 1], effort)
-        self.assertIn("todo_edit.py", argv[argv.index("--allowedTools") + 1])
-
-    def test_the_run_is_restricted_in_its_argv(self) -> None:
-        """A spoken sentence must not be able to write, edit or run arbitrary shell. The
-        global settings default to bypassPermissions, so the mode is named on the command
-        line, and the denials are spelled out beside the allowlist."""
-        turn_within(self, self.talk()["turn"], "done")
-        argv = stub_argv()
-        self.assertEqual(argv[argv.index("--permission-mode") + 1], "default")
-        allowed = set(argv[argv.index("--allowedTools") + 1].split(","))
-        self.assertEqual(allowed, {"Read", "Grep", "Glob",
-                                   "Bash(python3 runner/producers/todo_edit.py:*)",
-                                   "Bash(python3 runner/producers/capture.py:*)"})
-        denied = set(argv[argv.index("--disallowedTools") + 1].split(","))
-        self.assertTrue({"Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch",
-                         "Bash(git:*)"} <= denied, denied)
-        self.assertNotIn("Bash", allowed)
-
-    def test_a_second_clip_while_a_turn_works_is_409_and_never_reaches_the_voice_process(self) -> None:
-        """Refusing before the clip is forwarded is the point: a sentence spoken over a
-        working turn costs no transcription at all."""
-        control(sleep=1.0)
-        first = self.talk()
-        self.assertEqual(len(HEARD), 1)
-
-        HEARD.clear()
-        refused = call("POST", "/api/talk", body=b"o" * 2000, headers={"content-type": "audio/webm"})
-        self.assertEqual(refused.status, 409)
-        self.assertEqual(json.loads(refused.body)["error"]["code"], "busy")
-        self.assertEqual(HEARD, [], "the second clip reached the voice process anyway")
-
-        cancelled = json.loads(call("POST", f"/api/turns/{first['turn']}/cancel").body)
-        self.assertEqual(cancelled["phase"], "cancelled")
-
-    def test_cancel_kills_the_run_and_the_late_thread_cannot_overwrite_it(self) -> None:
-        """The thread is still inside the process when cancel answers. It must find the turn
-        already claimed and write nothing, or a cancelled turn would land failed a moment
-        later."""
-        control(sleep=10)
-        turn_id = self.talk()["turn"]
-        turn_within(self, turn_id, "working")
-
-        out = call("POST", f"/api/turns/{turn_id}/cancel")
-        self.assertEqual(out.status, 200)
-        self.assertEqual(json.loads(out.body)["phase"], "cancelled")
-        self.assertEqual(json.loads(out.body)["confirmation"], "Cancelled")
-
-        settle(self)
-        after = json.loads(call("GET", f"/api/turns/{turn_id}").body)
-        self.assertEqual(after["phase"], "cancelled")
-
-        again = call("POST", f"/api/turns/{turn_id}/cancel")
-        self.assertEqual(again.status, 200)
-        self.assertEqual(json.loads(again.body), after)
-
-    def test_cancel_after_a_write_says_so_and_re_merges_the_agenda(self) -> None:
-        """Story 20 stops a run before it writes, and the spec is explicit about the other
-        case: a turn that has already written is not rolled back, the confirmation says what
-        was written. The killed process never printed its JSON, so the vault's log is the
-        source, and the agenda is re-merged as after a done turn."""
-        runs: list[None] = []
-        self.addCleanup(setattr, routes, "refresh_todos", routes.refresh_todos)
-        routes.refresh_todos = lambda: runs.append(None)
-        subject = "Add a Chess todo: book the Thursday lesson"
-        control(sleep=10, run=(["git", "-C", str(VAULT), "commit", "-q", "--allow-empty", "-m", subject],))
-        turn_id = self.talk()["turn"]
-        turn_within(self, turn_id, "working")
-        head_within(self, subject)
-
-        landed = json.loads(call("POST", f"/api/turns/{turn_id}/cancel").body)
-        self.assertEqual(landed["phase"], "cancelled")
-        self.assertEqual(landed["confirmation"], "Cancelled, but 1 write had already landed")
-        self.assertEqual(landed["error"], subject)
-        self.assertIn("run", landed["ms"])
-        self.assertEqual(len(runs), 1)
-        settle(self)
-
-    def test_cancel_ends_every_process_the_run_started(self) -> None:
-        """A todo edit in flight when Escape lands is a grandchild of the run. Killing only
-        `claude` left it to commit after the turn had already been reported cancelled."""
-        marker = ROOT / "landed-after-cancel"
-        marker.unlink(missing_ok=True)
-        control(sleep=10, spawn=(late_writer(marker, 0.8),))
-        turn_id = self.talk()["turn"]
-        turn_within(self, turn_id, "working")
-        time.sleep(0.2)
-
-        landed = json.loads(call("POST", f"/api/turns/{turn_id}/cancel").body)
-        self.assertEqual(landed["phase"], "cancelled")
-        settle(self)
-        time.sleep(1.2)
-        self.assertFalse(marker.exists(), "the grandchild outlived the cancel and wrote anyway")
-
-    def test_the_timeout_ends_every_process_the_run_started(self) -> None:
-        self.addCleanup(setattr, turns, "TIMEOUT_S", turns.TIMEOUT_S)
-        turns.TIMEOUT_S = 0.3
-        marker = ROOT / "landed-after-timeout"
-        marker.unlink(missing_ok=True)
-        control(sleep=10, spawn=(late_writer(marker, 0.8),))
-        landed = turn_within(self, self.talk()["turn"], "failed")
-        self.assertEqual(landed["confirmation"], "That took too long")
-        settle(self)
-        time.sleep(1.2)
-        self.assertFalse(marker.exists(), "the grandchild outlived the timeout and wrote anyway")
-
-    def test_a_run_that_outlasts_the_timeout_is_a_failed_turn(self) -> None:
-        self.addCleanup(setattr, turns, "TIMEOUT_S", turns.TIMEOUT_S)
-        turns.TIMEOUT_S = 0.2
-        control(sleep=10)
-        landed = turn_within(self, self.talk()["turn"], "failed")
-        self.assertEqual(landed["confirmation"], "That took too long")
-        self.assertIn("killed after", landed["error"])
-        self.assertEqual(landed["actions"], [])
-
-    def test_a_run_that_prints_no_json_is_a_failed_turn(self) -> None:
-        """The last non-empty line is the contract. Anything else is a run that did not
-        report, whatever it did to the vault."""
-        control(prose=("thinking about it", "still thinking"), result=None)
-        landed = turn_within(self, self.talk()["turn"], "failed")
-        self.assertEqual(landed["confirmation"], "I could not read what helm did")
-        self.assertIn("still thinking", landed["error"])
-
-    def test_a_run_that_exits_nonzero_is_a_failed_turn(self) -> None:
-        control(prose=("it broke",), result=None, exit_code=3)
-        landed = turn_within(self, self.talk()["turn"], "failed")
-        self.assertEqual(landed["confirmation"], "I could not read what helm did")
-        self.assertIn("exited 3", landed["error"])
-
-    def test_the_todos_capture_reruns_after_a_turn_with_actions_and_not_after_one_without(self) -> None:
-        """agenda.json has to agree by the time the client sees the turn land, and a turn that
-        wrote nothing has nothing to re-merge."""
-        runs: list[int] = []
-        self.addCleanup(setattr, routes, "refresh_todos", routes.refresh_todos)
-        routes.refresh_todos = lambda: runs.append(1)
-
-        turn_within(self, self.talk()["turn"], "done")
-        self.assertEqual(len(runs), 1)
-
-        control(result=NO_ACTIONS)
-        landed = turn_within(self, self.talk()["turn"], "done")
-        self.assertEqual(landed["actions"], [])
-        self.assertEqual(len(runs), 1)
-
-    def test_a_clip_with_no_words_in_it_is_a_done_turn_that_never_runs(self) -> None:
-        global STT_TEXT
-        self.addCleanup(lambda: globals().__setitem__("STT_TEXT", TRANSCRIPT))
-        STT_TEXT = "   "
-        ARGV.unlink(missing_ok=True)
-
-        payload = self.talk()
-        self.assertEqual(payload["transcript"], "")
-        landed = json.loads(call("GET", f"/api/turns/{payload['turn']}").body)
-        self.assertEqual(landed["phase"], "done")
-        self.assertEqual(landed["confirmation"], "I did not catch that")
-        self.assertNotIn("run", landed["ms"])
-        self.assertIsNone(turns.current())
-        self.assertFalse(ARGV.exists(), "a clip with no words in it started a run anyway")
-
-    def test_an_unknown_turn_is_404(self) -> None:
-        for method, path in (("GET", f"/api/turns/{SAMPLE_TURN}"),
-                             ("POST", f"/api/turns/{SAMPLE_TURN}/cancel")):
-            with self.subTest(path=path):
-                out = call(method, path)
-                self.assertEqual(out.status, 404)
-                self.assertEqual(json.loads(out.body)["error"]["code"], "not_found")
-
-    def test_a_turn_never_goes_backwards(self) -> None:
-        turn = turns.Turn(id=SAMPLE_TURN, transcript="x", phase="done")
-        for phase in ("heard", "working", "failed"):
-            with self.subTest(phase=phase):
-                with self.assertRaises(turns.TurnError):
-                    turn.to(phase)
-
-
-def read_headers(fh: io.BufferedReader) -> str:
-    out = b""
-    while not out.endswith(b"\r\n\r\n"):
-        line = fh.readline()
-        if not line:
-            raise AssertionError("the connection closed inside the headers")
-        out += line
-    return out.decode()
-
-
-def read_chunked(fh: io.BufferedReader) -> bytes:
-    """The body out of its chunked framing. Written out by hand because getting the framing
-    wrong is exactly what this proves does not happen."""
-    body = b""
-    while True:
-        size = int(fh.readline().split(b";")[0], 16)
-        if size == 0:
-            fh.readline()
-            return body
-        body += fh.read(size)
-        fh.readline()
-
-
 class WireTest(unittest.TestCase):
     """The handler, over a real socket. `dispatch` never sees framing, and framing is where a
     refused body desynchronises a keep-alive connection."""
@@ -1358,10 +764,6 @@ class WireTest(unittest.TestCase):
         cls.server.shutdown()
         cls.server.server_close()
         cls.thread.join(timeout=5)
-
-    def setUp(self) -> None:
-        control()
-        self.addCleanup(settle, self)
 
     def connect(self) -> socket.socket:
         sock = socket.create_connection(("127.0.0.1", self.port), timeout=5)
@@ -1445,52 +847,6 @@ class WireTest(unittest.TestCase):
         self.assertNotIn(b"method_not_allowed", received)
         self.assertTrue(rest.startswith(b"HTTP/1.1 200 OK"),
                         "a body on the HEAD response would be read as the next reply")
-
-    def test_an_oversize_clip_is_refused_before_the_voice_process_hears_of_it(self) -> None:
-        HEARD.clear()
-        sock = self.connect()
-        sock.sendall(b"POST /api/talk HTTP/1.1\r\nHost: localhost\r\nContent-Type: audio/webm\r\n"
-                     b"Content-Length: " + str(voice.MAX_STT_BYTES + 1).encode() + b"\r\n\r\n")
-        received = b""
-        while b"too_large" not in received:
-            chunk = sock.recv(65536)
-            self.assertTrue(chunk, "the server closed before answering")
-            received += chunk
-        self.assertIn(b"HTTP/1.1 413", received)
-        self.assertEqual(HEARD, [], "the clip reached the voice process before being refused")
-
-    def test_a_clip_past_the_json_limit_still_reaches_the_voice_process(self) -> None:
-        """200 KB is refused on every other route on this server and is a few ordinary seconds
-        of audio here, which is the whole reason the limit is a column on the row."""
-        HEARD.clear()
-        clip = b"z" * (200 * 1024)
-        sock = self.connect()
-        sock.sendall(b"POST /api/talk HTTP/1.1\r\nHost: localhost\r\nContent-Type: audio/webm\r\n"
-                     b"Content-Length: " + str(len(clip)).encode() + b"\r\n\r\n" + clip)
-        received = b""
-        while b"transcript" not in received:
-            chunk = sock.recv(65536)
-            self.assertTrue(chunk, "the server closed before answering")
-            received += chunk
-        self.assertIn(b"HTTP/1.1 200 OK", received)
-        self.assertEqual(HEARD, [{"path": "/stt", "content_type": "audio/webm", "length": len(clip)}])
-
-    def test_speak_is_chunked_on_the_wire_and_the_connection_survives_it(self) -> None:
-        """Chunked framing done wrong desynchronises keep-alive, and the symptom lands on the
-        request after the one that got it wrong."""
-        sock = self.connect()
-        fh = sock.makefile("rb")
-        self.addCleanup(fh.close)
-        sock.sendall(b"GET /api/speak?text=hello HTTP/1.1\r\nHost: localhost\r\n\r\n")
-        headers = read_headers(fh)
-        self.assertTrue(headers.startswith("HTTP/1.1 200 OK"), headers)
-        self.assertIn("Transfer-Encoding: chunked", headers)
-        self.assertNotIn("Content-Length", headers)
-        self.assertEqual(read_chunked(fh), b"".join(SPEAK_CHUNKS))
-
-        sock.sendall(b"GET /api/health HTTP/1.1\r\nHost: localhost\r\n\r\n")
-        self.assertTrue(read_headers(fh).startswith("HTTP/1.1 200 OK"),
-                        "the chunked response left the connection out of step")
 
     def test_chunked_is_refused_rather_than_read_as_empty(self) -> None:
         sock = self.connect()

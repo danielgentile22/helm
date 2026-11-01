@@ -12,7 +12,7 @@
     "model": "opus",
     "effort": "medium",
     "why": "Opus is abundant on the Pro plan and handles clear-spec work unsupervised.",
-    "applies_to": "Every skill and routine with no entry below. This file records deviations, not an inventory: 7 of the 70 installed skills have an entry and the other 63 run at these defaults. Absence means default, never 'helm does not run this'."
+    "applies_to": "Every skill and routine with no entry below. This file records deviations, not an inventory: 6 of the 70 installed skills have an entry and the other 64 run at these defaults. Absence means default, never 'helm does not run this'."
   },
   "skills": {
     "resume-tailor": {
@@ -44,11 +44,6 @@
       "model": "opus",
       "effort": "medium",
       "why": "Reading legwork against primary sources. Volume over subtlety."
-    },
-    "voice-todo": {
-      "model": "opus",
-      "effort": "medium",
-      "why": "Judgment over a sentence against the vault. A wrong department costs more than a few seconds."
     }
   },
   "routines": {
@@ -99,12 +94,6 @@
       "throttle_s": 15,
       "why": "The dashboard is only worth having if it is already answering. launchd starts it at login and restarts it if it exits, so nothing has to be remembered before looking at the day.",
       "writes": "~/.helm/logs/com.helm.dashboard.out and .err"
-    },
-    "voice": {
-      "command": ["voice/.venv/bin/python", "voice/server.py"],
-      "throttle_s": 30,
-      "why": "Hold Space only works while the speech models are warm, and they take about half a minute to load. launchd starts the process at login and restarts it if it exits, so the dashboard's talk indicator reads idle rather than offline. Thirty seconds between restarts, because each attempt loads 1.6 GB.",
-      "writes": "~/.helm/logs/com.helm.voice.out and .err"
     }
   }
 }

@@ -25,7 +25,6 @@ runner/
 │                         results, sources/ caches, sessions/ notes
 ├── logs/                 launchd stdout and stderr
 ├── metrics/              metrics.csv, one row per reading
-├── voice/                turns/ from talk, and an optional whisper-prompt.txt
 ├── dashboard-auth/       the dashboard's passkeys and sessions
 └── backup/               where the backup routine writes, and when it last did
 ```
@@ -54,12 +53,11 @@ runner/
 | `job-search` | daily 04:00 | opus, high; sonnet, medium for the two passes | Searches LinkedIn against the vault's criteria, screens, judges each posting's eligibility and skills, ranks the live pool, tailors a resume and cover letter for each pick, and leaves a PDF with the funnel and the apply links in `~/Desktop/Job Apps`. The record goes in the vault |
 
 A routine is a script on a timer. A service is a process launchd keeps alive, and
-there are two:
+there is one:
 
 | Service | Runs | Does |
 |---|---|---|
 | `dashboard` | at login, restarted if it exits | `dashboard/serve.py --no-open`, so `http://127.0.0.1:8642/` is answering without anyone starting it |
-| `voice` | at login, restarted if it exits | `voice/server.py` under its own virtualenv, so `127.0.0.1:3108` has the speech models warm and hold Space works without anyone starting it |
 
 One launchd job per entry under `routines` and `services` in `models.json`, labelled
 `com.helm.<name>`. `daily HH:MM` becomes a `StartCalendarInterval`, `every Nm` becomes
@@ -83,7 +81,6 @@ runner/install-routines.sh --uninstall  # unload and remove all of them
 runner/launchd.py --list                # the plan, without touching launchd
 launchctl kickstart -k gui/$(id -u)/com.helm.capture     # run one now
 launchctl kickstart -k gui/$(id -u)/com.helm.dashboard   # restart the dashboard
-launchctl kickstart -k gui/$(id -u)/com.helm.voice       # restart the voice process
 ```
 
 A command in the registry is a list of tokens. A token with a slash in it is a path
@@ -269,9 +266,9 @@ it, and the same values in every field write nothing. `note <id> "<line>"` appen
 indented note under a todo, or a subtask box with `--sub`. `add` and `edit` refuse a text
 that is already a box on that note, because the id is a hash of the note path and the
 text, so two of them would share one address. Only the text is hashed, so rescheduling or
-refiling a todo keeps its id. The `update-vault` skill, the `voice-todo` skill, and the
-dashboard's toggle endpoint all call it. `HELM_VAULT_ROOT` (an absolute path) points the
-producers at a copy of the vault, which is how the voice fixture runs headless.
+refiling a todo keeps its id. The `update-vault` skill and the
+dashboard's toggle endpoint both call it. `HELM_VAULT_ROOT` (an absolute path) points the
+producers at a copy of the vault.
 
 ## Session notes
 

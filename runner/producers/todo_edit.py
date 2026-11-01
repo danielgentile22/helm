@@ -2,8 +2,7 @@
 """Every write anything makes into a department note's todos: add a line, tick a box,
 reword or reschedule or refile one, annotate one.
 
-The `update-vault` skill, the `voice-todo` skill, and the dashboard's toggle endpoint
-all come through here.
+The `update-vault` skill and the dashboard's toggle endpoint both come through here.
 The vault is its own git repo, so every write ends in a commit there with explicit
 paths, and `since` on the resulting row comes from that commit (sources/todos.py).
 

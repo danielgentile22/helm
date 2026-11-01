@@ -29,7 +29,6 @@ build time tool and nothing more.
 | PATCH | `/api/todos/<id>` | any of `{"text", "when", "project"}` in, `{"id", "changed", "commit", "line", "agenda_produced"}` out; a new text is a new `id` |
 | POST | `/api/todos` | `{"text", "dept", "project", "when"}` in, `{"id", "changed", "commit", "line", "agenda_produced"}` out; 422 `refused` with a readable reason for a duplicate or a bad date |
 | GET | `/api/health` | `{"ok", "now", "reach", "dist_built", "service"}` |
-| POST | `/api/talk` | an `audio/*` clip in, `{"turn", "transcript", "ack", "ms"}` out; 415 for any other content type, 409 while a turn is working |
 | GET | `/*` | `dist/`, with `index.html` for any path without a dot so a reload on a client route works. **open**: a phone with no session yet has to load the page to sign in |
 | POST | `/auth/register/options`, `/auth/register/verify` | the passkey enrollment ceremony, gated by the one shot token from `serve.py --enroll` |
 | POST | `/auth/login/options`, `/auth/login/verify` | the sign in ceremony; a good assertion sets the `otto_session` cookie |
@@ -62,9 +61,8 @@ python3 dashboard/serve.py --enroll                        # prints a ten minute
 The Host allowlist holds on both doors, so a hostname rebound to 127.0.0.1 is refused on
 either. A write (anything but GET or HEAD) whose `Origin` is not this server's own name
 for that door, or that arrives with `Sec-Fetch-Site: cross-site`, is refused in the same
-gate, so a page on another site open in the desktop browser cannot post a clip to
-`/api/talk` or cancel a turn through the loopback door. `/api/talk` also takes only an
-`audio/*` content type.
+gate, so a page on another site open in the desktop browser cannot write a todo through the
+loopback door.
 
 Open the link on the phone, register the passkey with Face ID, then add the page to the
 home screen. Passkeys, sessions and the pending enrollment token live under

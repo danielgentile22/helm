@@ -4,11 +4,6 @@ Four reads and three writes (ADR 0021). The reads hand back files that exist whe
 the dashboard is running (ADR 0015). One write flips a checkbox and one rewrites a todo's
 text, date or directive, both on a line the client already read and addressed by content id.
 The third adds a todo to a department note named by its department. No path crosses the wire.
-
-The five voice rows are a different kind of thing: three proxy the local voice process and
-two carry one spoken turn. Their handlers live in `voice.py` and the turn store is
-`turns.py`. The turns they write are under `runner/`, which is where everything that changes
-because something ran already lives.
 """
 from __future__ import annotations
 
@@ -29,8 +24,6 @@ import common  # noqa: E402
 import launchd  # noqa: E402
 import todo_edit  # noqa: E402
 import auth  # noqa: E402
-import turns  # noqa: E402
-import voice  # noqa: E402
 from app import ApiError, Request, Response, Route, json_response, text_response  # noqa: E402
 
 DIST = common.ENGINE / "dashboard" / "dist"
@@ -299,14 +292,6 @@ ROUTES: tuple[Route, ...] = (
     # The page and its assets are open: a phone with no session yet has to load the shell to
     # sign in. Everything the page then reads sits behind the gate.
     Route("GET", re.compile(r"^/(?!api/|auth/).*$"), "open", static),
-    # Push to talk. The clip is recorded by the browser and the reply is played by it, so
-    # neither is one machine's hardware; the phone holding the microphone is the point.
-    # The run behind a turn is one fixed skill on a transcript, not a shell (ADR 0025).
-    Route("POST", re.compile(r"^/api/talk$"), "tailnet", voice.talk, voice.MAX_STT_BYTES),
-    Route("GET", re.compile(r"^/api/speak$"), "tailnet", voice.speak),
-    Route("GET", re.compile(r"^/api/voice/health$"), "tailnet", voice.voice_health),
-    Route("GET", re.compile(rf"^/api/turns/(?P<id>{turns.ID_PATTERN})$"), "tailnet", voice.turn_record),
-    Route("POST", re.compile(rf"^/api/turns/(?P<id>{turns.ID_PATTERN})/cancel$"), "tailnet", voice.cancel_turn),
 )
 
 

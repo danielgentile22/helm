@@ -13,8 +13,6 @@ This only reports. `runner/install-routines.sh` is what installs it.
 """
 from __future__ import annotations
 
-import http.client
-import json
 import sys
 from pathlib import Path
 from typing import Callable
@@ -26,21 +24,6 @@ import launchd  # noqa: E402
 import serve  # noqa: E402  the dashboard's port and probe, both named in exactly one place
 
 HOST = "127.0.0.1"
-VOICE_PORT = 3108
-PROBE_S = 3
-
-
-def voice_answering() -> bool:
-    """Whether the voice process reports its whole pipeline hot. Its `/health` is 200 only
-    once both models are loaded and warmed, so a process still starting reads as down."""
-    try:
-        connection = http.client.HTTPConnection(HOST, VOICE_PORT, timeout=PROBE_S)
-        connection.request("GET", "/health")
-        payload = json.loads(connection.getresponse().read(4096))
-        connection.close()
-    except (OSError, ValueError):
-        return False
-    return isinstance(payload, dict) and payload.get("ok") is True
 
 
 # One row per service that has something to ask: the address a person would open, and the
@@ -48,7 +31,6 @@ def voice_answering() -> bool:
 Probe = Callable[[], bool]
 PROBES: dict[str, tuple[str, Probe]] = {
     "dashboard": (f"http://{HOST}:{serve.DEFAULT_PORT}/api/health", lambda: serve.is_otto(HOST, serve.DEFAULT_PORT)),
-    "voice": (f"http://{HOST}:{VOICE_PORT}/health", voice_answering),
 }
 
 

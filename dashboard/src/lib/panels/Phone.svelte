@@ -4,11 +4,9 @@
   import QuickAdd from "./QuickAdd.svelte";
   import SourceHealth from "./SourceHealth.svelte";
   import Start from "./Start.svelte";
-  import Talk from "./Talk.svelte";
   import Undo from "./Undo.svelte";
   import Week from "./Week.svelte";
   import { board } from "$lib/board.svelte";
-  import { talk } from "$lib/talk.svelte";
   import { railScale } from "$lib/model/ink";
   import { PAGES, ui } from "$lib/ui.svelte";
 
@@ -44,17 +42,6 @@
     if (el === null || el.clientWidth === 0) return;
     const at = PAGES[Math.round(el.scrollLeft / el.clientWidth)];
     if (at !== undefined && at !== ui.page) ui.setPage(at);
-  }
-
-  function down(event: PointerEvent): void {
-    const el = event.currentTarget;
-    if (el instanceof HTMLElement) el.setPointerCapture(event.pointerId);
-    event.preventDefault();
-    void talk.press();
-  }
-
-  function up(): void {
-    talk.release();
   }
 
   // The phone has no Escape, so the same button that opens the field closes it. On the
@@ -125,18 +112,7 @@
 
   <div class="bar-talk">
     {#if ui.adding !== null}<QuickAdd />{/if}
-    <Talk />
     <div class="thumbs">
-      <button
-        class="ptt"
-        class:hot={talk.phase.name === "listening"}
-        aria-label="hold to talk"
-        onpointerdown={down}
-        onpointerup={up}
-        onpointercancel={up}
-        onpointerleave={up}
-        oncontextmenu={(e) => e.preventDefault()}
-      ><span class="s"></span></button>
       <button
         class="plus"
         aria-label={ui.adding === null ? "add a todo" : "close the new todo"}

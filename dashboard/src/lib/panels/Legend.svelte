@@ -21,7 +21,6 @@
     { keys: ["e"], words: "edit" },
     { keys: ["u"], words: "take back the newest tick" },
     { keys: ["n"], words: "new todo" },
-    { keys: ["space"], words: "hold to talk" },
     { keys: ["?"], words: "this legend" },
     { keys: ["esc"], words: "close, then unzoom, then drop the cursor" },
   ];

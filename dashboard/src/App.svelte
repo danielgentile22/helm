@@ -5,12 +5,10 @@
   import QuickAdd from "$lib/panels/QuickAdd.svelte";
   import SourceHealth from "$lib/panels/SourceHealth.svelte";
   import Start from "$lib/panels/Start.svelte";
-  import Talk from "$lib/panels/Talk.svelte";
   import Undo from "$lib/panels/Undo.svelte";
   import { auth } from "$lib/auth.svelte";
   import { board } from "$lib/board.svelte";
   import { clock } from "$lib/clock.svelte";
-  import { talk } from "$lib/talk.svelte";
   import { snapshot } from "$lib/snapshot.svelte";
   import { ui } from "$lib/ui.svelte";
   import { undo } from "$lib/undo.svelte";
@@ -75,19 +73,6 @@
     return target.matches(":focus-visible") && target !== clicked;
   }
 
-  // Space is stricter, because the browser fires it as a click on whatever button has focus
-  // and this map is made of buttons. A clicked button or tick does not keep its space bar,
-  // or reading a row in the drawer would kill the microphone for the rest of the session
-  // while the indicator still said "hold space to talk", and a tick would untick itself.
-  // The letters and Enter below draw the same line for a button.
-  function spaceIsTaken(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) return false;
-    if (target.isContentEditable) return true;
-    const tick = target instanceof HTMLInputElement && target.type === "checkbox";
-    if (target.tagName === "BUTTON" || tick) return tabbedTo(target);
-    return ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
-  }
-
   // j and k move the cursor, and an open drawer follows it, so the rows can be read one
   // after another. The first press with the drawer open lands on the row it shows.
   function move(delta: 1 | -1): void {
@@ -147,21 +132,12 @@
 
   function onKey(event: KeyboardEvent): void {
     pointing = false;
-    if (event.key === " ") {
-      // Shift+Space is page up and Cmd+Space belongs to the OS, so only a bare Space talks.
-      if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
-      if (event.repeat || spaceIsTaken(event.target)) return;
-      event.preventDefault();
-      void talk.press();
-      return;
-    }
     if (typing(event.target)) return;
     const n = Number(event.key);
     if (n >= 1 && n <= 4) {
       const dept = DEPARTMENTS[n - 1];
       if (dept !== undefined) ui.setZoom(dept);
     } else if (event.key === "Escape") {
-      talk.cancel();
       // The quick add field first; its own handler catches Escape while it has focus.
       if (ui.adding !== null) ui.stopAdding();
       else ui.clear();
@@ -179,21 +155,13 @@
     }
   }
 
-  // Unguarded: release() is a no-op unless the microphone is hot, and that closes the case
-  // where focus moved to a button between the two halves of the keystroke.
-  function onKeyUp(event: KeyboardEvent): void {
-    if (event.key === " ") talk.release();
-  }
 </script>
 
 <svelte:window
   onkeydown={onKey}
-  onkeyup={onKeyUp}
-  onblur={() => talk.drop()}
   onpointerdown={() => { pointing = true; }}
   onfocusin={(event) => { clicked = pointing || focusIsMoving() ? event.target : null; pointing = false; }}
 />
-<svelte:document onvisibilitychange={() => { if (document.hidden) talk.drop(); }} />
 
 {#if !inside}
   <Gate />
@@ -241,7 +209,6 @@
         <span class="keys"><kbd>j</kbd><kbd>k</kbd> move · <kbd>⏎</kbd> open · <kbd>x</kbd> done · <kbd>e</kbd> edit · <kbd>?</kbd> keys</span>
       </span>
     {/if}
-    <Talk />
     <SourceHealth {warnings} />
   </header>
   <Map />

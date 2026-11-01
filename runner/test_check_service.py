@@ -16,8 +16,7 @@ sys.path.insert(0, str(HERE / "checks"))
 
 import check_service  # noqa: E402
 
-REGISTRY = {"services": {"dashboard": {"command": ["dashboard/serve.py"], "throttle_s": 15},
-                         "voice": {"command": ["voice/server.py"], "throttle_s": 30}}}
+REGISTRY = {"services": {"dashboard": {"command": ["dashboard/serve.py"], "throttle_s": 15}}}
 
 def LOADED(label: str) -> bool:
     return True
@@ -43,12 +42,10 @@ class CheckServiceTest(unittest.TestCase):
 
     def test_installed_and_silent_names_the_log_to_read(self) -> None:
         found = check_service.problems(REGISTRY, LOADED, SILENT)
-        self.assertEqual(len(found), 2)
+        self.assertEqual(len(found), 1)
         self.assertIn("com.helm.dashboard is loaded but nothing answers", found[0])
         self.assertIn("8642", found[0])
         self.assertIn("~/.helm/logs/com.helm.dashboard.err", found[0])
-        self.assertIn("com.helm.voice is loaded but nothing answers", found[1])
-        self.assertIn("3108/health", found[1])
 
     def test_a_service_with_no_probe_is_checked_for_its_agent_only(self) -> None:
         registry = {"services": {"sync": {"command": ["scripts/sync.sh"], "throttle_s": 15}}}
@@ -57,7 +54,7 @@ class CheckServiceTest(unittest.TestCase):
 
     def test_named_in_the_registry_but_never_installed_names_the_installer(self) -> None:
         found = check_service.problems(REGISTRY, ABSENT, ANSWERS)
-        self.assertEqual(len(found), 2)
+        self.assertEqual(len(found), 1)
         self.assertIn("no launchd agent is loaded", found[0])
         self.assertIn("runner/install-routines.sh", found[0])
 

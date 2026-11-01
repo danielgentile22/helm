@@ -1,8 +1,8 @@
 # Paths the guard lets into this public repo. One Python regex per line, matched
 # against the repo-relative path. A line starting with ! denies, and denies win.
 
-^(bench|dashboard|runner|voice|demo-vault|docs|\.githooks|\.github)/
-^skills/(update-vault|voice-todo)/
+^(bench|dashboard|runner|demo-vault|docs|\.githooks|\.github)/
+^skills/update-vault/
 ^(models\.json|README\.md|CLAUDE\.md|AGENTS\.md|GLOSSARY\.md|LICENSE|\.gitignore|\.gitattributes|\.env\.example)$
 
 # Personal or runtime material that must never land, even inside an allowed folder.

@@ -16,7 +16,7 @@ import traceback
 from dataclasses import dataclass, field, replace
 from email.utils import formatdate
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Callable, Iterator, Literal, Mapping
+from typing import Callable, Literal, Mapping
 from urllib.parse import unquote, urlsplit
 
 MAX_BODY = 64 * 1024
@@ -57,9 +57,6 @@ class Response:
     status: int = 200
     body: bytes = b""
     headers: dict[str, str] = field(default_factory=dict)
-    # A body handed over in pieces instead of all at once, for a response whose point is that
-    # the client can start on the first piece. `body` stays empty when this is set.
-    stream: Iterator[bytes] | None = None
 
 
 class ApiError(Exception):
@@ -84,7 +81,6 @@ class Route:
     pattern: "re.Pattern[str]"
     reach: Reach
     handler: Handler
-    max_body: int = MAX_BODY
 
 
 def json_response(payload: object, status: int = 200, headers: dict[str, str] | None = None) -> Response:
@@ -170,10 +166,10 @@ def refuse_cross_site(request: Request, tailnet: Tailnet | None) -> None:
     """A write from a page on another site is refused, whatever cookie it carries.
 
     Browsers attach Origin to every cross-site POST, and `Sec-Fetch-Site: cross-site` beside
-    it, so a page open in the desktop browser cannot post a clip to the talk route or cancel
-    a turn on the loopback door, where no session is asked. The dashboard's own page sends
-    its own origin, which is one of this server's names, and passes. GET and HEAD are left
-    alone: reads are already same-origin by the browser's own rules."""
+    it, so a page open in the desktop browser cannot tick or add a todo on the loopback door,
+    where no session is asked. The dashboard's own page sends its own origin, which is one
+    of this server's names, and passes. GET and HEAD are left alone: reads are already
+    same-origin by the browser's own rules."""
     if request.method in ("GET", "HEAD"):
         return
     origin = request.header("origin")
@@ -213,19 +209,6 @@ def reach_of(request: Request, table: tuple[Route, ...]) -> Reach:
     if not matches:
         return "loopback"
     return max(matches, key=STRICTNESS.__getitem__)
-
-
-def body_limit(method: str, path: str, table: tuple[Route, ...]) -> int:
-    """How large a body this request is allowed to carry, off the matched row's own column.
-
-    A toggle is a few bytes of JSON and an audio clip is megabytes, so the limit is a
-    property of the route rather than a size that has to suit both. The limit is asked for
-    before the body is read, so an unrouted request gets the default and is refused on its
-    path afterwards."""
-    for route in table:
-        if route.method == method and route.pattern.match(path):
-            return route.max_body
-    return MAX_BODY
 
 
 def dispatch(request: Request, table: tuple[Route, ...], tailnet: Tailnet | None = None) -> Response:
@@ -268,13 +251,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             sys.stderr.write("%s  %s\n" % (self.log_date_time_string(), fmt % args))
 
     def handle_one(self) -> None:
-        # The path is parsed first because the size a body may be is the matched row's, and
-        # the refusal has to happen before the bytes are read.
-        split = urlsplit(self.path)
-        path = unquote(split.path)
-        body = self.read_body(body_limit(self.command, path, self.table))
+        body = self.read_body(MAX_BODY)
         if body is None:
             return
+        split = urlsplit(self.path)
+        path = unquote(split.path)
         request = Request(
             method=self.command,
             path=path,
@@ -321,33 +302,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def write(self, response: Response) -> None:
         # The client takes its clock skew from Date, so every response carries one (ADR 0021).
         response.headers.setdefault("Date", formatdate(usegmt=True))
-        if response.stream is not None:
-            response.headers["Transfer-Encoding"] = "chunked"
-        elif response.status not in (204, 304):
+        if response.status not in (204, 304):
             response.headers["Content-Length"] = str(len(response.body))
         self.send_response_only(response.status)
         self.log_request(response.status, len(response.body))
         for name, value in response.headers.items():
             self.send_header(name, value)
         self.end_headers()
-        if response.stream is None:
-            # A HEAD response carries the headers of the GET and none of its body, so the bytes
-            # are counted in Content-Length and never written.
-            if self.command != "HEAD":
-                self.wfile.write(response.body)
-            return
-        try:
-            if self.command != "HEAD":
-                for chunk in response.stream:
-                    if chunk:
-                        self.wfile.write(b"%x\r\n" % len(chunk) + chunk + b"\r\n")
-                self.wfile.write(b"0\r\n\r\n")
-        finally:
-            # A client that hangs up mid playback leaves this loop through a broken pipe, and
-            # the upstream connection the generator holds is only released by closing it.
-            closer = getattr(response.stream, "close", None)
-            if closer is not None:
-                closer()
+        # A HEAD response carries the headers of the GET and none of its body, so the bytes
+        # are counted in Content-Length and never written.
+        if self.command != "HEAD":
+            self.wfile.write(response.body)
 
     do_GET = handle_one
     do_PUT = handle_one

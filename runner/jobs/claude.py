@@ -1,4 +1,4 @@
-"""One headless `claude -p` run, the same shape as the integrity check and the talk route.
+"""One headless `claude -p` run, the same shape as the integrity check.
 
 Model and effort come from models.json, never from a caller. A run is restricted in its argv
 when it only needs to read: in `default` permission mode a headless run has nobody to ask,

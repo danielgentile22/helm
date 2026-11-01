@@ -9,13 +9,10 @@ node_modules/
 docs/audits/
 docs/fly-deploy.local.md
 
-# Engine: local config, build output, the voice server's venv and model weights
+# Engine: local config and build output
 .env
 __pycache__/
 dashboard/dist/
-voice/.venv/
-voice/*.onnx
-voice/*.bin
 
 # Local agent tooling state
 .claude/

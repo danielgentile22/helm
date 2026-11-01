@@ -24,14 +24,14 @@ from zoneinfo import ZoneInfo
 
 ENGINE = Path(__file__).resolve().parents[2]
 # Everything helm writes for its own use lives outside the repo and outside the vault
-# (ADR 0030): status files, logs, metrics, voice turns, credentials.
+# (ADR 0030): status files, logs, metrics, credentials.
 STATE = Path(os.environ.get("HELM_STATE") or Path.home() / ".helm")
 STATUS = STATE / "status"
 SOURCES_DIR = STATUS / "sources"
 SESSIONS_DIR = STATUS / "sessions"
 # The vault lives outside every repo, at HELM_VAULT_ROOT or ~/Vault. HELM_VAULT_ROOT (absolute)
-# overrides both and points every producer at a copy; the voice fixture runner sets it so a
-# headless run writes into a throwaway copy.
+# overrides both and points every producer at a copy, so a headless run writes into a
+# throwaway copy.
 VAULT = Path(os.environ.get("HELM_VAULT_ROOT") or Path.home() / "Vault")
 PROJECTS_DIR = Path.home() / "Projects"
 

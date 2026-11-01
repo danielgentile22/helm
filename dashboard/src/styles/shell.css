@@ -40,9 +40,6 @@ header .today .sep, header .today .quiet{color:var(--bone-faint)}
 
 /* start here: the board's strongest pull named in one line. The title gives way and the
    directive drops whole below, so the label and the reason stay whole as the window narrows. */
-/* The start line takes nearly all of a squeeze, so the talk state beside the health line
-   keeps its words until the start line is down to its label. */
-header > .talk{flex:0 1 auto}
 .start-here{display:flex; align-items:baseline; gap:8px; min-width:0; flex:0 1000 auto; overflow:hidden; white-space:nowrap; font-size:12px; color:var(--bone-faint)}
 .start-here b{flex:none; font-weight:500; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--bone-faint)}
 .start-here .g{flex:none; color:var(--bone-dim)}
@@ -461,55 +458,10 @@ header .room::before{content:""; flex:1 0 0; height:18px}
 .keys{font-size:11px; color:var(--bone-faint); white-space:nowrap}
 .keys kbd{padding:0 4px}
 
-/* push to talk: the microphone's state as a word and a shape, in the header beside the keys.
-   Offline is quiet rather than loud, because the voice process being down is not an alarm. */
-.talk{display:flex; align-items:baseline; gap:12px; min-width:0}
-.talk .state{font-size:12px; letter-spacing:.02em; color:var(--bone-faint); white-space:nowrap}
-.talk .s{margin-right:6px; font-size:9px}
-.talk.idle .s{display:none}
-.talk.listening .state{color:var(--bone)}
-.talk.listening .s::before{content:"\25CF"}
-.talk.transcribing .state{color:var(--bone-dim)}
-.talk.transcribing .s::before{content:"\25CB"}
-.talk.working .state{color:var(--bone)}
-.talk.working .s::before{content:"\25D0"}
-.talk.speaking .state{color:var(--bone)}
-.talk.speaking .s::before{content:"\25B6"}
-.talk.offline .state{color:var(--ash-deep)}
-.talk.offline .s::before{content:"\2715"}
-.talk.failed .state{color:var(--unstable); max-width:52ch; overflow:hidden; text-overflow:ellipsis}
-.talk.failed .s::before{content:"\25B2"}
-.talk .heard{
-  font-size:11px; letter-spacing:.02em; color:var(--bone-dim);
-  min-width:0; max-width:64ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-}
-.talk .heard b{font-weight:500; font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--bone-faint); margin-right:5px}
-.talk .heard b:not(:first-child){margin-left:10px}
-/* the rows a turn wrote, inside the one truncating line, told apart by a rule rather than a
-   hue. The title attribute carries the whole list when the line runs out. */
-.talk .heard .wrote{margin-left:10px; padding-left:10px; border-left:1px solid var(--plane-lit)}
-
-/* while a turn is in flight: the glyph breathes and a short line sweeps the header's bottom
-   rule, so the run reads from across the room. The sweep stopping is the done signal. */
 header{position:relative}
-header:has(.talk.transcribing, .talk.working)::after, .bar-talk:has(.talk.transcribing, .talk.working)::before{
-  content:""; position:absolute; left:0; bottom:-1px; width:28%; height:2px;
-  background:linear-gradient(90deg, transparent, var(--bone), transparent);
-  animation:sweep 1.8s ease-in-out infinite; pointer-events:none;
-}
-.bar-talk{position:relative}
-.bar-talk:has(.talk.transcribing, .talk.working)::before{top:-1px; bottom:auto}
-.talk.transcribing .s, .talk.working .s{display:inline-block; animation:breathe 1.6s ease-in-out infinite}
-@keyframes sweep{from{transform:translateX(-100%)} to{transform:translateX(358%)}}
-@keyframes breathe{0%,100%{opacity:1} 50%{opacity:.25}}
 
 @media (prefers-reduced-motion: reduce){
-  .drawer, .row, .strip .bar, .ptt, .scrim{transition:none}
-  /* no sweep: the whole rule lights up and stays lit until the turn lands */
-  header:has(.talk.transcribing, .talk.working)::after,
-  .bar-talk:has(.talk.transcribing, .talk.working)::before{animation:none; width:100%; background:var(--bone)}
-  .talk.transcribing .s, .talk.working .s{animation:none}
-  .bar-talk:has(.talk.transcribing, .talk.working) .ptt .s{animation:none}
+  .drawer, .row, .strip .bar, .scrim{transition:none}
 }
 
 /* the phone: the map becomes four stacked pages on a swipeable track, the drawer a bottom
@@ -609,30 +561,15 @@ header:has(.talk.transcribing, .talk.working)::after, .bar-talk:has(.talk.transc
     display:grid; justify-items:center; gap:10px;
     padding:10px 16px calc(12px + env(safe-area-inset-bottom)); border-top:1px solid var(--rule);
   }
-  .bar-talk .talk{flex-direction:column; align-items:center; gap:4px; max-width:100%}
-  .bar-talk .talk .heard{max-width:100%}
-  /* the talk button stays centred and the add button sits beside it */
   .thumbs{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:18px; width:100%}
-  .thumbs .ptt{grid-column:2}
   .thumbs .plus{
     justify-self:start; width:44px; height:44px; display:grid; place-items:center;
     border:1px solid var(--plane-hot); border-radius:3px; background:var(--plane);
     font-size:18px; color:var(--bone-dim);
   }
-  /* the field stacks above the talk line, full width, what it will write under it; 16px so
+  /* the field stacks above the add button, full width, what it will write under it; 16px so
      the phone does not zoom in on focus */
   .bar-talk .quick{width:100%; flex-wrap:wrap; gap:6px 10px}
   .bar-talk .quick input{flex:1 1 0; max-width:none; min-width:0; font-size:16px; padding:8px 10px}
   .bar-talk .quick .parse{flex-basis:100%; white-space:normal}
-  .ptt{
-    width:64px; height:64px; border-radius:50%; border:1px solid var(--plane-hot);
-    background:var(--plane); display:grid; place-items:center; touch-action:none;
-    -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
-    transition:background .15s ease-out;
-  }
-  .ptt.hot{background:var(--bone); border-color:var(--bone)}
-  .ptt .s{font-size:18px; color:var(--bone-dim)}
-  .ptt .s::before{content:"\25CF"}
-  .ptt.hot .s{color:var(--void)}
-  .bar-talk:has(.talk.transcribing, .talk.working) .ptt .s{display:inline-block; animation:breathe 1.6s ease-in-out infinite}
 }
