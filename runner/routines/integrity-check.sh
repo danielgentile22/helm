@@ -88,15 +88,9 @@ rc=$?
 # would otherwise be counted as a problem of its own.
 failures=$(printf '%s\n' "$out" | grep -E '^ *FAIL' | grep -vcE 'checked|drifting|targets missing')
 
-cat > "$STATUS" <<JSON
-{
-  "routine": "integrity-check",
-  "last_run": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "result": "$([ "$rc" = 0 ] && echo pass || echo fail)",
-  "failures": $failures,
-  "report": $([ "$rc" = 0 ] && echo null || echo "\"${REPORT/#$HOME/~}\"")
-}
-JSON
+python3 "$ENGINE/runner/status.py" integrity-check \
+	"$([ "$rc" = 0 ] && echo pass || echo fail)" "$failures" \
+	"report=$([ "$rc" = 0 ] && echo null || echo "${REPORT/#$HOME/~}")"
 
 if [ "$rc" = 0 ]; then
 	# Safe to run twice means the artifacts agree with the status, not just that

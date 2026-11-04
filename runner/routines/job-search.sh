@@ -24,14 +24,7 @@ perl -e 'alarm 21600; exec @ARGV' python3 "$ENGINE/runner/jobs/run.py"
 rc=$?
 
 if [ "$rc" != 0 ] && ! grep -q "\"last_run\": \"$(date -u +%Y-%m-%dT%H)" "$STATUS" 2>/dev/null; then
-	cat > "$STATUS" <<JSON
-{
-  "routine": "job-search",
-  "last_run": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "result": "fail",
-  "failures": 1,
-  "detail": "run.py exited $rc before writing its status (timed out or crashed)"
-}
-JSON
+	python3 "$ENGINE/runner/status.py" job-search fail 1 \
+		"detail=run.py exited $rc before writing its status (timed out or crashed)"
 fi
 exit $rc

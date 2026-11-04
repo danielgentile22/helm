@@ -30,7 +30,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path[:0] = [str(HERE), str(HERE.parent / "producers")]
+sys.path[:0] = [str(HERE), str(HERE.parent / "producers"), str(HERE.parent)]
 
 import claude  # noqa: E402
 import funnel  # noqa: E402
@@ -40,6 +40,7 @@ import passes  # noqa: E402
 import rank  # noqa: E402
 import report  # noqa: E402
 import screen  # noqa: E402
+import status as status_file  # noqa: E402
 import tailor  # noqa: E402
 from model import (CRITERIA_PATH, Cost, Criteria, Dropped, Eligibility, Pick, Posting, Skills,  # noqa: E402
                    Usage, dump, load_picks, load_postings, verdict_key)
@@ -516,14 +517,9 @@ class Run:
         self.say(f"replay  {funnel.line(f)}")
 
     def status(self, result: str, failures: int, detail: str = "") -> None:
-        path = STATE / "status" / f"{ROUTINE}.json"
         picks = load_picks(self.dir / "picks.json") if (self.dir / "picks.json").exists() else []
         f = funnel.compute(self.dir)
-        path.write_text(json.dumps({
-            "routine": ROUTINE,
-            "last_run": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "result": result,
-            "failures": failures,
+        status_file.write(ROUTINE, result, failures, {
             "day": self.day.isoformat(),
             "picks": len(picks),
             "tailored": sum(1 for pk in picks if pk.tailored),
@@ -531,7 +527,7 @@ class Run:
             "cost_usd": round(f.usd, 4),
             "pool_live": len(self.pool.live()),
             "detail": detail,
-        }, indent=1))
+        }, state=STATE)
 
 
 def main(argv: list[str] | None = None) -> int:

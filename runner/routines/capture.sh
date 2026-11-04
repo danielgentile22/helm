@@ -26,14 +26,8 @@ if [ "$rc" != 0 ] && [ "$failures" = 0 ]; then
 	failures=1
 fi
 
-cat > "$STATUS" <<JSON
-{
-  "routine": "capture",
-  "last_run": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "result": "$([ "$rc" = 0 ] && echo pass || echo fail)",
-  "failures": $failures
-}
-JSON
+python3 "$ENGINE/runner/status.py" capture \
+	"$([ "$rc" = 0 ] && echo pass || echo fail)" "$failures"
 
 if [ "$rc" != 0 ]; then
 	printf '%s\n' "$out"
