@@ -15,7 +15,7 @@ runner/
 ├── launchd.py            models.json turned into jobs and plist text, as pure functions
 ├── schedule.py           the schedule grammar in models.json, parsed in one place
 ├── routines/             one script per routine
-├── producers/            capture.py and the five sources it runs, plus todo_edit.py
+├── producers/            capture.py and the four sources it runs, plus idea_edit.py
 ├── jobs/                 the job search: LinkedIn fetch, screen, rank, tailor, report
 ├── hooks/                session_note.py, the three Claude Code session hooks
 └── checks/               deterministic checks the routines call
@@ -142,7 +142,7 @@ reason, so one can be rerun alone with `--only` and a bad morning can be read ba
 | `skills` | One call per batch of `batch_size` postings with the owner's skills inventory (`skills_note`): the years floor from the required section only, the primary stack, each required skill marked has, adjacent or missing. Drops on `max_years`, `never_stack` and `max_missing` | `passes.skills` |
 | `rank` | Today's survivors plus the pool's live entries from earlier days, expired past `pool_days`, cut to `shortlist` by a cheap score; one read-only Claude call reads each in full with both verdicts, may overturn any, and picks at most `count`, best first, with a tier and a sentence each | the routine's entry |
 | `tailor` | One headless `resume-tailor` run per pick into `~/Desktop/Job Apps/Jobs <day>/<rank> <Company> - <Title>/`, two at a time; a folder that already holds both PDFs is skipped, so a rerun resumes | the skill's entry |
-| `report` | The funnel (`funnel.json`), the research note `Atlas/Work/research/<day>-jobs-top-<count>.md` opening with it, the dropped note `<day>-jobs-dropped.md` listing every drop with link, stage and reason plus the pool carryovers, a mirror of the folders under `Atlas/Work/files/applications/<day>/`, a vault commit, a due-today todo on Work, and `~/Desktop/Job Apps/Jobs <day>.pdf` with the funnel line and the cost per stage | none |
+| `report` | The funnel (`funnel.json`), the research note `Atlas/Work/research/<day>-jobs-top-<count>.md` opening with it, the dropped note `<day>-jobs-dropped.md` listing every drop with link, stage and reason plus the pool carryovers, a mirror of the folders under `Atlas/Work/files/applications/<day>/`, a vault commit, a due-today Work idea in `Atlas/Ideas/`, and `~/Desktop/Job Apps/Jobs <day>.pdf` with the funnel line and the cost per stage | none |
 
 The pool, `status/job-search/pool.json`, holds one record per posting the search has
 met: `judged` (passed, never shown), `dropped` (stage and reason), `picked` (the day) or
@@ -179,13 +179,8 @@ wakeorpoweron MTWRFSU 03:55:00` schedules the wake.
 `producers/capture.py` runs four sources, each its own failure domain, and writes
 the only two files the dashboard reads:
 
-- `status/agenda.json` - dated things, one merged list sorted by `at`: open todos
-  and the next fire of every routine. Beside that list, `directives` names every
-  starred directive heading on the department notes, with or without todos under it
-  (`{"dept", "name", "star", "path", "line"}`), so a priority with nothing queued
-  still reaches the map (ADR 0027). The todos source reports these as rows of kind
-  `directive` in its own cache, so they share its failure domain, and capture lifts
-  them out of `items`. The todos envelope's `count` includes them
+- `status/agenda.json` - open ideas under `ideas`, soonest due first, and the next
+  fire of every routine under `routines`
 - `status/projects.json` - every repo and workspace under `~/Projects`, with its
   tracker joined on by path
 
@@ -209,66 +204,30 @@ is the only thing holding `now`.
 
 ```sh
 python3 runner/producers/capture.py                       # what launchd runs
-python3 runner/producers/capture.py --only todos          # rerun one source, re-merge both files from the caches
-python3 runner/producers/capture.py --only todos --print  # one source, nothing written
+python3 runner/producers/capture.py --only ideas          # rerun one source, re-merge both files from the caches
+python3 runner/producers/capture.py --only ideas --print  # one source, nothing written
+python3 runner/producers/capture.py --print               # every source, nothing written
 ```
 
 Secrets are named in `.env` at the helm root, never committed. `.env.example`
 lists every name and its default.
 
-### Todo syntax
+### Ideas
 
-`producers/sources/todos.py` reads open checkboxes off the four department notes. A
-`### <directive>` heading under `## Todos` files the boxes below it under that
-directive (ADR 0014), and indented lines under a box are its notes and subtasks. A
-trailing `★1`, `★2` or `★3` on the heading stars the directive and weights its todos
-(ADR 0027); the star is not part of the name:
+An idea is one note at `Atlas/Ideas/<created>-<slug>.md`; the shape is in
+`docs/data-shapes.md`. Writing one goes through `producers/idea_edit.py`, never by hand:
 
-```markdown
-## Todos
-
-### Launch ★1
-- [ ] tailor resume for the Acme posting (due: 2026-09-18)
-  Two pages. Lead with the route rebuild.
-  - [ ] read the PDF once
-  - [x] run resume-tailor
-- [ ] apply to one role (daily) (done: 2026-09-22)
-- [ ] coaching session (at: 2026-09-24 19:00)
-- [ ] merge the feature branch done-when: pr merged example/repo#14
+```sh
+python3 runner/producers/idea_edit.py add "<title>" [--project <title>] [--department <D>] [--due YYYY-MM-DD]
+python3 runner/producers/idea_edit.py status <path-or-slug> open|done|dropped
+python3 runner/producers/idea_edit.py due <path-or-slug> YYYY-MM-DD|none
+python3 runner/producers/idea_edit.py list [--status open] [--json]
 ```
 
-Three kinds. A plain box is a todo, due at 17:00 on its `(due: YYYY-MM-DD)` day or
-undated. `(daily)` is a daily task: it is never ticked, `(done: YYYY-MM-DD)` records
-the last day it was done, and it counts as done today when that is today. `(at:
-YYYY-MM-DD HH:MM)` is an event at that moment. Markers may sit anywhere in the text
-and are not part of it, so the content id survives adding a date. `done-when:
-<predicate>` must be the tail. Age needs no date: the commit that added the line says
-when it appeared.
-Four predicates are understood, and a true one is reported, never ticked (ADR 0014):
-
-```
-pr merged <owner/repo>#<n>      gh pr view --json state; MERGED
-tree clean <path>               git status --porcelain empty
-metric <name> >= <value>        last row for <name> in ~/.helm/metrics/metrics.csv
-file exists <path>              the path exists
-```
-
-A predicate that cannot run (gh down, path missing) keeps the previous answer, so a
-known true never flips to unknown.
-
-Writing a todo goes through `producers/todo_edit.py`, never by hand: `add` appends a
-validated line under `## Todos` and commits in the vault, `tick <id>` and `untick <id>`
-flip the box on the line with that content id. `edit <id>` rewrites the fields it is
-given (`--text`, one of `--due` / `--daily` / `--at` / `--undated`, and `--project` or
-`--unfile`) and leaves the rest alone, carrying the `done-when:` tail and a daily's
-`(done:)` over untouched; a new directive moves the whole block, notes and subtasks with
-it, and the same values in every field write nothing. `note <id> "<line>"` appends an
-indented note under a todo, or a subtask box with `--sub`. `add` and `edit` refuse a text
-that is already a box on that note, because the id is a hash of the note path and the
-text, so two of them would share one address. Only the text is hashed, so rescheduling or
-refiling a todo keeps its id. The `update-vault` skill and the
-job search call it. `HELM_VAULT_ROOT` (an absolute path) points the
-producers at a copy of the vault.
+Each write commits the one note in the vault with a subject that names the action
+(`Add an idea`, `Mark an idea done`) and never the idea's text (ADR 0038), then reruns
+capture's ideas source. `parse_idea` in the same module is the only reader of an idea
+note. `HELM_VAULT_ROOT` (an absolute path) points the producers at a copy of the vault.
 
 ## Session notes
 

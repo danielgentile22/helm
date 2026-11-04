@@ -27,8 +27,8 @@ nothing more.
 | POST | `/auth/logout` | drops the session |
 | GET | `/auth/me` | `{"via", "authenticated", "enrolled"}` |
 
-Errors are one shape everywhere: `{"error": {"code", "detail"}}`. The agenda and todo
-routes left with the interface that used them; they are in git history.
+Errors are one shape everywhere: `{"error": {"code", "detail"}}`. The routes of the
+retired interface are in git history.
 
 ## The two doors
 

@@ -16,7 +16,7 @@ page.
   loopback with a passkey door for the tailnet, a health route, and a placeholder
   Svelte 5 page. The next interface is built on it.
 - **Routines** (`runner/`). launchd jobs generated from `models.json`: capture
-  (deterministic producers that read todos, schedules and git state every 30
+  (deterministic producers that read ideas, schedules and git state every 30
   minutes), a daily integrity check that proves every router pointer in the vault
   still resolves, and a backup that snapshots the vault to a local drive when it is
   mounted.
@@ -33,7 +33,7 @@ flowchart LR
     CC["Claude Code"]
   end
 
-  V[("Vault<br/>notes, todos, decisions")]
+  V[("Vault<br/>notes, ideas, decisions")]
   S[("~/.helm<br/>credentials, status, logs")]
 
   D --> DS
@@ -45,7 +45,7 @@ flowchart LR
 | Home | Holds | Rule |
 |---|---|---|
 | this repo | code, docs, a demo vault | public, and history is forever |
-| the vault | notes, todos, decisions | private git repo with no remote |
+| the vault | notes, ideas, decisions | private git repo with no remote |
 | `~/.helm` | credentials, status, logs | private, mostly disposable |
 
 A commit-time guard enforces the first rule. `pre-commit`, `commit-msg` and

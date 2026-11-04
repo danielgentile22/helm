@@ -1,6 +1,6 @@
 ---
 name: update-vault
-description: Routine maintenance of Daniel's Obsidian vault at ~/Vault. Regenerates the projects registry from ~/Projects, reconciles drift (new, moved, deleted repos) against Atlas project notes, records project status changes Daniel reports ("I stopped on X", "I'm stuck on Y"), adds and ticks todos on the department notes ("add a todo", "remind me to", "I did X"), and prunes inbox reports past retention. Use for /update-vault, "update vault", "sync projects", "what projects do I have", any status update about a project, or any sentence that is a todo or a finished todo.
+description: Routine maintenance of Daniel's Obsidian vault at ~/Vault. Regenerates the projects registry from ~/Projects, reconciles drift (new, moved, deleted repos) against Atlas project notes, records project status changes Daniel reports ("I stopped on X", "I'm stuck on Y"), captures ideas as notes in Atlas/Ideas and changes their status ("add an idea", "remind me to", "I did X", "drop X"), and prunes inbox reports past retention. Use for /update-vault, "update vault", "sync projects", "what projects do I have", any status update about a project, or any sentence that is an idea, a commitment, or a finished or abandoned one.
 ---
 
 # update-vault
@@ -15,8 +15,8 @@ Run from `~/Vault`. Follow the vault `CLAUDE.md` conventions (frontmatter, super
 |---|---|
 | `/update-vault` or `/update-vault projects` | Scan, then reconcile drift (below) |
 | `/update-vault status <project> <status> [why]` or a sentence like "I stopped on X" | Status change (below) |
-| `/update-vault todo <sentence>`, or a sentence that is a commitment ("I need to book the Lisbon flights by Friday", "remind me to file the expense report") | Todo entry (below) |
-| "I did X", "X is done", "tick X" | Tick a todo (below) |
+| `/update-vault idea <sentence>`, "add an idea", or a sentence that is a commitment ("I need to book the Lisbon flights by Friday", "remind me to file the expense report") | Add an idea (below) |
+| "I did X", "X is done", "drop X", "never mind X", "move X to Friday" | Change an idea (below) |
 | `/update-vault inbox` | Prune `Inbox/` per the retention rules in the vault's `CLAUDE.md`: `Inbox/runs/integrity/` 30 days, `Inbox/helm2-phone-chats/` 30 days. List what would go, delete on Daniel's yes |
 | `/update-vault all` | All three, in that order |
 
@@ -43,32 +43,35 @@ Rerun the scan after edits so the registry reflects the result.
 
 Statuses are `active`, `dormant`, `shipped`, `archived` (schema in `CLAUDE.md`). Map Daniel's words: stopped or paused → `dormant`; stuck → stays `active`, add a dated bullet with the blocker; done → `shipped`; abandoned → `archived`. Edit the note's `status:`, bump `updated:`, and append a dated bullet under a `## Log` section (create it if absent) with his reason in his words. Never rewrite earlier bullets.
 
-## Todo entry
+## Add an idea
 
-The syntax and the row contract live in `~/Projects/helm/runner/README.md` (Todo syntax) and `runner/producers/sources/todos.py`. Do not write the line by hand. Decide six things from the sentence, then run the lever:
+The shape lives in `~/Projects/helm/docs/data-shapes.md` (Idea). Never write the note by hand. Decide from the sentence, then run the lever:
 
-1. **Department** from the subject: Day job, the launch, interviews, resume → `Work`; a repo, helm, a skill → `Projects`; playing, coaching, the club, rating → `Chess`; everything else → `Life`. When it is genuinely unclear, ask.
-2. **Text**: the commitment in Daniel's words, imperative, no date, no trailing period. Keep a project name as a prefix (`Compiler: ...`) when the sentence names one.
-3. **Due date** as `YYYY-MM-DD`, derived from the sentence against today's date ("by Friday", "before the tournament", "end of month"). No date is fine; the row still has an age from the commit.
-4. **Predicate**, only when one of the four shapes fits exactly: `pr merged <owner/repo>#<n>`, `tree clean <path>`, `metric <name> >= <value>`, `file exists <path>`. Most todos have none.
-5. **Kind**. A thing done every day ("every morning", "daily") is `--daily` and carries no date. A thing that happens at a moment (a session, an appointment, a call) is `--at "YYYY-MM-DD HH:MM"`. Everything else is a plain todo, dated or not.
-6. **Directive** with `--project`: the `### <directive>` heading the todo belongs under in the note's Todos section (Launch, Day job, Coaching, Lisbon trip). Reuse a heading that exists; coin one only when the sentence clearly names a thread of work with more than one todo in it. A one-off stays unfiled.
+1. **Title**: the idea in Daniel's words, imperative, no date, no trailing period.
+2. **Project** when the sentence names one: the `title` of its project note (Compiler, Keel). The department follows from the note's folder.
+3. **Department** otherwise: Day job, the launch, interviews, resume → `Work`; a repo, helm, a skill → `Projects`; playing, coaching, rating → `Chess`; anything else → `Life`, which is also the default.
+4. **Due date** as `YYYY-MM-DD`, only when the sentence sets one ("by Friday", "end of month"), derived against today's date.
 
 ```
-python3 ~/Projects/helm/runner/producers/todo_edit.py add <Dept> "<text>" [--project "<directive>"] [--due YYYY-MM-DD | --daily | --at "YYYY-MM-DD HH:MM"] [--done-when "<predicate>"]
+python3 ~/Projects/helm/runner/producers/idea_edit.py add "<title>" [--project <title> | --department <D>] [--due YYYY-MM-DD] [--body "<more>"]
 ```
 
-It appends under the note's `## Todos` heading (under the directive's `### ` heading when given, creating it), validates with `parse_todo_line`, commits in the vault repo with explicit paths, and prints the row as `capture.py --only todos --print` shows it. Report that row back: department, text, due, id, and the commit. The five todos written on 2026-09-16 on the four department notes are the reference examples.
+It writes `Atlas/Ideas/<created>-<slug>.md`, commits that one path, and prints one JSON line with the parsed idea. Report back the title, department or project, due date, and commit.
 
-## Tick a todo
+## Change an idea
 
-Never delete a todo line. Find the id in `~/.helm/status/agenda.json` (or `python3 ~/Projects/helm/runner/producers/capture.py --only todos --print`) by matching Daniel's words against `text`, then:
+Find the idea with `python3 ~/Projects/helm/runner/producers/idea_edit.py list --status open` by matching Daniel's words against the title, then use its id (the file name without `.md`):
 
 ```
-python3 ~/Projects/helm/runner/producers/todo_edit.py tick <id>
+python3 ~/Projects/helm/runner/producers/idea_edit.py status <id> done      # "I did X"
+python3 ~/Projects/helm/runner/producers/idea_edit.py status <id> dropped   # "drop X"
+python3 ~/Projects/helm/runner/producers/idea_edit.py status <id> open      # a misclick, or "X is back on"
+python3 ~/Projects/helm/runner/producers/idea_edit.py due <id> YYYY-MM-DD|none
 ```
 
-It flips `[ ]` to `[x]` on the line with that content id and commits. A daily is never ticked: it gets `(done: today)` on its line instead, and untick takes that off. `untick <id>` reverses a misclick. Both are idempotent. If more than one todo could match, show the candidates and ask.
+All are idempotent. Never delete an idea note. If more than one idea could match, show the candidates and ask.
+
+Every commit subject names the action only (`Add an idea`, `Mark an idea done`, `Drop an idea`), never the idea's text: titles carry amounts and phone numbers, and the vault history keeps them.
 
 ## Finish
 

@@ -19,7 +19,7 @@ Life sessions start in the vault, not here. Open this repo only to work on the e
   (Jordan, Priya, Sam, Alex Reed, Compiler, Keel, the Lisbon trip), never a real name,
   employer, place or plan.
 - **Three homes.** Code here, knowledge in the vault, state in `~/.helm`. Nothing the
-  software writes goes in the repo or the vault, except todo edits and routine reports
+  software writes goes in the repo or the vault, except idea notes and routine reports
   the vault owns (ADR 0030).
 - **Never Haiku, never effort above `high`.** `models.json` rejects both.
 - **Routines are host-portable.** No absolute paths to one machine. Plists are
