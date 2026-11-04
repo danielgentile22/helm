@@ -203,6 +203,14 @@ export interface Usage {
   disk: { used: number; total: number } | null;
   load: { one: number; cpus: number | null } | null;
   booted: string | null;
+  // The last hour, one point every 10 seconds, oldest first. Empty right after a restart.
+  history: UsagePoint[];
+}
+
+export interface UsagePoint {
+  at: string;
+  cpu: number | null; // share busy since the point before, 0 to 1
+  memory: number | null; // bytes in use
 }
 
 export interface Device {

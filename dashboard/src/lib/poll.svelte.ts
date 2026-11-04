@@ -15,8 +15,13 @@ export interface Poll<T> {
 }
 
 /** `busy` says the answer is about to change (a refresh is running on the server), so the
- *  poll asks again in two seconds instead of waiting the full minute. */
-export function createPoll<T>(fetcher: () => Promise<Load<T>>, busy?: (data: T) => boolean): Poll<T> {
+ *  poll asks again in two seconds instead of waiting the full minute. `every` is how often it
+ *  asks otherwise. */
+export function createPoll<T>(
+  fetcher: () => Promise<Load<T>>,
+  busy?: (data: T) => boolean,
+  every: number = INTERVAL,
+): Poll<T> {
   let load = $state<Load<T>>({ state: "loading" });
   let timer: ReturnType<typeof setInterval> | null = null;
   let soon: ReturnType<typeof setTimeout> | undefined;
@@ -59,7 +64,7 @@ export function createPoll<T>(fetcher: () => Promise<Load<T>>, busy?: (data: T) 
     start() {
       if (timer !== null) return;
       void fetchNow();
-      timer = setInterval(nudge, INTERVAL);
+      timer = setInterval(nudge, every);
       addEventListener("focus", nudge);
       document.addEventListener("visibilitychange", onVisibility);
     },

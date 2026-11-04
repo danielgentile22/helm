@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Usage } from "../lib/api";
   import { ageOf } from "../lib/time";
+  import HourChart from "./HourChart.svelte";
 
   let { usage, now }: { usage: Usage; now: number } = $props();
 
@@ -14,22 +15,35 @@
     return `${shown} ${unit}`;
   }
 
-  const meters = $derived.by(() => {
-    const out: { name: string; share: number; tone: Tone; text: string }[] = [];
+  const history = $derived(usage.history.map((p) => ({ ...p, t: Date.parse(p.at) })));
+  // The graph needs two points to draw a line; until then it says it is collecting.
+  const collecting = $derived(history.length < 2);
+
+  const cpu = $derived.by(() => {
+    const points = history.map((p) => ({ t: p.t, v: p.cpu }));
+    const latest = [...points].reverse().find((p) => p.v !== null)?.v ?? null;
+    const tone: Tone = latest !== null && latest >= 0.9 ? "bad" : latest !== null && latest >= 0.7 ? "warn" : "ok";
+    return { points, tone, text: latest === null ? "measuring" : `${Math.round(latest * 100)}%` };
+  });
+
+  const memory = $derived.by(() => {
     const m = usage.memory;
-    if (m !== null) {
-      const tone: Tone = m.pressure === "critical" ? "bad" : m.pressure === "warn" ? "warn" : "ok";
-      const pressure = m.pressure === null || m.pressure === "normal" ? "" : `, pressure ${m.pressure}`;
-      out.push({ name: "Memory", share: m.used / m.total, tone,
-                 text: `${gb(m.used, 1024)} of ${gb(m.total, 1024)}${pressure}` });
-    }
+    if (m === null) return null;
+    const tone: Tone = m.pressure === "critical" ? "bad" : m.pressure === "warn" ? "warn" : "ok";
+    const pressure = m.pressure === null || m.pressure === "normal" ? "" : `, pressure ${m.pressure}`;
+    return {
+      points: history.map((p) => ({ t: p.t, v: p.memory === null ? null : p.memory / m.total })),
+      tone,
+      text: `${gb(m.used, 1024)} of ${gb(m.total, 1024)}${pressure}`,
+    };
+  });
+
+  const disk = $derived.by(() => {
     const d = usage.disk;
-    if (d !== null) {
-      const share = d.used / d.total;
-      out.push({ name: "Disk", share, tone: share >= 0.9 ? "bad" : share >= 0.8 ? "warn" : "ok",
-                 text: `${gb(d.used, 1000)} of ${gb(d.total, 1000)}` });
-    }
-    return out;
+    if (d === null) return null;
+    const share = d.used / d.total;
+    const tone: Tone = share >= 0.9 ? "bad" : share >= 0.8 ? "warn" : "ok";
+    return { share, tone, text: `${gb(d.used, 1000)} of ${gb(d.total, 1000)}` };
   });
 
   const rest = $derived(
@@ -41,42 +55,70 @@
 </script>
 
 <div class="usage">
-  {#each meters as meter (meter.name)}
-    <div class="meter">
-      <span class="name faint small">{meter.name}</span>
+  <div class="block">
+    <div class="head"><span class="faint small">CPU</span><span class="small">{cpu.text}</span></div>
+    {#if collecting}
+      <div class="collecting faint small">Collecting the first samples. The graph fills in over the next hour.</div>
+    {:else}
+      <HourChart points={cpu.points} tone={cpu.tone} label="CPU use over the last hour, now {cpu.text}" />
+    {/if}
+  </div>
+  {#if memory !== null}
+    <div class="block">
+      <div class="head"><span class="faint small">Memory</span><span class="small">{memory.text}</span></div>
+      {#if !collecting}
+        <HourChart points={memory.points} tone={memory.tone} label="Memory use over the last hour, now {memory.text}" />
+      {/if}
+    </div>
+  {/if}
+  {#if !collecting}
+    <div class="axis faint" aria-hidden="true"><span>1 hour ago</span><span>now</span></div>
+  {/if}
+  {#if disk !== null}
+    <div class="block">
+      <div class="head"><span class="faint small">Disk</span><span class="small">{disk.text}</span></div>
       <span
         class="bar"
         role="meter"
-        aria-label="{meter.name} used"
+        aria-label="Disk used"
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={Math.round(meter.share * 100)}
-        aria-valuetext={meter.text}
+        aria-valuenow={Math.round(disk.share * 100)}
+        aria-valuetext={disk.text}
       >
-        <span class="fill {meter.tone}" style:width="{Math.min(100, meter.share * 100)}%"></span>
+        <span class="fill {disk.tone}" style:width="{Math.min(100, disk.share * 100)}%"></span>
       </span>
-      <span class="small">{meter.text}</span>
     </div>
-  {/each}
+  {/if}
   {#if rest.length > 0}<div class="faint small">{rest.join(" · ")}</div>{/if}
 </div>
 
 <style>
-  /* One grid for every meter, so the bars line up and share one length. */
   .usage {
     display: grid;
-    grid-template-columns: auto minmax(60px, 1fr) auto;
-    align-items: center;
-    gap: 6px 10px;
+    gap: 10px;
     margin-top: 10px;
   }
-  .meter {
-    display: contents;
+  .block {
+    display: grid;
+    gap: 4px;
   }
-  .usage > div:not(.meter) {
-    grid-column: 1 / -1;
+  .head {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .collecting {
+    padding: 8px 0;
+  }
+  .axis {
+    display: flex;
+    justify-content: space-between;
+    margin-top: -6px;
+    font-size: 11px;
   }
   .bar {
+    display: block;
     height: 6px;
     border-radius: 3px;
     background: var(--off);
