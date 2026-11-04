@@ -59,7 +59,9 @@ class TabTest(unittest.TestCase):
         (self.state / "status").mkdir(parents=True)
         self.jobs: dict[str, machine.LaunchdJob] = {}
         self.tailnet = machine.Tailnet(None, "no tailnet in the tests")
-        for module, name, value in ((common, "VAULT", self.vault), (common, "STATE", self.state),
+        self.usage = {"memory": {"used": 40, "total": 64, "pressure": "normal"}, "disk": {"used": 1, "total": 2},
+                      "load": {"one": 4.5, "cpus": 18}, "booted": "2026-10-18T16:34:38Z"}
+        for module, name, value in ((machine, "usage", lambda: self.usage), (common, "VAULT", self.vault), (common, "STATE", self.state),
                                     (common, "STATUS", self.state / "status"),
                                     (machine, "launchctl_list", lambda: self.jobs),
                                     (machine, "tailscale_status", lambda: self.tailnet)):
@@ -236,6 +238,27 @@ class DevicesTabTest(TabTest):
         self.assertEqual(mac["path"], "Atlas/Life/Devices/Studio desk Mac.md")
         self.assertEqual(found["Travel laptop"]["presence"], {"online": False, "last_seen": "2026-11-03T21:14:00Z"})
         self.assertIsNone(found["Desk display"]["presence"])
+
+    def test_usage_is_shown_on_this_machine_alone(self) -> None:
+        self.tailnet = machine.Tailnet(self.TAILNET, None)
+        found = self.by_title()
+        self.assertEqual(found["Studio desk Mac"]["usage"], self.usage)
+        self.assertIsNone(found["Travel laptop"]["usage"])
+        self.assertIsNone(found["Desk display"]["usage"])
+
+    def test_without_the_tailnet_no_device_is_known_to_be_this_machine(self) -> None:
+        self.assertTrue(all(d["usage"] is None for d in self.by_title().values()))
+
+    def test_vm_stat_is_counted_the_way_activity_monitor_counts_memory_used(self) -> None:
+        counts = machine.parse_vm_stat(
+            "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:  149504.\n"
+            "Pages wired down:  302206.\nPages purgeable:  75801.\n\"Translation faults\":  11620813642.\n"
+            "Anonymous pages:  2389532.\nPages occupied by compressor:  44300.\n")
+        self.assertEqual(counts["page size"], 16384)
+        self.assertEqual(counts["translation faults"], 11620813642)
+        self.assertEqual(machine.memory_used(counts), (2389532 - 75801 + 302206 + 44300) * 16384)
+        self.assertIsNone(machine.memory_used({"page size": 16384}))
+        self.assertEqual(machine.parse_boottime("{ sec = 1792341278, usec = 417449 } Sun Oct 18"), 1792341278)
 
     def test_no_tailnet_means_no_presence_and_says_why(self) -> None:
         status, body = get("/api/devices")

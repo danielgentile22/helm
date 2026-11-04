@@ -477,7 +477,7 @@ def push_test(request: Request, m: "re.Match[str]") -> Response:
 
 
 def devices_tab(request: Request, m: "re.Match[str]") -> Response:
-    return json_response(devices.assemble(common.VAULT, machine.tailscale_status()))
+    return json_response(devices.assemble(common.VAULT, machine.tailscale_status(), machine.usage))
 
 
 ROUTES: tuple[Route, ...] = (

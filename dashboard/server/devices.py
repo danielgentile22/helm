@@ -5,9 +5,12 @@ is checked here, at the boundary: a value outside its set is kept as written and
 `problems`, a malformed date or a `specs` that is not a map reads as absent, and no one
 note can fail the route. Presence comes only from the tailnet, joined on the note's
 `tailnet` host name; a device with no `tailnet` has `presence: null`, never "offline".
+Live usage (memory, disk, load) is known only for the machine the dashboard runs on, which
+is the tailnet's `Self`; every other device has `usage: null`.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
@@ -85,15 +88,14 @@ def presence(node: dict | None, is_self: bool) -> dict:
             "last_seen": None if not seen or seen.startswith(NEVER) else seen}
 
 
-def assemble(vault: Path, tailnet: Tailnet) -> dict:
+def assemble(vault: Path, tailnet: Tailnet, usage: Callable[[], dict]) -> dict:
     rows = [device(rel, fields) for rel, fields, _ in frontmatter.typed_notes(vault, "device")]
     known = nodes(tailnet.status) if tailnet.status is not None else None
     self_node = (tailnet.status or {}).get("Self")
     for row in rows:
-        if row["tailnet"] is None or known is None:
-            row["presence"] = None
-        else:
-            node = known.get(row["tailnet"].lower())
-            row["presence"] = presence(node, node is not None and node is self_node)
+        node = None if row["tailnet"] is None or known is None else known.get(row["tailnet"].lower())
+        is_self = node is not None and node is self_node
+        row["presence"] = None if row["tailnet"] is None or known is None else presence(node, is_self)
+        row["usage"] = usage() if is_self else None
     rows.sort(key=lambda r: (STATUS_ORDER.get(r["status"] or "", 9), r["title"].lower()))
     return {"devices": rows, "tailnet_error": tailnet.error}

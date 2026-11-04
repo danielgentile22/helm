@@ -90,6 +90,10 @@ warranty_until: 2029-09-23
 
 - Online status and last seen come from `tailscale status --json` at request time, joined
   on `tailnet`. A device with no `tailnet` shows no presence, not "offline".
+- Live usage comes only for the machine the dashboard runs on, the tailnet's `Self`: memory
+  used (counted the way Activity Monitor counts it) and memory pressure, disk used on the
+  Data volume, the one-minute load against the core count, and boot time. Read fresh per
+  request; each part is null when its probe fails. Every other device has `usage: null`.
 - Devices that today share a note (a phone and a watch in one page) get a page each.
 
 ## Routine record

@@ -70,6 +70,7 @@ def setUpModule() -> None:
         # the tab tests below hand in the answers they want.
         (machine, "launchctl_list"): lambda: {},
         (machine, "tailscale_status"): lambda: machine.Tailnet(None, "no tailnet in the tests"),
+        (machine, "usage"): lambda: {"memory": None, "disk": None, "load": None, "booted": None},
         (common, "STATE"): ROOT / "state",
         (common, "STATUS"): ROOT / "state" / "status",
         (common, "VAULT"): ROOT / "vault",

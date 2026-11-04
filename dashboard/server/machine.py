@@ -1,7 +1,7 @@
 """Everything the dashboard asks of, or tells, the machine it runs on.
 
-`launchctl_list` reads launchd's view of this user's jobs, and `tailscale_status` reads the
-tailnet's. `launchctl` is the one way a routine is started, booted out or bootstrapped, and
+`launchctl_list` reads launchd's view of this user's jobs, `tailscale_status` reads the
+tailnet's, and `usage` reads how hard this Mac is working. `launchctl` is the one way a routine is started, booted out or bootstrapped, and
 `LAUNCH_AGENTS` is the folder launchd loads plists from. All are module attributes so the
 tests replace them, the way they replace `routes.service_installed`: a test must never
 depend on, or change, what the machine running it has installed. Everything that turns
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -120,3 +121,78 @@ def tailscale_status() -> Tailnet:
         answer = _ask_tailscale()
         _cache = (time.monotonic(), answer)
         return answer
+
+
+# What `kern.memorystatus_vm_pressure_level` holds: the level Activity Monitor colors its
+# memory pressure graph by.
+PRESSURE = {1: "normal", 2: "warn", 4: "critical"}
+DATA_VOLUME = Path("/System/Volumes/Data")
+# By full path: launchd starts the dashboard with a PATH that leaves out /usr/sbin.
+SYSCTL = "/usr/sbin/sysctl"
+VM_STAT = "/usr/bin/vm_stat"
+
+
+def _run(*args: str) -> str | None:
+    try:
+        r = subprocess.run(list(args), capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def parse_vm_stat(text: str) -> dict[str, int]:
+    """`vm_stat` as page counts by name, plus `page size` in bytes."""
+    counts: dict[str, int] = {}
+    size = re.search(r"page size of (\d+) bytes", text)
+    if size:
+        counts["page size"] = int(size.group(1))
+    for line in text.splitlines()[1:]:
+        name, _, value = line.rpartition(":")
+        value = value.strip().rstrip(".")
+        if value.isdigit():
+            counts[name.strip().strip('"').lower()] = int(value)
+    return counts
+
+
+def memory_used(counts: dict[str, int]) -> int | None:
+    """Bytes in use the way Activity Monitor counts "Memory Used": app memory (anonymous
+    pages that are not purgeable), wired memory, and what the compressor occupies."""
+    keys = ("page size", "anonymous pages", "pages purgeable", "pages wired down", "pages occupied by compressor")
+    if not all(k in counts for k in keys):
+        return None
+    pages = (counts["anonymous pages"] - counts["pages purgeable"] + counts["pages wired down"]
+             + counts["pages occupied by compressor"])
+    return max(pages, 0) * counts["page size"]
+
+
+def parse_boottime(text: str) -> int | None:
+    found = re.search(r"sec = (\d+)", text)
+    return int(found.group(1)) if found else None
+
+
+def usage() -> dict:
+    """How hard the machine the dashboard runs on is working, read fresh. Each part is
+    None when its probe fails, so a Mac that refuses one question still answers the rest."""
+    memory = None
+    total = _run(SYSCTL, "-n", "hw.memsize")
+    vm = _run(VM_STAT)
+    used = memory_used(parse_vm_stat(vm)) if vm is not None else None
+    if total is not None and total.strip().isdigit() and used is not None:
+        level = _run(SYSCTL, "-n", "kern.memorystatus_vm_pressure_level")
+        memory = {"used": used, "total": int(total.strip()),
+                  "pressure": PRESSURE.get(int(level.strip())) if level and level.strip().isdigit() else None}
+    disk = None
+    try:
+        # On macOS the Data volume holds everything the owner writes; "/" is the sealed system.
+        d = shutil.disk_usage(DATA_VOLUME if DATA_VOLUME.exists() else "/")
+        disk = {"used": d.total - d.free, "total": d.total}
+    except OSError:
+        pass
+    try:
+        load = {"one": round(os.getloadavg()[0], 2), "cpus": os.cpu_count()}
+    except OSError:
+        load = None
+    boot = _run(SYSCTL, "-n", "kern.boottime")
+    booted = parse_boottime(boot) if boot is not None else None
+    return {"memory": memory, "disk": disk, "load": load,
+            "booted": None if booted is None else time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(booted))}
