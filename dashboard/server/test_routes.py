@@ -21,7 +21,9 @@ sys.path.insert(0, str(HERE))
 
 import app  # noqa: E402
 import auth  # noqa: E402
+import machine  # noqa: E402
 import routes  # noqa: E402
+import common  # noqa: E402  after routes, which puts the producers on the path
 import test_passkey  # noqa: E402
 
 PORT = 8642
@@ -64,6 +66,13 @@ def setUpModule() -> None:
         # Otherwise every health request shells out to launchctl and the answer depends on
         # whether the machine running the tests happens to have the agent installed.
         (routes, "service_installed"): lambda: False,
+        # The tabs ask launchd and the tailnet. Neither question reaches this machine here;
+        # the tab tests below hand in the answers they want.
+        (machine, "launchctl_list"): lambda: {},
+        (machine, "tailscale_status"): lambda: machine.Tailnet(None, "no tailnet in the tests"),
+        (common, "STATE"): ROOT / "state",
+        (common, "STATUS"): ROOT / "state" / "status",
+        (common, "VAULT"): ROOT / "vault",
     }
     SAVED.update({key: getattr(*key) for key in patched})
     for (module, name), value in patched.items():
@@ -129,7 +138,10 @@ class RouteTest(unittest.TestCase):
         tailnet; and a path no row claims gets the strictest reach of all, so a stray file can
         never be reached from the tailnet by accident."""
         for path, reach in (("/icon.svg", "open"), ("/manifest.webmanifest", "open"), ("/", "open"),
-                            ("/api/health", "tailnet"), ("/api/nothing", "loopback")):
+                            ("/api/health", "tailnet"), ("/api/projects", "tailnet"),
+                            ("/api/projects/keel", "tailnet"), ("/api/ideas", "tailnet"),
+                            ("/api/background", "tailnet"), ("/api/devices", "tailnet"),
+                            ("/api/nothing", "loopback")):
             with self.subTest(path=path):
                 self.assertEqual(app.reach_of(request("GET", path), routes.ROUTES), reach)
 
@@ -164,6 +176,11 @@ class RouteTest(unittest.TestCase):
         """One request per row of the table, so a gate test covers the whole table."""
         rows = [
             ("GET", "/api/health"),
+            ("GET", "/api/projects"),
+            ("GET", "/api/projects/keel"),
+            ("GET", "/api/ideas"),
+            ("GET", "/api/background"),
+            ("GET", "/api/devices"),
             ("GET", "/index.html"),
             ("GET", "/icon.svg"),
             ("GET", "/manifest.webmanifest"),

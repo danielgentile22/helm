@@ -1,14 +1,18 @@
 """Every route the dashboard answers, one row each, with the handler beside it.
 
-What is left is the health read, the page itself, and the passkey rows from `auth.py`. The
-interface that read the agenda and wrote todos is gone; its routes are in git history.
+The health read, the four tabs' reads, the page itself, and the passkey rows from
+`auth.py`. Projects come from the file capture writes, so a page load never calls GitHub
+(ADR 0037); ideas and devices are read from the vault per request; background asks
+launchd through `machine.py`. The JSON each returns is documented in `dashboard/README.md`.
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import parse_qs
 
 HERE = Path(__file__).resolve().parent
 RUNNER = HERE.parents[1] / "runner"
@@ -17,6 +21,10 @@ sys.path[:0] = [str(HERE), str(RUNNER), str(RUNNER / "producers")]
 import common  # noqa: E402
 import launchd  # noqa: E402
 import auth  # noqa: E402
+import background  # noqa: E402
+import devices  # noqa: E402
+import idea_edit  # noqa: E402
+import machine  # noqa: E402
 from app import ApiError, Request, Response, Route, json_response, text_response  # noqa: E402
 
 DIST = common.ENGINE / "dashboard" / "dist"
@@ -87,8 +95,84 @@ def static(request: Request, m: "re.Match[str]") -> Response:
     return Response(200, target.read_bytes(), {"Content-Type": content_type, "Cache-Control": "no-cache"})
 
 
+NO_CAPTURE = "capture has not written projects.json yet; run python3 runner/producers/capture.py"
+OLD_CAPTURE = "projects.json has no projects list; it predates this server, so run capture again"
+IDEA_STATUSES = (*idea_edit.STATUSES, "all")
+
+
+def projects_doc() -> tuple[dict, list[dict], str | None]:
+    """projects.json, its entries, and what is wrong with it if anything: a source that is
+    failing names itself and why, and its last good rows are still served beside it."""
+    doc = common.read_json(common.STATUS / "projects.json")
+    if doc is None:
+        return {}, [], NO_CAPTURE
+    entries = doc.get("projects")
+    if not isinstance(entries, list):
+        return doc, [], OLD_CAPTURE
+    failing = [f"{name}: {meta.get('reason') or 'failing'}"
+               for name, meta in sorted((doc.get("sources") or {}).items()) if not meta.get("ok")]
+    return doc, entries, "; ".join(failing) or None
+
+
+def summary(entry: dict) -> dict:
+    return {k: v for k, v in entry.items() if k != "issues_list"}
+
+
+def projects_list(request: Request, m: "re.Match[str]") -> Response:
+    doc, entries, error = projects_doc()
+    return json_response({"produced": doc.get("produced"), "error": error,
+                          "projects": [summary(e) for e in entries]})
+
+
+def open_ideas(project: str) -> list[dict]:
+    ideas, _ = idea_edit.scan(common.VAULT)
+    return [i.to_row() for i in sort_ideas(ideas) if i.status == "open" and i.project == project]
+
+
+def project_detail(request: Request, m: "re.Match[str]") -> Response:
+    """One project with its issue list and its open ideas. The ideas are read from the
+    vault now rather than from capture, so one thrown in a second ago is already here."""
+    doc, entries, error = projects_doc()
+    entry = next((e for e in entries if e.get("slug") == m["slug"]), None)
+    if entry is None:
+        raise ApiError(404, "not_found", error or f"no project with the slug {m['slug']!r}")
+    ideas = open_ideas(entry["title"])
+    return json_response({"produced": doc.get("produced"), "error": error,
+                          **entry, "ideas_open": len(ideas), "ideas": ideas})
+
+
+def sort_ideas(ideas: list[idea_edit.Idea]) -> list[idea_edit.Idea]:
+    """Soonest due first, undated after, and newest first within each."""
+    newest = sorted(ideas, key=lambda i: (i.created, i.id), reverse=True)
+    return sorted(newest, key=lambda i: (i.due is None, i.due or ""))
+
+
+def ideas_list(request: Request, m: "re.Match[str]") -> Response:
+    want = (parse_qs(request.query).get("status") or ["open"])[-1]
+    if want not in IDEA_STATUSES:
+        raise ApiError(400, "bad_request", f"status {want!r} is not one of {', '.join(IDEA_STATUSES)}")
+    ideas, errors = idea_edit.scan(common.VAULT)
+    picked = [i for i in ideas if want == "all" or i.status == want]
+    return json_response({"ideas": [i.to_row() for i in sort_ideas(picked)], "errors": [str(e) for e in errors]})
+
+
+def background_tab(request: Request, m: "re.Match[str]") -> Response:
+    registry = json.loads((common.ENGINE / "models.json").read_text())
+    now = datetime.now(common.local_tz(common.load_env()))
+    return json_response(background.assemble(registry, machine.launchctl_list(), common.STATE, now))
+
+
+def devices_tab(request: Request, m: "re.Match[str]") -> Response:
+    return json_response(devices.assemble(common.VAULT, machine.tailscale_status()))
+
+
 ROUTES: tuple[Route, ...] = (
     Route("GET", re.compile(r"^/api/health$"), "tailnet", health),
+    Route("GET", re.compile(r"^/api/projects$"), "tailnet", projects_list),
+    Route("GET", re.compile(r"^/api/projects/(?P<slug>[a-z0-9-]+)$"), "tailnet", project_detail),
+    Route("GET", re.compile(r"^/api/ideas$"), "tailnet", ideas_list),
+    Route("GET", re.compile(r"^/api/background$"), "tailnet", background_tab),
+    Route("GET", re.compile(r"^/api/devices$"), "tailnet", devices_tab),
     # The page and its assets are open: a phone with no session yet has to load the shell to
     # sign in. Everything the page then reads sits behind the gate.
     Route("GET", re.compile(r"^/(?!api/|auth/).*$"), "open", static),
