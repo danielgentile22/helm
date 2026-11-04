@@ -50,7 +50,7 @@ class CaptureTest(unittest.TestCase):
         setattr(module, name, value)
 
     def use_sources(self, **fakes: common.Collector) -> None:
-        table = {"ideas": nothing, "routines": nothing, "repos": nothing, "trackers": nothing}
+        table = {"ideas": nothing, "routines": nothing, "repos": nothing, "projects": nothing, "github": nothing}
         table.update(fakes)
         self.swap(capture, "SOURCES", table)
 
@@ -173,7 +173,7 @@ class CaptureTest(unittest.TestCase):
         self.use_sources()
         self.assertEqual(capture.main([]), 0)
         first = self.projects()
-        self.assertEqual(first["produced"], first["sources"]["repos"]["produced"])
+        self.assertEqual(first["produced"], first["sources"]["projects"]["produced"])
 
         capture.refresh("ideas")
         agenda = self.agenda()

@@ -39,6 +39,7 @@ HERE = Path(__file__).resolve().parent
 sys.path[:0] = [str(HERE), str(HERE.parent)]
 
 import common  # noqa: E402
+import frontmatter  # noqa: E402
 
 Status = Literal["open", "done", "dropped", "promoted"]
 STATUSES: tuple[Status, ...] = get_args(Status)
@@ -48,8 +49,6 @@ FIELDS = ("type", "created", "status", "project", "department", "due", "issue")
 STATUS_SUBJECTS: dict[Status, str] = {"open": "Reopen an idea", "done": "Mark an idea done",
                                       "dropped": "Drop an idea"}  # type: ignore[dict-item]
 ADD_SUBJECT = "Add an idea"
-# Bare words YAML reads as something other than a string.
-YAML_WORDS = {"yes", "no", "true", "false", "on", "off", "null", "~"}
 DUE_SUBJECT = "Change an idea's due date"
 
 
@@ -80,31 +79,6 @@ class Idea:
         return {"id": self.id, **asdict(self)}
 
 
-def split_note(text: str) -> tuple[dict[str, str], str]:
-    """Frontmatter as flat `key: value` pairs, and the body after it. Values may be bare or
-    double-quoted the way `scalar` writes them. No frontmatter is an empty dict."""
-    if not text.startswith("---\n"):
-        return {}, text
-    end = text.find("\n---", 3)
-    if end < 0:
-        return {}, text
-    fields: dict[str, str] = {}
-    for line in text[4:end].splitlines():
-        key, sep, value = line.partition(":")
-        if not sep or not key.strip() or line[:1].isspace():
-            continue
-        value = value.strip()
-        if value.startswith('"'):
-            try:
-                value = json.loads(value)
-            except ValueError:
-                value = value.strip('"')
-        elif value.startswith("'") and value.endswith("'") and len(value) > 1:
-            value = value[1:-1].replace("''", "'")
-        fields[key.strip()] = value
-    return fields, text[end + 4:].lstrip("\n")
-
-
 def valid_day(value: str, what: str) -> str:
     try:
         if len(value) == 10:
@@ -130,39 +104,35 @@ def valid_department(value: str) -> common.Department:
 def parse_idea(text: str, path: str) -> Idea:
     """The one reading of an idea note. Raises IdeaError naming the path for anything the
     shape does not allow, so a hand edit that broke a note is reported, never guessed at."""
-    fields, body = split_note(text)
+    fields, body = frontmatter.split(text)
+
+    def field(key: str) -> str | None:
+        return frontmatter.text_of(fields.get(key))
+
     try:
-        if fields.get("type") != "idea":
+        if field("type") != "idea":
             raise IdeaError("frontmatter has no `type: idea`")
         title = next((ln.strip().lstrip("#").strip() for ln in body.splitlines() if ln.strip()), "")
         if not title:
             raise IdeaError("no title: the first body line is empty")
+        due = field("due")
         return Idea(
             path=path,
             title=title,
-            created=valid_day(fields.get("created", ""), "created"),
-            status=valid_status(fields.get("status", "")),
-            department=valid_department(fields.get("department") or "Life"),
-            project=fields.get("project") or None,
-            due=valid_day(fields["due"], "due") if fields.get("due") else None,
-            issue=fields.get("issue") or None,
+            created=valid_day(field("created") or "", "created"),
+            status=valid_status(field("status") or ""),
+            department=valid_department(field("department") or "Life"),
+            project=field("project"),
+            due=valid_day(due, "due") if due else None,
+            issue=field("issue"),
         )
     except IdeaError as e:
         raise IdeaError(f"{path}: {e}") from None
 
 
-def scalar(value: str) -> str:
-    """A frontmatter value YAML reads back as the same string: bare when it is plain, else
-    a JSON string, which is a valid YAML double-quoted scalar."""
-    plain = re.fullmatch(r"[\w][\w .,/&()+'-]*", value) and not value.endswith(" ")
-    if plain and value.lower() not in YAML_WORDS:
-        return value
-    return json.dumps(value, ensure_ascii=False)
-
-
-def render(fields: dict[str, str | None], body: str) -> str:
-    lines = [f"{k}: {scalar(v)}" for k in FIELDS if (v := fields.get(k))]
-    lines += [f"{k}: {scalar(v)}" for k, v in fields.items() if k not in FIELDS and v]
+def render(fields: dict[str, frontmatter.Value | None], body: str) -> str:
+    lines = [frontmatter.line(k, v) for k in FIELDS if (v := fields.get(k))]
+    lines += [frontmatter.line(k, v) for k, v in fields.items() if k not in FIELDS and v]
     return "---\n" + "\n".join(lines) + "\n---\n" + body.rstrip("\n") + "\n"
 
 
@@ -182,13 +152,9 @@ def slugify(title: str, limit: int = 60) -> str:
 def project_department(vault: Path, project: str) -> common.Department:
     """The department of the project note titled `project`: the Atlas folder it sits in.
     Project notes are found by `type: project` anywhere in Atlas."""
-    atlas = vault / "Atlas"
-    for note in sorted(atlas.rglob("*.md")):
-        if IDEAS in note.relative_to(vault).parents:
-            continue
-        fields, _ = split_note(note.read_text(errors="replace"))
-        if fields.get("type") == "project" and fields.get("title") == project:
-            top = note.relative_to(atlas).parts[0]
+    for rel, fields, _ in frontmatter.typed_notes(vault, "project"):
+        if fields.get("title") == project:
+            top = Path(rel).parts[1]
             return top if top in common.DEPARTMENTS else "Life"  # type: ignore[return-value]
     raise IdeaError(f"no project note titled {project!r} (a note with `type: project` in Atlas)")
 
@@ -247,16 +213,31 @@ def load(vault: Path, note: Path) -> Idea:
     return parse_idea(note.read_text(), str(note.resolve().relative_to(vault.resolve())))
 
 
+def scan(vault: Path) -> tuple[list[Idea], list[IdeaError]]:
+    """Every idea note that parses, oldest first, and an error naming each one that does not."""
+    folder = vault / IDEAS
+    ideas: list[Idea] = []
+    errors: list[IdeaError] = []
+    for note in sorted(folder.glob("*.md")) if folder.is_dir() else []:
+        try:
+            ideas.append(load(vault, note))
+        except (IdeaError, OSError, UnicodeDecodeError) as e:
+            errors.append(e if isinstance(e, IdeaError) else IdeaError(f"{note.name}: {e}"))
+    return ideas, errors
+
+
 def load_ideas(vault: Path) -> list[Idea]:
     """Every idea note, oldest first. One broken note raises, naming its path."""
-    folder = vault / IDEAS
-    return [load(vault, p) for p in sorted(folder.glob("*.md"))] if folder.is_dir() else []
+    ideas, errors = scan(vault)
+    if errors:
+        raise errors[0]
+    return ideas
 
 
 def set_field(vault: Path, note: Path, key: str, value: str | None) -> tuple[Idea, bool]:
     """Set one frontmatter field, or remove it when value is None. No change writes nothing."""
     before = load(vault, note)
-    fields, body = split_note(note.read_text())
+    fields, body = frontmatter.split(note.read_text())
     if (fields.get(key) or None) == value:
         return before, False
     fields[key] = value  # type: ignore[assignment]

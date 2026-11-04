@@ -75,6 +75,14 @@ def is_workspace(path: Path) -> bool:
     return has_members or (path / ".scratch").is_dir()
 
 
+def tilde(path: Path) -> str:
+    """Home-relative form, so a row is host-portable. A path outside home stays absolute."""
+    try:
+        return f"~/{path.relative_to(Path.home())}"
+    except ValueError:
+        return str(path)
+
+
 def _cwd_key(path: Path) -> str:
     try:
         rel = path.resolve().relative_to(Path.home())
@@ -136,7 +144,7 @@ def _dirty_paths(porcelain: str) -> list[str]:
     return out
 
 
-def _default_branch(path: Path) -> tuple[str | None, str | None]:
+def default_branch(path: Path) -> tuple[str | None, str | None]:
     """(name for the row, ref to count against). origin/HEAD first, then main, then master."""
     head = git(path, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
     prefix = "refs/remotes/origin/"
@@ -175,14 +183,14 @@ def _repo_row(path: Path, now: datetime) -> dict:
     porcelain = git(path, "status", "--porcelain") if is_git else None
     dirty_paths = _dirty_paths(porcelain) if porcelain else []
     branch = git(path, "rev-parse", "--abbrev-ref", "HEAD") if is_git else None
-    default_name, default_ref = _default_branch(path) if is_git else (None, None)
+    default_name, default_ref = default_branch(path) if is_git else (None, None)
     remote = git(path, "remote", "get-url", "origin") if is_git else None
     touched = _git_touched(path, dirty_paths, now) if is_git else _newest_mtime(path, now)
     return {
         "kind": "repo",
         "name": path.name,
         "dept": "Projects",
-        "path": f"~/{path.relative_to(Path.home())}",
+        "path": tilde(path),
         "git": is_git,
         "branch": None if branch in (None, "HEAD") else branch,
         "default_branch": default_name,
@@ -209,7 +217,7 @@ def _workspace_row(path: Path, now: datetime) -> dict:
         "kind": "workspace",
         "name": path.name,
         "dept": "Projects",
-        "path": f"~/{path.relative_to(Path.home())}",
+        "path": tilde(path),
         "repos": [p.name for p in member_paths],
         "efforts": efforts,
         "touched": common.iso(max(stamps)) if stamps else None,

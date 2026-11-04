@@ -6,7 +6,10 @@ Runs every source as its own failure domain, caches each under
 
     ~/.helm/status/agenda.json     open ideas under `ideas`, and the next fire of every
                                   routine under `routines`
-    ~/.helm/status/projects.json   every repo and workspace under ~/Projects, in flight
+    ~/.helm/status/projects.json   every project under `projects` (notes joined to their
+                                  repos, tracker, pull requests and open ideas; contract
+                                  in sources/projects.py), and every repo and workspace
+                                  under ~/Projects under `in_flight`
 
 Both are overwritten, never appended. A source that fails keeps its last good rows and
 says so in its own envelope under `sources.<name>`. Every time-dependent number (late,
@@ -32,7 +35,7 @@ sys.path[:0] = [str(HERE), str(HERE.parent)]
 
 import common  # noqa: E402
 from schedule import cadence_seconds, parse_schedule  # noqa: E402
-from sources import ideas, repos, routines, trackers  # noqa: E402
+from sources import github, ideas, projects, repos, routines  # noqa: E402
 
 ROUTINE = "capture"
 
@@ -40,10 +43,11 @@ SOURCES: dict[str, common.Collector] = {
     "ideas": ideas.collect,
     "routines": routines.collect,
     "repos": repos.collect,
-    "trackers": trackers.collect,
+    "projects": projects.collect,
+    "github": github.collect,
 }
 AGENDA_SOURCES = ("ideas", "routines")
-PROJECT_SOURCES = ("repos", "trackers")
+PROJECT_SOURCES = ("projects", "github", "repos")
 
 
 def cadence() -> int:
@@ -70,16 +74,13 @@ def merge_agenda(runs: dict[str, common.SourceRun], tz: str) -> dict:
 
 
 def merge_projects(runs: dict[str, common.SourceRun]) -> dict:
-    by_path = {t["path"]: t["tracker"] for t in runs["trackers"].items}
-    in_flight = []
-    for entry in runs["repos"].items:
-        row = dict(entry)
-        row["tracker"] = by_path.get(entry["path"])
-        in_flight.append(row)
+    """The ideas cache feeds only each project's count of open ideas, so it is not one of
+    this file's sources and a new idea does not restamp it."""
     return {
         "produced": latest_produced(runs, PROJECT_SOURCES),
         "sources": {n: runs[n].meta for n in PROJECT_SOURCES},
-        "in_flight": in_flight,
+        "projects": projects.join(runs["projects"].items, runs["github"].items, runs["ideas"].items),
+        "in_flight": runs["repos"].items,
     }
 
 
@@ -95,7 +96,7 @@ def held_for(name: str) -> contextlib.AbstractContextManager:
 def write_merged(tz, cadence_s: int) -> str | None:
     """Merge from the caches on disk, never from the runs this process is holding.
 
-    A full run takes as long as the repos and the trackers take, and an idea write re-merges
+    A full run takes as long as the repos and GitHub take, and an idea write re-merges
     in the middle of it. Merging in-memory rows would write the pre-write ideas over the
     fresh ones and leave an idea done in the vault but open in agenda.json until the next
     capture. `run_source` writes each cache before it returns,
