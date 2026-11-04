@@ -166,6 +166,12 @@ class ProjectsTest(unittest.TestCase):
         self.assertNotIn("lisbon-planner", self.joined())
         self.assertNotIn("lisbon-planner", [p.slug for p in projects.resolve(self.vault, self.projects_dir)])
 
+    def test_a_folder_on_the_registry_ignore_list_is_not_a_project(self) -> None:
+        repo(self.projects_dir / "keel-copy", "example/keel-copy")
+        (self.vault / "Atlas" / "Projects" / "_registry-ignore.md").write_text(
+            "# Not projects\n\nProse lines are ignored.\n- `~/Projects/keel-copy`\n")
+        self.assertNotIn("keel-copy", [p.slug for p in projects.resolve(self.vault, self.projects_dir)])
+
     def test_pinned_first_then_the_most_recent_work(self) -> None:
         order = [p["slug"] for p in projects.join(projects.collect({}, NOW), [], [])]
         self.assertEqual(order[0], "keel")

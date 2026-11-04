@@ -4,7 +4,9 @@ A project is a note with `type: project` anywhere in Atlas (shape in docs/data-s
 Its `repo` is one git repo or a workspace folder whose `repos/` holds several. A folder
 under ~/Projects that no project note names still becomes a project, titled by the
 folder and with `note: null`, so drift between the vault and the disk is visible. A note
-whose `status` is `archived` is left out, and so is the folder it names.
+whose `status` is `archived` is left out, and so is the folder it names. So is a folder
+listed in the vault's `Atlas/Projects/_registry-ignore.md`, the list `update-vault` and
+`check_registry` already skip.
 
 Local only: notes, git and `.scratch/` files. Everything GitHub knows comes from the
 `github` source, and `join` puts the two together for projects.json, so a GitHub outage
@@ -89,6 +91,17 @@ def expand(repo: str) -> Path:
         return path
 
 
+def ignored(vault: Path) -> set[Path]:
+    """One `~/...` or absolute path per line of the ignore note; prose lines are skipped."""
+    note = vault / "Atlas" / "Projects" / "_registry-ignore.md"
+    try:
+        lines = note.read_text().splitlines()
+    except OSError:
+        return set()
+    paths = (line.strip().lstrip("-").strip().strip("`") for line in lines)
+    return {expand(p).resolve() for p in paths if p.startswith(("~", "/"))}
+
+
 def repos_of(root: Path | None) -> tuple[Repo, ...]:
     if root is None or not root.is_dir():
         return ()
@@ -126,7 +139,7 @@ def choice(fields: dict, key: str, allowed: tuple[str, ...], fallback: str | Non
 def resolve(vault: Path, projects_dir: Path) -> list[Project]:
     """Every project the tab shows: the live notes, then the folders no note names."""
     out: list[Project] = []
-    claimed: set[Path] = set()
+    claimed: set[Path] = ignored(vault)
     for rel, fields, _ in frontmatter.typed_notes(vault, "project"):
         problems: list[str] = []
         repo = frontmatter.text_of(fields.get("repo"))
