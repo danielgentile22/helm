@@ -172,7 +172,7 @@ class BackgroundTabTest(TabTest):
         status, body = get("/api/background")
         self.assertEqual(status, 200)
         self.assertEqual([r["name"] for r in body["routines"]],
-                         ["integrity-check", "job-search", "capture", "backup"])
+                         ["integrity-check", "job-search", "capture", "doorbook-listings", "backup"])
 
         capture = self.routine(body, "capture")
         self.assertEqual((capture["result"], capture["result_text"], capture["loaded"], capture["running"]),
@@ -195,7 +195,7 @@ class BackgroundTabTest(TabTest):
         self.assertEqual((never["result"], never["running"], never["last_exit"]), ("unknown", True, 1))
 
         self.assertEqual([(s["name"], s["listed"], s["last_exit"]) for s in body["services"]],
-                         [("caffeinate", False, 0), ("dashboard", True, -15)])
+                         [("caffeinate", False, 0), ("dashboard", True, -15), ("doorbook-sync", True, None)])
 
     def test_the_log_tail_is_the_last_forty_lines_of_the_newer_log(self) -> None:
         now = time.time()

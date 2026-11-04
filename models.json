@@ -80,6 +80,13 @@
       "why": "Deterministic producers. Reading a note and reading git is not a judgment task; HELM measured 689 of 712 headless Claude runs reproducing a deterministic transform (HELM ADR 0008).",
       "writes": "~/.helm/status/agenda.json (open ideas, routine fires) and projects.json every run"
     },
+    "doorbook-listings": {
+      "model": null,
+      "effort": null,
+      "schedule": "daily 06:30",
+      "why": "Reading a listing page for its status is a parse, not a judgment. Owned by the doorbook project, which keeps the code in scripts/listings; helm runs it before the work day so a house that sold overnight is on the phone by the first knock.",
+      "writes": "~/.helm/doorbook/listings.json and ~/.helm/status/doorbook-listings.json"
+    },
     "backup": {
       "model": null,
       "effort": null,
@@ -94,6 +101,12 @@
       "throttle_s": 15,
       "why": "The dashboard is only worth having if it is already answering. launchd starts it at login and restarts it if it exits, so nothing has to be remembered before looking at the day.",
       "writes": "~/.helm/logs/com.helm.dashboard.out and .err"
+    },
+    "doorbook-sync": {
+      "command": ["runner/services/doorbook-sync.sh"],
+      "throttle_s": 15,
+      "why": "The phone sends the houses it marked for sale and reads back their listings whenever the For sale page opens, so the door has to be answering. Loopback only, fronted by tailscale serve on 8665. Owned by the doorbook project (scripts/listings/serve.py).",
+      "writes": "~/.helm/doorbook/watchlist.json, and ~/.helm/logs/com.helm.doorbook-sync.out and .err"
     }
   }
 }

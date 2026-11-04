@@ -51,13 +51,15 @@ runner/
 | `integrity-check` | daily 07:00 | sonnet, low | Verifies every router pointer, every wikilink, every repo against its project note, and the dashboard checks and tests. Writes a report only when something is broken |
 | `capture` | every 30 min | none | Refreshes `status/agenda.json` and `status/projects.json` from the deterministic producers. No Claude call |
 | `job-search` | daily 04:00 | opus, high; sonnet, medium for the two passes | Searches LinkedIn against the vault's criteria, screens, judges each posting's eligibility and skills, ranks the live pool, tailors a resume and cover letter for each pick, and leaves a PDF with the funnel and the apply links in `~/Desktop/Job Apps`. The record goes in the vault |
+| `doorbook-listings` | daily 06:30 | none | Runs the doorbook project's `scripts/listings/check.py`: checks the online listing of each house the phone marked for sale and records for sale, under contract, sold or off market. The addresses stay in `~/.helm/doorbook`. ADR 0040 |
 
 A routine is a script on a timer. A service is a process launchd keeps alive, and
-there is one:
+there are two:
 
 | Service | Runs | Does |
 |---|---|---|
 | `dashboard` | at login, restarted if it exits | `dashboard/serve.py --no-open`, so `http://127.0.0.1:8642/` is answering without anyone starting it |
+| `doorbook-sync` | at login, restarted if it exits | the doorbook project's `scripts/listings/serve.py` on loopback 8664, fronted by `tailscale serve` on 8665: the phone sends its for-sale houses and reads back their listings. ADR 0040 |
 
 One launchd job per entry under `routines` and `services` in `models.json`, labelled
 `com.helm.<name>`. `daily HH:MM` becomes a `StartCalendarInterval`, `every Nm` becomes
