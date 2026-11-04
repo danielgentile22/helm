@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fetchJson, type ProjectsResponse } from "../lib/api";
+  import { fetchJson, type Project, type ProjectsResponse } from "../lib/api";
   import { layout } from "../lib/layout.svelte";
   import { createPoll } from "../lib/poll.svelte";
   import { follow, href } from "../lib/route.svelte";
@@ -21,6 +21,25 @@
   });
 
   const back = { tab: "projects", slug: null } as const;
+
+  // Nothing open: no issues, pull requests, unmerged branches or open ideas. Pinned
+  // projects always stay in the main list.
+  function quiet(project: Project): boolean {
+    return (
+      !project.pinned &&
+      (project.issues?.open ?? 0) === 0 &&
+      project.pull_requests.length === 0 &&
+      project.branches.length === 0 &&
+      project.ideas_open === 0
+    );
+  }
+
+  function split(projects: Project[]): { active: Project[]; idle: Project[] } {
+    return {
+      active: projects.filter((p) => !quiet(p)),
+      idle: projects.filter(quiet),
+    };
+  }
 </script>
 
 {#snippet captured(data: ProjectsResponse, now: number)}
@@ -45,14 +64,25 @@
     {#snippet children(data, now)}
       {#if layout.wide}
         {@const selected = slug ?? data.projects[0]?.slug ?? null}
+        {@const groups = split(data.projects)}
         <div class="workspace">
           <section class="col list" aria-label="Projects">
             {@render captured(data, now)}
             <ul class="stack">
-              {#each data.projects as project (project.slug)}
+              {#each groups.active as project (project.slug)}
                 <li><ProjectCard {project} {now} compact selected={project.slug === selected} /></li>
               {/each}
             </ul>
+            {#if groups.idle.length > 0}
+              <details class="idle" open={groups.idle.some((p) => p.slug === selected)}>
+                <summary><Icon name="chevron" size={14} />{groups.idle.length} with nothing open</summary>
+                <ul class="stack">
+                  {#each groups.idle as project (project.slug)}
+                    <li><ProjectCard {project} {now} compact selected={project.slug === selected} /></li>
+                  {/each}
+                </ul>
+              </details>
+            {/if}
           </section>
           {#if selected !== null}
             <ProjectDetail slug={selected} />
@@ -61,12 +91,23 @@
           {/if}
         </div>
       {:else}
+        {@const groups = split(data.projects)}
         {@render captured(data, now)}
         <ul class="stack cards">
-          {#each data.projects as project (project.slug)}
+          {#each groups.active as project (project.slug)}
             <li><ProjectCard {project} {now} /></li>
           {/each}
         </ul>
+        {#if groups.idle.length > 0}
+          <details class="idle">
+            <summary><Icon name="chevron" size={14} />{groups.idle.length} with nothing open</summary>
+            <ul class="stack cards">
+              {#each groups.idle as project (project.slug)}
+                <li><ProjectCard {project} {now} /></li>
+              {/each}
+            </ul>
+          </details>
+        {/if}
       {/if}
     {/snippet}
   </LoadState>
@@ -112,6 +153,30 @@
   }
   .list .stack > * + * {
     margin-top: 2px;
+  }
+  .idle {
+    margin-top: 16px;
+  }
+  .idle summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 0 10px;
+    color: var(--faint);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+  .idle summary::-webkit-details-marker {
+    display: none;
+  }
+  .idle summary :global(svg) {
+    transform: rotate(180deg);
+    transition: transform 120ms ease-out;
+  }
+  .idle[open] summary :global(svg) {
+    transform: rotate(270deg);
   }
   .back {
     display: inline-flex;
