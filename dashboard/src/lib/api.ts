@@ -86,6 +86,15 @@ export interface Idea {
   due: string | null;
   // A URL for a GitHub tracker, a file path for a local one.
   issue: string | null;
+  /** Everything after the title line, or null. */
+  notes: string | null;
+}
+
+/** An edit to what an idea says. A field left out stays; null clears notes or project. */
+export interface IdeaChange {
+  title?: string;
+  notes?: string | null;
+  project?: string | null;
 }
 
 /** What the capture box sends. The server derives the department from the project. */

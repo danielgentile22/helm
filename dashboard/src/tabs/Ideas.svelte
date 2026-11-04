@@ -88,7 +88,7 @@
     {:else}
       <ul class="stack">
         {#each ideas as idea (idea.id)}
-          <IdeaRow {idea} {now} {writes} target={idea.project === null ? null : (targets[idea.project] ?? null)} />
+          <IdeaRow {idea} {now} {writes} {projects} target={idea.project === null ? null : (targets[idea.project] ?? null)} />
         {/each}
       </ul>
     {/if}

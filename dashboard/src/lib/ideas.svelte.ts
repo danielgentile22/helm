@@ -4,6 +4,7 @@ import {
   type Idea,
   type IdeaDraft,
   type IdeaStatus,
+  type IdeaChange,
   type IdeaWrite,
   type Project,
   type PromoteBody,
@@ -11,7 +12,7 @@ import {
 } from "./api";
 import { localDate } from "./time";
 
-type Edit = Partial<Pick<Idea, "status" | "due">>;
+type Edit = Partial<Pick<Idea, "status" | "due" | "title" | "notes" | "project">>;
 
 export interface Toast {
   key: number;
@@ -84,7 +85,7 @@ export function createIdeaWrites(host: IdeaHost) {
     toast = null;
   }
 
-  async function write(idea: Idea, field: "status" | "due", edit: Edit): Promise<boolean> {
+  async function write(idea: Idea, field: "status" | "due" | "edit", edit: Edit): Promise<boolean> {
     const token = ++seq;
     edits[idea.id] = { edit: { ...edits[idea.id]?.edit, ...edit }, token };
     delete errors[idea.id];
@@ -142,6 +143,7 @@ export function createIdeaWrites(host: IdeaHost) {
           project: draft.project,
           due: draft.due,
           issue: null,
+          notes: null,
         },
         ...adding,
       ];
@@ -173,6 +175,10 @@ export function createIdeaWrites(host: IdeaHost) {
     },
     setDue(idea: Idea, due: string | null): Promise<boolean> {
       return write(idea, "due", { due });
+    },
+    /** Resolves true once the edited idea is on screen; a failure is named on the row. */
+    edit(idea: Idea, change: IdeaChange): Promise<boolean> {
+      return write(idea, "edit", change);
     },
   };
 }

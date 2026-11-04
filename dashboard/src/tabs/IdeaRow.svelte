@@ -8,7 +8,15 @@
     now,
     writes,
     target = null,
-  }: { idea: Idea; now: number; writes?: IdeaWrites; target?: PromoteTarget | null } = $props();
+    projects = [],
+  }: {
+    idea: Idea;
+    now: number;
+    writes?: IdeaWrites;
+    target?: PromoteTarget | null;
+    /** Project titles the edit form offers; none means the project is not edited here. */
+    projects?: string[];
+  } = $props();
 
   const today = $derived(localDate(now));
   const issueIsLink = $derived(idea.issue !== null && isUrl(idea.issue));
@@ -17,6 +25,35 @@
   const editable = $derived(writes !== undefined && !pending && idea.status !== "promoted");
 
   let editingDue = $state(false);
+
+  // Edit: a draft of what the idea says, sent as only the parts that changed.
+  const TITLE_MAX = 200;
+  const NOTES_MAX = 4000;
+  let draft = $state<{ title: string; notes: string; project: string } | null>(null);
+  let titleInput = $state<HTMLInputElement>();
+
+  function startEdit(): void {
+    draft = { title: idea.title, notes: idea.notes ?? "", project: idea.project ?? "" };
+    queueMicrotask(() => titleInput?.focus());
+  }
+
+  async function saveEdit(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    if (draft === null || writes === undefined) return;
+    const title = draft.title.trim().replace(/\s+/g, " ");
+    if (title === "") return;
+    const notes = draft.notes.trim();
+    const change: { title?: string; notes?: string | null; project?: string | null } = {};
+    if (title !== idea.title) change.title = title;
+    if (notes !== (idea.notes ?? "")) change.notes = notes || null;
+    if (projects.length > 0 && draft.project !== (idea.project ?? "")) change.project = draft.project || null;
+    draft = null;
+    if (Object.keys(change).length > 0) await writes.edit(idea, change);
+  }
+
+  function editKey(event: KeyboardEvent): void {
+    if (event.key === "Escape") draft = null;
+  }
 
   // Promote: pick a repo when there are several, say yes for a repo someone else owns.
   type Step = { at: "idle" } | { at: "pick"; repos: string[] } | { at: "confirm"; repo: string } | { at: "sending" };
@@ -48,8 +85,38 @@
 </script>
 
 <li class="card idea" class:pending aria-busy={pending}>
+  {#if draft !== null}
+    <form class="edit" onsubmit={saveEdit}>
+      <input
+        bind:this={titleInput}
+        bind:value={draft.title}
+        type="text"
+        aria-label="Title"
+        maxlength={TITLE_MAX}
+        onkeydown={editKey}
+        autocomplete="off"
+      />
+      <textarea bind:value={draft.notes} aria-label="Notes" placeholder="Notes" rows="3" maxlength={NOTES_MAX} onkeydown={editKey}
+      ></textarea>
+      <div class="edit-acts">
+        {#if projects.length > 0}
+          <select bind:value={draft.project} aria-label="Project" onkeydown={editKey}>
+            <option value="">No project</option>
+            {#if idea.project !== null && !projects.includes(idea.project)}
+              <option value={idea.project}>{idea.project}</option>
+            {/if}
+            {#each projects as p (p)}<option value={p}>{p}</option>{/each}
+          </select>
+        {/if}
+        <span class="grow"></span>
+        <button type="button" class="act" onclick={() => (draft = null)}>Cancel</button>
+        <button type="submit" class="btn primary" disabled={draft.title.trim() === ""}>Save</button>
+      </div>
+    </form>
+  {:else}
   <div class="body">
     <div class="text">{idea.title}</div>
+    {#if idea.notes !== null}<div class="notes">{idea.notes}</div>{/if}
     <div class="sub">
       {idea.project ?? idea.department}
       {#if idea.due !== null}
@@ -104,8 +171,10 @@
           <button class="act" onclick={() => writes.setStatus(idea, "open")}>Reopen</button>
         {/if}
         <button class="act" onclick={() => (editingDue = true)}>{idea.due === null ? "Set due" : "Change due"}</button>
+        <button class="act" onclick={startEdit}>Edit</button>
       {/if}
     </div>
+  {/if}
   {/if}
   {#if error !== null}<p class="notice row-error" role="alert">{error}</p>{/if}
 </li>
@@ -123,6 +192,61 @@
   }
   .text {
     overflow-wrap: anywhere;
+  }
+  .notes {
+    margin-top: 2px;
+    color: var(--dim);
+    font-size: 13px;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .edit {
+    flex: 1 1 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .edit input,
+  .edit textarea,
+  .edit select {
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--ink);
+    font: inherit;
+    /* 16px keeps iOS Safari from zooming into the field */
+    font-size: 16px;
+  }
+  .edit textarea {
+    resize: vertical;
+    line-height: 1.4;
+  }
+  .edit select {
+    width: auto;
+    max-width: 60%;
+  }
+  .edit-acts {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .grow {
+    flex: 1;
+  }
+  @media (min-width: 900px) {
+    .edit input,
+    .edit textarea,
+    .edit select {
+      font-size: 14px;
+    }
   }
   .pending {
     opacity: 0.6;
