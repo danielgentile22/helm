@@ -206,6 +206,35 @@ class EditIdeaTest(WriteTest):
         self.assertIn("status: promoted", note.read_text())
 
 
+class ChangeIdeaTest(WriteTest):
+    def test_edit_rewrites_title_notes_and_project_and_keeps_the_id(self) -> None:
+        code, body = post(f"/api/ideas/{IDEA}/edit",
+                          {"title": "Order the brass desk lamp", "notes": "Ask Priya\r\nwhich one", "project": "Keel"})
+        self.assertEqual((code, body["changed"]), (200, True), body)
+        idea = body["idea"]
+        self.assertEqual((idea["id"], idea["title"], idea["notes"], idea["project"]),
+                         (IDEA, "Order the brass desk lamp", "Ask Priya\nwhich one", "Keel"))
+        self.assertEqual(self.subjects()[0], "Edit an idea")
+        self.assertEqual(post(f"/api/ideas/{IDEA}/edit", {"title": "Order the brass desk lamp"})[1]["changed"], False)
+        code, body = post(f"/api/ideas/{IDEA}/edit", {"notes": None, "project": None})
+        self.assertEqual((code, body["idea"]["notes"], body["idea"]["project"]), (200, None, None))
+        self.assertEqual(self.subjects()[:2], ["Edit an idea"] * 2)
+        self.assertEqual(self.refreshes, 2)
+
+    def test_a_bad_edit_is_400_and_writes_nothing(self) -> None:
+        for body in ({}, {"colour": "red"}, {"title": ""}, {"title": "two\nlines"}, {"notes": 5},
+                     {"notes": "bell\x07"}, {"notes": "x" * 4001}, {"project": "Nowhere"}):
+            with self.subTest(body=body):
+                self.assertEqual(post(f"/api/ideas/{IDEA}/edit", body)[0], 400)
+        self.assertEqual(post("/api/ideas/2026-01-01-no-such-idea/edit", {"title": "x"})[0], 404)
+        self.assertEqual(self.subjects(), ["start"])
+
+    def test_a_promoted_idea_is_not_edited(self) -> None:
+        note = self.vault / "Atlas" / "Ideas" / f"{IDEA}.md"
+        note.write_text(note.read_text().replace("status: open", "status: promoted"))
+        self.assertEqual(post(f"/api/ideas/{IDEA}/edit", {"title": "Unpack"})[0], 409)
+
+
 class PromoteRouteTest(WriteTest):
     """The promote route against temp repos and a fake `gh` signed in as jordan, so every
     demo repo (`example/...`) is someone else's."""
@@ -476,7 +505,7 @@ class RoutineTest(WriteTest):
 class GateTest(WriteTest):
     """Every write row sits behind the same gate as the passkey rows."""
 
-    WRITES = ("/api/ideas", f"/api/ideas/{IDEA}/status", f"/api/ideas/{IDEA}/due", f"/api/ideas/{IDEA}/promote",
+    WRITES = ("/api/ideas", f"/api/ideas/{IDEA}/status", f"/api/ideas/{IDEA}/due", f"/api/ideas/{IDEA}/promote", f"/api/ideas/{IDEA}/edit",
               "/api/routines/capture/run", "/api/routines/capture/pause", "/api/routines/capture/resume",
               "/api/alerts/routine:backup/dismiss", "/api/push/subscribe", "/api/push/unsubscribe")
     # Writes that only mean something on this machine, never reachable over the tailnet.

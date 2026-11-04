@@ -178,6 +178,8 @@ def background_tab(request: Request, m: "re.Match[str]") -> Response:
 
 
 TITLE_MAX = 200
+NOTES_MAX = 4000
+EDIT_FIELDS = ("title", "notes", "project")
 IDEA_FIELDS = ("title", "project", "department", "due")
 EDITABLE = ("open", "done", "dropped")
 
@@ -292,6 +294,41 @@ def idea_due(request: Request, m: "re.Match[str]") -> Response:
     due = text_field(payload, "due")
     return idea_edit_route(m["id"], lambda note: idea_edit.set_due(common.VAULT, note, due),
                            lambda idea: idea_edit.DUE_SUBJECT)
+
+
+def idea_notes(payload: dict) -> str:
+    """Notes are free text over several lines; null or empty clears them."""
+    raw = payload.get("notes")
+    if raw is None:
+        return ""
+    if not isinstance(raw, str):
+        raise ApiError(400, "bad_request", "notes must be a string or null")
+    if any((ch < " " and ch not in "\n\t") or ch == "\x7f" for ch in raw.replace("\r\n", "\n")):
+        raise ApiError(400, "bad_request", "notes hold text and line breaks, no other control characters")
+    notes = raw.replace("\r\n", "\n").strip()
+    if len(notes) > NOTES_MAX:
+        raise ApiError(400, "bad_request", f"notes are at most {NOTES_MAX} characters, and these are {len(notes)}")
+    return notes
+
+
+def idea_change(request: Request, m: "re.Match[str]") -> Response:
+    """Rewrite what an idea says: any of its title, notes and project. A field left out
+    stays as it is; null clears the notes or the project."""
+    payload = auth.body_of(request)
+    unknown = sorted(set(payload) - set(EDIT_FIELDS))
+    if unknown or not payload:
+        raise ApiError(400, "bad_request", f"an edit takes any of {', '.join(EDIT_FIELDS)}"
+                       + (f", not {', '.join(unknown)}" if unknown else ""))
+    title = idea_title(payload) if "title" in payload else None
+    notes = idea_notes(payload) if "notes" in payload else None
+    project = (text_field(payload, "project") or "") if "project" in payload else None
+
+    def change(note: Path) -> tuple[idea_edit.Idea, bool]:
+        if idea_edit.load(common.VAULT, note).status == "promoted":
+            raise ApiError(409, "conflict", "a promoted idea lives on in its issue; change the issue instead")
+        return idea_edit.edit(common.VAULT, note, title, notes, project)
+
+    return idea_edit_route(m["id"], change, lambda idea: idea_edit.EDIT_SUBJECT)
 
 
 PROMOTE_FIELDS = ("repo", "confirm")
@@ -445,6 +482,7 @@ ROUTES: tuple[Route, ...] = (
     Route("POST", re.compile(r"^/api/ideas/(?P<id>\d{4}-\d\d-\d\d-[a-z0-9-]+)/status$"), "tailnet", idea_status),
     Route("POST", re.compile(r"^/api/ideas/(?P<id>\d{4}-\d\d-\d\d-[a-z0-9-]+)/due$"), "tailnet", idea_due),
     Route("POST", re.compile(r"^/api/ideas/(?P<id>\d{4}-\d\d-\d\d-[a-z0-9-]+)/promote$"), "tailnet", idea_promote),
+    Route("POST", re.compile(r"^/api/ideas/(?P<id>\d{4}-\d\d-\d\d-[a-z0-9-]+)/edit$"), "tailnet", idea_change),
     Route("POST", re.compile(r"^/api/routines/(?P<name>[a-z0-9-]+)/(?P<action>run|pause|resume)$"), "tailnet",
           routine_action),
     Route("GET", re.compile(r"^/api/alerts$"), "tailnet", alerts_list),

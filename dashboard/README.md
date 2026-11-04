@@ -29,6 +29,7 @@ nothing more.
 | POST | `/api/ideas` | `{title, project?, department?, due?}` adds an idea and commits it in the vault. 201 with `{"idea", "changed"}` |
 | POST | `/api/ideas/<id>/status` | `{status: open\|done\|dropped}`. 200 with `{"idea", "changed"}`, 404 for an unknown id |
 | POST | `/api/ideas/<id>/due` | `{due: "YYYY-MM-DD"\|null}`. 200 with `{"idea", "changed"}`, 404 for an unknown id |
+| POST | `/api/ideas/<id>/edit` | Any of `{title, notes, project}`; a field left out stays, null clears notes or project. 200 with `{"idea", "changed"}`, 409 for a promoted idea. The id never changes |
 | POST | `/api/ideas/<id>/promote` | `{repo?, confirm?}` files the idea as an issue in its project's tracker. 200 with `{"idea", "issue", "changed"}`; 409 `{"needs_confirm": true, "repo"}` for a GitHub repo someone else owns until `confirm: true` |
 | POST | `/api/routines/<name>/run`, `/pause`, `/resume` | a routine in `models.json` only. 200 with `{"routine", "changed"}`, 409 when the state refuses it |
 | GET | `/api/alerts` | `{"alerts", "counts", "total"}`: every open, undismissed alert (shape in `docs/data-shapes.md`), newest first, with a count per tab |
