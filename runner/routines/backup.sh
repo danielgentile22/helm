@@ -13,6 +13,9 @@
 # ~/.helm/backup, never creates the volume path, and is silent on success.
 
 set -u
+ENGINE="$(cd "$(dirname "$0")/../.." && pwd)"
+# Every exit below writes the status first, so alerts read this run's result (ADR 0039).
+trap 'python3 "$ENGINE/runner/alerts.py"' EXIT
 VAULT="${HELM_VAULT_ROOT:-$HOME/Vault}"
 STATE="${HELM_STATE:-$HOME/.helm}"
 HOME_STATE="$STATE/backup"

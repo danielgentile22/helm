@@ -27,4 +27,7 @@ if [ "$rc" != 0 ] && ! grep -q "\"last_run\": \"$(date -u +%Y-%m-%dT%H)" "$STATU
 	python3 "$ENGINE/runner/status.py" job-search fail 1 \
 		"detail=run.py exited $rc before writing its status (timed out or crashed)"
 fi
+
+# Alerts read the status just written (ADR 0039). Never the routine's own result.
+python3 "$ENGINE/runner/alerts.py"
 exit $rc

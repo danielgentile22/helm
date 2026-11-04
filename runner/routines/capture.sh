@@ -29,6 +29,9 @@ fi
 python3 "$ENGINE/runner/status.py" capture \
 	"$([ "$rc" = 0 ] && echo pass || echo fail)" "$failures"
 
+# Alerts read the status just written (ADR 0039). Never the routine's own result.
+python3 "$ENGINE/runner/alerts.py"
+
 if [ "$rc" != 0 ]; then
 	printf '%s\n' "$out"
 fi

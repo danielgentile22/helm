@@ -176,6 +176,37 @@ The Mac has to be awake at 04:00 for the folder to be ready by morning; launchd 
 missed job at wake instead, and ten tailorings take about an hour. `sudo pmset repeat
 wakeorpoweron MTWRFSU 03:55:00` schedules the wake.
 
+## Alerts
+
+`alerts.py` runs at the end of every routine, after its status file is written, so it also
+runs on capture's half-hour beat (ADR 0039). It evaluates five conditions and keeps one file
+per alert at `~/.helm/alerts/<key>.json`, its name the key percent-encoded (shape in
+`docs/data-shapes.md`):
+
+| Key | Tab | Opens when | Closes when |
+|---|---|---|---|
+| `routine:<name>` | background | its status result is not a pass | a later run passes |
+| `quiet:<name>` | background | no run in twice its cadence from `models.json` | it runs |
+| `service:<name>` | background | not loaded, not running, or (the dashboard) `/api/health` on loopback does not answer | it answers |
+| `ci:<repo>#<n>` | projects | the latest CI on one of the owner's own open pull requests failed, from capture's GitHub rows | it passes, or the pull request leaves the open list |
+| `idea:<hash>` | ideas | an open idea's due date is today or past | it is done, dropped or promoted, or the date moves |
+
+A paused routine never alerts. Evaluating twice writes nothing the second time. A dismissed
+alert stays hidden while its fingerprint matches, so backup's "volume absent" alerts once
+and only a different failure reopens it. CI that is still running, and every CI alert while
+the GitHub source is failing, is left as it was. A source that raises leaves its own alerts
+alone and the others still run. Closed alerts older than a week are deleted.
+
+Each newly opened alert is pushed once through `push.py`, which calls
+`dashboard/scripts/push.mjs` with a timeout; the due ideas of one evaluation share one
+notification ("3 ideas are due"). A push that fails is logged and tried again next time, and
+never fails the routine. An idea's key is a hash of its id and its title is fixed, so no
+idea text reaches a file, a log line or a push.
+
+```sh
+python3 runner/alerts.py    # one evaluation, silent unless something fails
+```
+
 ## Capture
 
 `producers/capture.py` runs five sources, each its own failure domain, and writes
