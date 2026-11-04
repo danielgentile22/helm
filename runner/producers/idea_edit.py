@@ -12,12 +12,17 @@ the one path it touched, and the subject names the action only, never the idea's
                                [--due YYYY-MM-DD] [--body <text>] [--created YYYY-MM-DD]
     idea_edit.py status <path-or-slug> open|done|dropped
     idea_edit.py due <path-or-slug> YYYY-MM-DD|none
+    idea_edit.py edit <path-or-slug> [--title <title>] [--notes <text>|none] [--project <title>|none]
     idea_edit.py promote <path-or-slug> [--repo owner/name]
     idea_edit.py list [--status open|done|dropped|promoted] [--json]
 
-`add`, `status`, `due` and `promote` print one JSON line: the written path, the commit,
-whether anything changed, and the parsed idea (`promote` adds `issue`). `status` and `due`
-with the value already set write nothing. `--no-commit` writes the note and skips the
+`edit` rewrites the title line, the notes after it, or the project (the department follows
+it, and stays as it was when the project is cleared). The file name keeps its first slug, so
+the idea's id never changes. A promoted idea is refused: it lives on in its issue.
+
+`add`, `status`, `due`, `edit` and `promote` print one JSON line: the written path, the commit,
+whether anything changed, and the parsed idea (`promote` adds `issue`). `status`, `due`
+and `edit` with the values already set write nothing. `--no-commit` writes the note and skips the
 commit and the capture refresh.
 
 `promote` files an open project idea as an issue in the project's tracker: `gh issue
@@ -59,6 +64,7 @@ STATUS_SUBJECTS: dict[Status, str] = {"open": "Reopen an idea", "done": "Mark an
                                       "dropped": "Drop an idea"}  # type: ignore[dict-item]
 ADD_SUBJECT = "Add an idea"
 DUE_SUBJECT = "Change an idea's due date"
+EDIT_SUBJECT = "Edit an idea"
 
 
 class IdeaError(Exception):
@@ -79,6 +85,7 @@ class Idea:
     project: str | None = None
     due: str | None = None
     issue: str | None = None
+    notes: str | None = None   # the body after the title line
 
     @property
     def id(self) -> str:
@@ -122,7 +129,8 @@ def parse_idea(text: str, path: str) -> Idea:
     try:
         if field("type") != "idea":
             raise IdeaError("frontmatter has no `type: idea`")
-        title = next((ln.strip().lstrip("#").strip() for ln in body.splitlines() if ln.strip()), "")
+        head, notes = split_body(body)
+        title = head.lstrip("#").strip()
         if not title:
             raise IdeaError("no title: the first body line is empty")
         due = field("due")
@@ -135,9 +143,18 @@ def parse_idea(text: str, path: str) -> Idea:
             project=field("project"),
             due=valid_day(due, "due") if due else None,
             issue=field("issue"),
+            notes=notes or None,
         )
     except IdeaError as e:
         raise IdeaError(f"{path}: {e}") from None
+
+
+def split_body(body: str) -> tuple[str, str]:
+    """The first non-blank line, as written, and everything after it, stripped."""
+    lines = body.splitlines()
+    first = next((n for n, ln in enumerate(lines) if ln.strip()), len(lines))
+    head = lines[first].strip() if first < len(lines) else ""
+    return head, "\n".join(lines[first + 1:]).strip()
 
 
 def render(fields: dict[str, frontmatter.Value | None], body: str) -> str:
@@ -253,6 +270,36 @@ def set_field(vault: Path, note: Path, key: str, value: str | None) -> tuple[Ide
     fields[key] = value  # type: ignore[assignment]
     text = render(fields, body)
     after = parse_idea(text, before.path)
+    write_atomic(note, text)
+    return after, True
+
+
+def edit(vault: Path, note: Path, title: str | None = None, notes: str | None = None,
+         project: str | None = None) -> tuple[Idea, bool]:
+    """Change what the idea says. None leaves a part as it is; an empty string clears the
+    notes or the project. A title keeps a `#` heading mark if the note had one. No change
+    writes nothing."""
+    before = load(vault, note)
+    if before.status == "promoted":
+        raise IdeaError("a promoted idea lives on in its issue; change the issue instead")
+    fields, body = frontmatter.split(note.read_text())
+    head, old_notes = split_body(body)
+    if title is not None:
+        title = " ".join(title.split())
+        if not title:
+            raise IdeaError("an idea needs a title")
+        mark = re.match(r"#+\s*", head)
+        head = (mark.group(0) if mark else "") + title
+    new_notes = old_notes if notes is None else notes.strip()
+    if project is not None:
+        project = project.strip()
+        if project:
+            fields["department"] = project_department(vault, project)
+        fields["project"] = project or None  # type: ignore[assignment]
+    text = render(fields, head + (f"\n\n{new_notes}" if new_notes else ""))
+    after = parse_idea(text, before.path)
+    if after == before:
+        return before, False
     write_atomic(note, text)
     return after, True
 
@@ -389,10 +436,7 @@ def target(vault: Path, idea: Idea, repo: str | None = None) -> Target:
 
 def details(note: Path) -> str:
     """The note's body after its title line."""
-    _, body = frontmatter.split(note.read_text())
-    lines = body.splitlines()
-    first = next((n for n, ln in enumerate(lines) if ln.strip()), len(lines))
-    return "\n".join(lines[first + 1:]).strip()
+    return split_body(frontmatter.split(note.read_text())[1])[1]
 
 
 def file_issue(to: Target, title: str, body: str) -> str:
@@ -466,6 +510,12 @@ def run(vault: Path, args: argparse.Namespace) -> dict:
         if args.cmd == "status":
             idea, changed = set_status(vault, note, args.value)
             subject = STATUS_SUBJECTS[idea.status]
+        elif args.cmd == "edit":
+            clear = lambda v: "" if v == "none" else v  # noqa: E731
+            idea, changed = edit(vault, note, args.title,
+                                 None if args.notes is None else clear(args.notes),
+                                 None if args.project is None else clear(args.project))
+            subject = EDIT_SUBJECT
         else:
             idea, changed = set_due(vault, note, None if args.value == "none" else args.value)
             subject = DUE_SUBJECT
@@ -500,11 +550,16 @@ def main(argv: list[str]) -> int:
     d = sub.add_parser("due")
     d.add_argument("ref")
     d.add_argument("value", metavar="YYYY-MM-DD|none")
+    e = sub.add_parser("edit")
+    e.add_argument("ref")
+    e.add_argument("--title")
+    e.add_argument("--notes", help="the text after the title, or none to clear it")
+    e.add_argument("--project", help="a project note's title, or none to clear it")
     pr = sub.add_parser("promote")
     pr.add_argument("ref")
     pr.add_argument("--repo", help="owner/name, required when the project has several GitHub repos; "
                                    "for a scratch tracker, the workspace repo the issue names")
-    for p in (a, s, d, pr):
+    for p in (a, s, d, e, pr):
         p.add_argument("--no-commit", action="store_true")
     ls = sub.add_parser("list")
     ls.add_argument("--status")

@@ -79,7 +79,8 @@ class IdeaTest(unittest.TestCase):
             "id": "2026-11-01-export-the-itinerary-as-a-calendar-file",
             "path": "Atlas/Ideas/2026-11-01-export-the-itinerary-as-a-calendar-file.md",
             "title": "Export the itinerary as a calendar file", "created": "2026-11-01",
-            "status": "open", "department": "Life", "project": None, "due": "2026-11-15", "issue": None})
+            "status": "open", "department": "Life", "project": None, "due": "2026-11-15", "issue": None,
+            "notes": "Sam wants it on the phone."})
         self.assertRegex(result["commit"], r"^[0-9a-f]{7,}$")
 
     def test_the_department_comes_from_the_project_note_folder(self) -> None:
@@ -154,6 +155,41 @@ class IdeaTest(unittest.TestCase):
         self.assertEqual(log.split(), "Reopen an idea Drop an idea Change an idea's due date Add an idea".split())
         for word in ("Wire", "deposit", "400", "Alex"):
             self.assertNotIn(word, log)
+
+    def test_edit_rewrites_title_notes_and_project_and_keeps_the_id(self) -> None:
+        idea = idea_edit.add(self.vault, "Hang the map", body="Somewhere in the hall", created="2026-11-01")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "seed")
+        rc, out, _ = self.cli("edit", idea.id, "--title", "Hang the Lisbon map",
+                              "--notes", "Above the desk\n\nUse the brass frame", "--project", "Keel")
+        self.assertEqual(rc, 0)
+        row = json.loads(out)["idea"]
+        self.assertEqual((row["id"], row["title"], row["project"], row["department"]),
+                         (idea.id, "Hang the Lisbon map", "Keel", "Projects"))
+        self.assertEqual(row["notes"], "Above the desk\n\nUse the brass frame")
+        self.assertEqual(self.git("log", "-1", "--format=%s"), "Edit an idea\n")
+        rc, out, _ = self.cli("edit", idea.id, "--notes", "none", "--project", "none")
+        row = json.loads(out)["idea"]
+        self.assertEqual((row["notes"], row["project"], row["department"]), (None, None, "Projects"))
+        head = self.git("rev-parse", "HEAD")
+        rc, out, _ = self.cli("edit", idea.id, "--title", "  Hang the   Lisbon map ")
+        self.assertEqual((rc, json.loads(out)["changed"]), (0, False))
+        self.assertEqual(self.git("rev-parse", "HEAD"), head)
+
+    def test_edit_keeps_a_heading_mark_and_refuses_what_it_cannot_write(self) -> None:
+        idea = idea_edit.add(self.vault, "Pack", created="2026-11-01")
+        note = self.vault / idea.path
+        note.write_text(note.read_text().replace("\nPack\n", "\n# Pack\n"))
+        changed, _ = idea_edit.edit(self.vault, note, title="Pack the bags")[::-1]
+        self.assertTrue(changed)
+        self.assertIn("\n# Pack the bags\n", note.read_text())
+        for kwargs, message in (({"title": "  "}, "needs a title"),
+                                ({"project": "Nowhere"}, "no project note")):
+            with self.subTest(kwargs=kwargs), self.assertRaisesRegex(idea_edit.IdeaError, message):
+                idea_edit.edit(self.vault, note, **kwargs)
+        idea_edit.set_field(self.vault, note, "status", "promoted")
+        with self.assertRaisesRegex(idea_edit.IdeaError, "promoted"):
+            idea_edit.edit(self.vault, note, title="Unpack")
 
     def test_list_filters_by_status(self) -> None:
         a = idea_edit.add(self.vault, "First", created="2026-11-01")

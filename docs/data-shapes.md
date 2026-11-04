@@ -59,8 +59,11 @@ Anything else, in any shape.
   `issue:` to the issue URL. `issue:` is written before `status: promoted`, so an open
   idea with an `issue:` is a promotion whose commit failed, and promoting it again
   records that issue instead of filing another.
+- Editing rewrites the title line, the notes after it (`notes` in the row), or the
+  project. The file name keeps its first slug, so the id never changes. A promoted idea
+  is not edited; it lives on in its issue.
 - Every write is a vault commit whose subject names the action only: `Add an idea`,
-  `Promote an idea`, `Drop an idea`.
+  `Edit an idea`, `Promote an idea`, `Drop an idea`.
 
 ## Device
 

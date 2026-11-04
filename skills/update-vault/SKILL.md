@@ -67,6 +67,7 @@ python3 ~/Projects/helm/runner/producers/idea_edit.py status <id> done      # "I
 python3 ~/Projects/helm/runner/producers/idea_edit.py status <id> dropped   # "drop X"
 python3 ~/Projects/helm/runner/producers/idea_edit.py status <id> open      # a misclick, or "X is back on"
 python3 ~/Projects/helm/runner/producers/idea_edit.py due <id> YYYY-MM-DD|none
+python3 ~/Projects/helm/runner/producers/idea_edit.py edit <id> [--title ...] [--notes ...|none] [--project ...|none]  # reword or refile
 python3 ~/Projects/helm/runner/producers/idea_edit.py promote <id> [--repo owner/name]   # "make X an issue"
 ```
 
