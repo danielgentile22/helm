@@ -1,7 +1,7 @@
 # dashboard
 
-The server the next interface will be built on. The pressure map that used to live here
-is gone; what remains is the Python server, its passkey door, and a page that says Helm.
+The four tabs (ADR 0037) and the server behind them: a Python server, its passkey door, and
+a Svelte page that reads the routes below and writes nothing yet.
 
 ```sh
 python3 dashboard/serve.py
@@ -209,8 +209,8 @@ tailscale serve --bg --https=8643 http://127.0.0.1:8644
 launchctl kickstart -k gui/$(id -u)/com.helm.dashboard
 ```
 
-The passkey ceremony is still served, but the page that drove it is gone, so enrolling
-waits for the next interface. Passkeys and sessions live under `~/.helm/dashboard-auth/`.
+The page signs in with the passkey when a read answers 401; enrolling still runs from
+`serve.py --enroll`. Passkeys and sessions live under `~/.helm/dashboard-auth/`.
 
 `authorize` is the first statement of dispatch. It checks the peer (127.0.0.1 or `::1`)
 and the Host header (a loopback name, or the tailnet name on the tailnet listener), so a
@@ -257,5 +257,8 @@ under `src/`, `index.html`, `public/`, `package.json` or `vite.config.ts` is new
 | `server/machine.py` | the only questions asked of the machine: `launchctl list` and `tailscale status`. Tests replace both |
 | `server/auth.py`, `server/passkey.py` | the passkey rows, and WebAuthn verification (ES256 on P-256) in the standard library |
 | `server/test_*.py` | `python3 -m unittest discover -s dashboard/server -p 'test_*.py'` |
-| `src/App.svelte`, `src/main.ts` | the placeholder page |
+| `src/App.svelte`, `src/app.css` | the shell: header, the tab rail or tab bar, the colour tokens |
+| `src/lib/` | `api.ts` (the contract above as types, one `fetchJson`), `route.svelte.ts` (the URL is the state), `poll.svelte.ts` (each open tab refetches every 60 seconds and on focus), `auth.ts` (the sign in ceremony), `time.ts` |
+| `src/tabs/` | one component per tab, plus the project, routine, device and idea cards |
+| `src/ui/` | the small parts: dot, pill, badge, icons, load states, the capture box slot |
 | `public/` | the app mark, its PNG sizes (`npm run icons`), and the manifest Chrome installs |
