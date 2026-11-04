@@ -1,5 +1,5 @@
 <script lang="ts">
-  type Name = "projects" | "ideas" | "background" | "devices" | "pin" | "chevron";
+  type Name = "projects" | "ideas" | "background" | "devices" | "pin" | "chevron" | "bell";
 
   let { name, size = 20 }: { name: Name; size?: number } = $props();
 </script>
@@ -34,6 +34,9 @@
   {:else if name === "pin"}
     <path d="M7 3h6l-1 5 2.5 2.5v1.5h-9v-1.5L8 8z" />
     <path d="M10 12v5" />
+  {:else if name === "bell"}
+    <path d="M5 13.5V9a5 5 0 0 1 10 0v4.5l1.5 2h-13z" />
+    <path d="M8.5 17.5a1.6 1.6 0 0 0 3 0" />
   {:else}
     <path d="M12.5 4.5L7 10l5.5 5.5" />
   {/if}

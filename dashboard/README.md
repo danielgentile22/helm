@@ -30,11 +30,21 @@ nothing more.
 | POST | `/api/ideas/<id>/status` | `{status: open\|done\|dropped}`. 200 with `{"idea", "changed"}`, 404 for an unknown id |
 | POST | `/api/ideas/<id>/due` | `{due: "YYYY-MM-DD"\|null}`. 200 with `{"idea", "changed"}`, 404 for an unknown id |
 | POST | `/api/routines/<name>/run`, `/pause`, `/resume` | a routine in `models.json` only. 200 with `{"routine", "changed"}`, 409 when the state refuses it |
+| GET | `/api/alerts` | `{"alerts", "counts", "total"}`: every open, undismissed alert (shape in `docs/data-shapes.md`), newest first, with a count per tab |
+| POST | `/api/alerts/<key>/dismiss` | hides one alert until its fingerprint changes. 200 with `{"alert", "changed"}`, 404 for an unknown key. A key with `#` in it is sent encoded |
+| GET | `/api/push/key` | `{"key"}`, the VAPID public key the browser subscribes with |
+| POST | `/api/push/subscribe` | the browser's `PushSubscription.toJSON()`. 200 with `{"changed"}`; the same endpoint twice keeps one row |
+| POST | `/api/push/unsubscribe` | `{endpoint}`. 200 with `{"changed"}` |
+| POST | `/api/push/test` | **loopback only**. Sends "Test notification from helm" to every subscription and answers `{"sent", "removed", "failed"}` |
 | GET | `/*` | `dist/`, with `index.html` for any path without a dot. **open**, so a phone with no session can load the page |
 | POST | `/auth/register/options`, `/auth/register/verify` | the passkey enrollment ceremony, gated by the one shot token from `serve.py --enroll` |
 | POST | `/auth/login/options`, `/auth/login/verify` | the sign in ceremony; a good assertion sets the `otto_session` cookie |
 | POST | `/auth/logout` | drops the session |
 | GET | `/auth/me` | `{"via", "authenticated", "enrolled"}` |
+
+`/sw.js` is the service worker: it shows an alert's push, sets the app icon's badge to the
+push's count, and opens the app at the alert's tab when the notification is tapped. It caches
+nothing.
 
 Errors are one shape everywhere: `{"error": {"code", "detail"}}`. The routes of the
 retired interface are in git history. Every `/api` row reaches `tailnet`: free on
@@ -56,6 +66,27 @@ loopback, behind the passkey over the tailnet (ADR 0016, ADR 0038).
   an interruption finishes the job, and pause refuses a routine that is running right
   now. `install-routines.sh` leaves a paused routine paused. Services have no write rows.
 - Log lines never carry an idea's id (it is made from the title) or any request body.
+
+### Notifications
+
+An alert (ADR 0039) pushes once to every enrolled browser, puts its count on its tab and on
+the header, and sets the number on the app icon. `runner/alerts.py` decides what is open;
+`scripts/push.mjs` sends, with the VAPID keys it made once in `~/.helm/push/vapid.json`.
+Subscriptions are in `~/.helm/push/dashboard.json`. A push carries only `{title, tab,
+count}`, so no idea text or log line ever passes through Apple. Set `HELM_PUSH_SUBJECT` in
+`.env` to a `mailto:` you own; the placeholder works for testing.
+
+To turn them on for the iPhone:
+
+1. Open the tailnet address in Safari and sign in with the passkey.
+2. Tap Share, then Add to Home Screen. iOS delivers Web Push to home screen apps only.
+3. Open helm from the home screen icon, sign in again if asked, tap the bell in the
+   header, then Turn on notifications, and allow them when iOS asks.
+4. On the Mac, `curl -X POST 127.0.0.1:8642/api/push/test` should answer `"sent": 1` and the phone shows "Test
+   notification from helm".
+
+The bell asks for permission only on a tap, which iOS requires. In Safari outside the home
+screen app it explains step 2 instead.
 
 ## The tabs' JSON
 

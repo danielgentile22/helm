@@ -1,5 +1,6 @@
 <script lang="ts">
   import "./app.css";
+  import { alerts, setIconBadge } from "./lib/alerts.svelte";
   import { layout } from "./lib/layout.svelte";
   import { follow, href, router, type Route, type Tab } from "./lib/route.svelte";
   import { ageOf } from "./lib/time";
@@ -7,8 +8,10 @@
   import Devices from "./tabs/Devices.svelte";
   import Ideas from "./tabs/Ideas.svelte";
   import Projects from "./tabs/Projects.svelte";
+  import AlertList from "./ui/AlertList.svelte";
   import Badge from "./ui/Badge.svelte";
   import Icon from "./ui/Icon.svelte";
+  import NotifyControl from "./ui/NotifyControl.svelte";
 
   const tabs: { tab: Tab; label: string }[] = [
     { tab: "projects", label: "Projects" },
@@ -37,6 +40,18 @@
   $effect(() => {
     document.title = `${label} · helm`;
   });
+
+  $effect(() => {
+    alerts.start();
+    return () => alerts.stop();
+  });
+  // Each time the visible tab hears from helm, the counts are asked again beside it.
+  $effect(() => {
+    if (at !== null) void alerts.refresh();
+  });
+  const counts = $derived(alerts.now.counts);
+  const total = $derived(alerts.now.total);
+  $effect(() => setIconBadge(total));
 </script>
 
 {#snippet tabLinks()}
@@ -49,7 +64,7 @@
         onclick={(e) => follow(e, route)}
       >
         <Icon name={t.tab} />
-        <span class="label">{t.label}<Badge count={0} label="alerts" /></span>
+        <span class="label">{t.label}<Badge count={counts[t.tab]} label="alerts" /></span>
       </a>
     {/each}
   </nav>
@@ -64,11 +79,13 @@
   {/if}
   <span class="meta">
     {#if updated !== null}<span class="faint small">{updated}</span>{/if}
-    <Badge count={0} label="alerts" />
+    <Badge count={total} label="alerts" />
+    <NotifyControl />
   </span>
 </header>
 
 <main class:workspace>
+  <div class:inset={workspace}><AlertList tab={current.tab} /></div>
   {#if current.tab === "projects"}
     <Projects slug={current.slug} bind:at />
   {:else if current.tab === "ideas"}
@@ -132,6 +149,13 @@
       max-width: none;
       padding: 0;
     }
+  }
+
+  .inset {
+    padding: 16px 20px 0;
+  }
+  .inset:empty {
+    display: none;
   }
 
   nav a {
