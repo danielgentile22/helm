@@ -231,6 +231,15 @@ def dispatch(request: Request, table: tuple[Route, ...], tailnet: Tailnet | None
     return ApiError(404, "not_found", f"no route for {request.path}").response()
 
 
+# An idea's id is its slug, made from its title, so a log line names the route and not the
+# idea (ADR 0038). Request bodies are never logged at all.
+IDEA_IN_PATH = re.compile(r"(/api/ideas/)[^/\s?]+")
+
+
+def redact(line: str) -> str:
+    return IDEA_IN_PATH.sub(r"\1-", line)
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     server_version = "helm-dashboard"
     sys_version = ""
@@ -246,7 +255,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         `path` is missing when the base class rejects the request line before parsing it, and
         this override runs inside that rejection."""
         if getattr(self, "path", "").startswith("/api/"):
-            sys.stderr.write("%s  %s\n" % (self.log_date_time_string(), fmt % args))
+            sys.stderr.write("%s  %s\n" % (self.log_date_time_string(), redact(fmt % args)))
 
     def handle_one(self) -> None:
         body = self.read_body(MAX_BODY)

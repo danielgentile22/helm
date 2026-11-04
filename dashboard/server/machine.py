@@ -1,10 +1,11 @@
-"""The two questions the dashboard asks the machine it runs on, and nothing else.
+"""Everything the dashboard asks of, or tells, the machine it runs on.
 
 `launchctl_list` reads launchd's view of this user's jobs, and `tailscale_status` reads the
-tailnet's. Both are module functions so the tests replace them, the way they replace
-`routes.service_installed`: a test must never depend on what the machine running it has
-installed. Everything that turns their answers into records lives in `background.py` and
-`devices.py`, as functions of what these return.
+tailnet's. `launchctl` is the one way a routine is started, booted out or bootstrapped, and
+`LAUNCH_AGENTS` is the folder launchd loads plists from. All are module attributes so the
+tests replace them, the way they replace `routes.service_installed`: a test must never
+depend on, or change, what the machine running it has installed. Everything that turns
+their answers into records lives in `background.py`, `control.py` and `devices.py`.
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+LAUNCH_AGENTS = Path.home() / "Library" / "LaunchAgents"
 TAILSCALE_APP = Path("/Applications/Tailscale.app/Contents/MacOS/Tailscale")
 TAILSCALE_TIMEOUT_S = 3
 TAILSCALE_CACHE_S = 30
@@ -49,6 +51,20 @@ def parse_launchctl(text: str) -> dict[str, LaunchdJob]:
         jobs[label] = LaunchdJob(label, int(pid) if pid.lstrip("-").isdigit() else None,
                                  int(status) if status.lstrip("-").isdigit() else None)
     return jobs
+
+
+def gui_domain() -> str:
+    return f"gui/{os.getuid()}"
+
+
+def launchctl(*args: str) -> tuple[int, str]:
+    """One launchctl write, and its exit code and stderr. Every argument is built by
+    `control.py` from a label and a path, never from request text."""
+    try:
+        r = subprocess.run(["launchctl", *args], capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return 1, type(e).__name__
+    return r.returncode, r.stderr.strip()
 
 
 @dataclass(frozen=True)

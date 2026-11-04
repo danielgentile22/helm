@@ -1,7 +1,7 @@
 # dashboard
 
 The four tabs (ADR 0037) and the server behind them: a Python server, its passkey door, and
-a Svelte page that reads the routes below and writes nothing yet.
+a Svelte page that reads the routes below and makes the writes ADR 0038 allows.
 
 ```sh
 python3 dashboard/serve.py
@@ -26,6 +26,10 @@ nothing more.
 | GET | `/api/ideas?status=` | idea notes, read from the vault per request |
 | GET | `/api/background` | every routine and service, assembled per request |
 | GET | `/api/devices` | device notes with live tailnet presence |
+| POST | `/api/ideas` | `{title, project?, department?, due?}` adds an idea and commits it in the vault. 201 with `{"idea", "changed"}` |
+| POST | `/api/ideas/<id>/status` | `{status: open\|done\|dropped}`. 200 with `{"idea", "changed"}`, 404 for an unknown id |
+| POST | `/api/ideas/<id>/due` | `{due: "YYYY-MM-DD"\|null}`. 200 with `{"idea", "changed"}`, 404 for an unknown id |
+| POST | `/api/routines/<name>/run`, `/pause`, `/resume` | a routine in `models.json` only. 200 with `{"routine", "changed"}`, 409 when the state refuses it |
 | GET | `/*` | `dist/`, with `index.html` for any path without a dot. **open**, so a phone with no session can load the page |
 | POST | `/auth/register/options`, `/auth/register/verify` | the passkey enrollment ceremony, gated by the one shot token from `serve.py --enroll` |
 | POST | `/auth/login/options`, `/auth/login/verify` | the sign in ceremony; a good assertion sets the `otto_session` cookie |
@@ -35,6 +39,23 @@ nothing more.
 Errors are one shape everywhere: `{"error": {"code", "detail"}}`. The routes of the
 retired interface are in git history. Every `/api` row reaches `tailnet`: free on
 loopback, behind the passkey over the tailnet (ADR 0016, ADR 0038).
+
+### The writes
+
+- **Ideas** go through `runner/producers/idea_edit.py` in process, under the vault write
+  lock. Each write that changes a note is one vault commit with a fixed subject (`Add an
+  idea`, `Mark an idea done`, `Drop an idea`, `Reopen an idea`, `Change an idea's due
+  date`), never the idea's text; a commit that fails puts the note back as it was. A
+  title is 1 to 200 characters on one line, a project is a project note's title, a due
+  date is ISO. Setting what is already set writes nothing and answers `changed: false`.
+  A promoted idea is 409.
+- **Routines** go through `server/control.py`. Run is `launchctl kickstart`, refused with
+  409 while the routine is paused, running or not loaded. Pause boots the job out, then
+  moves its plist from `~/Library/LaunchAgents/` to `~/.helm/disabled/`; resume moves it
+  back and bootstraps it. Both read both places every time, so a repeat or a retry after
+  an interruption finishes the job, and pause refuses a routine that is running right
+  now. `install-routines.sh` leaves a paused routine paused. Services have no write rows.
+- Log lines never carry an idea's id (it is made from the title) or any request body.
 
 ## The tabs' JSON
 
@@ -254,11 +275,12 @@ under `src/`, `index.html`, `public/`, `package.json` or `vite.config.ts` is new
 | `server/app.py` | request and response types, `authorize`, `dispatch`, the HTTP handler |
 | `server/routes.py` | the route table and its handlers |
 | `server/background.py`, `server/devices.py` | the Background and Devices records, as functions of what they are handed |
-| `server/machine.py` | the only questions asked of the machine: `launchctl list` and `tailscale status`. Tests replace both |
+| `server/machine.py` | everything asked of or told to the machine: `launchctl list`, `tailscale status`, the `launchctl` writes and where `LaunchAgents` is. Tests replace all of it |
+| `server/control.py` | run now, pause and resume a routine, convergent from any state between the two |
 | `server/auth.py`, `server/passkey.py` | the passkey rows, and WebAuthn verification (ES256 on P-256) in the standard library |
 | `server/test_*.py` | `python3 -m unittest discover -s dashboard/server -p 'test_*.py'` |
 | `src/App.svelte`, `src/app.css` | the shell: header, the tab rail or tab bar, the colour tokens |
 | `src/lib/` | `api.ts` (the contract above as types, one `fetchJson`), `route.svelte.ts` (the URL is the state), `poll.svelte.ts` (each open tab refetches every 60 seconds and on focus), `auth.ts` (the sign in ceremony), `time.ts` |
 | `src/tabs/` | one component per tab, plus the project, routine, device and idea cards |
-| `src/ui/` | the small parts: dot, pill, badge, icons, load states, the capture box slot |
+| `src/ui/` | the small parts: dot, pill, badge, icons, load states, the capture box, the toast |
 | `public/` | the app mark, its PNG sizes (`npm run icons`), and the manifest Chrome installs |

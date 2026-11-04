@@ -268,19 +268,35 @@ def commit(vault: Path, rel: str, subject: str) -> str:
                           capture_output=True, text=True).stdout.strip()
 
 
+def commit_or_restore(vault: Path, rel: str, subject: str, before: str | None) -> str:
+    """Commit the one path, or put the note back as it was and raise, so a write the vault's
+    history does not hold is never left on disk. `before` None means the note was new."""
+    try:
+        return commit(vault, rel, subject)
+    except IdeaError:
+        subprocess.run(["git", "-C", str(vault), "reset", "-q", "--", rel], capture_output=True)
+        note = vault / rel
+        if before is None:
+            note.unlink(missing_ok=True)
+        else:
+            write_atomic(note, before)
+        raise
+
+
 def run(vault: Path, args: argparse.Namespace) -> dict:
     if args.cmd == "add":
         idea = add(vault, args.title, args.project, args.department, args.due, args.body, args.created)
-        changed, subject = True, ADD_SUBJECT
+        changed, subject, before = True, ADD_SUBJECT, None
     else:
         note = resolve(vault, args.ref)
+        before = note.read_text()
         if args.cmd == "status":
             idea, changed = set_status(vault, note, args.value)
             subject = STATUS_SUBJECTS[idea.status]
         else:
             idea, changed = set_due(vault, note, None if args.value == "none" else args.value)
             subject = DUE_SUBJECT
-    sha = commit(vault, idea.path, subject) if changed and not args.no_commit else None
+    sha = commit_or_restore(vault, idea.path, subject, before) if changed and not args.no_commit else None
     return {"path": str(vault / idea.path), "commit": sha, "changed": changed, "idea": idea.to_row()}
 
 

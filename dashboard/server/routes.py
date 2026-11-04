@@ -1,9 +1,11 @@
 """Every route the dashboard answers, one row each, with the handler beside it.
 
-The health read, the four tabs' reads, the page itself, and the passkey rows from
-`auth.py`. Projects come from the file capture writes, so a page load never calls GitHub
-(ADR 0037); ideas and devices are read from the vault per request; background asks
-launchd through `machine.py`. The JSON each returns is documented in `dashboard/README.md`.
+The health read, the four tabs' reads, the writes ADR 0038 allows, the page itself, and
+the passkey rows from `auth.py`. Projects come from the file capture writes, so a page
+load never calls GitHub (ADR 0037); ideas and devices are read from the vault per request;
+background asks launchd through `machine.py`. An idea write goes through `idea_edit` and
+ends in a vault commit whose subject carries no idea text; a routine write goes through
+`control.py`. The JSON each returns is documented in `dashboard/README.md`.
 """
 from __future__ import annotations
 
@@ -12,6 +14,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 from urllib.parse import parse_qs
 
 HERE = Path(__file__).resolve().parent
@@ -22,6 +25,7 @@ import common  # noqa: E402
 import launchd  # noqa: E402
 import auth  # noqa: E402
 import background  # noqa: E402
+import control  # noqa: E402
 import devices  # noqa: E402
 import idea_edit  # noqa: E402
 import machine  # noqa: E402
@@ -156,10 +160,139 @@ def ideas_list(request: Request, m: "re.Match[str]") -> Response:
     return json_response({"ideas": [i.to_row() for i in sort_ideas(picked)], "errors": [str(e) for e in errors]})
 
 
+def registry() -> dict:
+    return json.loads((common.ENGINE / "models.json").read_text())
+
+
+def local_now() -> datetime:
+    return datetime.now(common.local_tz(common.load_env()))
+
+
 def background_tab(request: Request, m: "re.Match[str]") -> Response:
-    registry = json.loads((common.ENGINE / "models.json").read_text())
-    now = datetime.now(common.local_tz(common.load_env()))
-    return json_response(background.assemble(registry, machine.launchctl_list(), common.STATE, now))
+    return json_response(background.assemble(registry(), machine.launchctl_list(), common.STATE, local_now()))
+
+
+TITLE_MAX = 200
+IDEA_FIELDS = ("title", "project", "department", "due")
+EDITABLE = ("open", "done", "dropped")
+
+
+def refresh_capture() -> None:
+    """Capture's ideas source, rerun so each project's count of open ideas agrees with the
+    write. Best effort: the write is already committed, and the next scheduled capture
+    catches up. The log line names the error's type only, since its text could quote a note."""
+    try:
+        idea_edit.refresh_capture()
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"capture refresh after an idea write failed: {type(e).__name__}\n")
+
+
+def text_field(payload: dict, key: str) -> str | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ApiError(400, "bad_request", f"{key} must be a string or null")
+    return value.strip() or None
+
+
+def idea_title(payload: dict) -> str:
+    raw = payload.get("title")
+    if not isinstance(raw, str):
+        raise ApiError(400, "bad_request", "the body needs a title string")
+    if any(ch < " " or ch == "\x7f" for ch in raw):
+        raise ApiError(400, "bad_request", "a title is one line, with no line breaks or control characters")
+    title = " ".join(raw.split())
+    if not 1 <= len(title) <= TITLE_MAX:
+        raise ApiError(400, "bad_request", f"a title is 1 to {TITLE_MAX} characters, and this one is {len(title)}")
+    return title
+
+
+def committed(idea: idea_edit.Idea, subject: str, before: str | None) -> None:
+    try:
+        idea_edit.commit_or_restore(common.VAULT, idea.path, subject, before)
+    except idea_edit.IdeaError:
+        raise ApiError(500, "vault_commit", "the vault commit failed, so the note was put back as it was")
+
+
+def idea_add(request: Request, m: "re.Match[str]") -> Response:
+    payload = auth.body_of(request)
+    unknown = sorted(set(payload) - set(IDEA_FIELDS))
+    if unknown:
+        raise ApiError(400, "bad_request", f"unknown fields {', '.join(unknown)}; an idea takes {', '.join(IDEA_FIELDS)}")
+    title = idea_title(payload)
+    project, department, due = (text_field(payload, k) for k in ("project", "department", "due"))
+    with common.vault_write_lock():
+        try:
+            idea = idea_edit.add(common.VAULT, title, project, department, due)
+        except idea_edit.IdeaError as e:
+            raise ApiError(400, "bad_request", str(e))
+        committed(idea, idea_edit.ADD_SUBJECT, None)
+    refresh_capture()
+    return json_response({"idea": idea.to_row(), "changed": True}, 201)
+
+
+def idea_edit_route(idea_id: str, change: "Callable[[Path], tuple[idea_edit.Idea, bool]]",
+                    subject: "Callable[[idea_edit.Idea], str]") -> Response:
+    """One field of one idea, committed when it changed. The same value twice writes nothing
+    and answers 200 with `changed: false`."""
+    with common.vault_write_lock():
+        try:
+            note = idea_edit.resolve(common.VAULT, idea_id)
+        except idea_edit.UnknownIdea:
+            raise ApiError(404, "not_found", "no idea note has that id")
+        except idea_edit.IdeaError as e:
+            raise ApiError(400, "bad_request", str(e))
+        before = note.read_text()
+        try:
+            idea, changed = change(note)
+        except idea_edit.IdeaError as e:
+            raise ApiError(400, "bad_request", str(e))
+        if changed:
+            committed(idea, subject(idea), before)
+    if changed:
+        refresh_capture()
+    return json_response({"idea": idea.to_row(), "changed": changed})
+
+
+def idea_status(request: Request, m: "re.Match[str]") -> Response:
+    status = auth.body_of(request).get("status")
+    if status not in EDITABLE:
+        raise ApiError(400, "bad_request", f"status must be one of {', '.join(EDITABLE)}")
+
+    def change(note: Path) -> tuple[idea_edit.Idea, bool]:
+        if idea_edit.load(common.VAULT, note).status == "promoted":
+            raise ApiError(409, "conflict", "a promoted idea lives on in its issue; change the issue instead")
+        return idea_edit.set_status(common.VAULT, note, status)
+
+    return idea_edit_route(m["id"], change, lambda idea: idea_edit.STATUS_SUBJECTS[idea.status])
+
+
+def idea_due(request: Request, m: "re.Match[str]") -> Response:
+    payload = auth.body_of(request)
+    if "due" not in payload:
+        raise ApiError(400, "bad_request", 'the body needs "due": a date like 2026-11-15, or null to clear it')
+    due = text_field(payload, "due")
+    return idea_edit_route(m["id"], lambda note: idea_edit.set_due(common.VAULT, note, due),
+                           lambda idea: idea_edit.DUE_SUBJECT)
+
+
+ROUTINE_ACTIONS = {"run": control.run, "pause": control.pause, "resume": control.resume}
+
+
+def routine_action(request: Request, m: "re.Match[str]") -> Response:
+    """Run now, pause or resume one routine. The name must be a routine in models.json, so
+    no text from the request reaches launchctl; a service has no write routes at all."""
+    reg = registry()
+    name = m["name"]
+    spec = (reg.get("routines") or {}).get(name)
+    if spec is None:
+        what = ("a service, and services are not run or paused from here" if name in (reg.get("services") or {})
+                else "not a routine in models.json")
+        raise ApiError(404, "not_found", f"{name} is {what}")
+    changed = ROUTINE_ACTIONS[m["action"]](launchd.PREFIX + name)
+    record = background.routine(name, spec, machine.launchctl_list(), common.STATE, local_now())
+    return json_response({"routine": record, "changed": changed})
 
 
 def devices_tab(request: Request, m: "re.Match[str]") -> Response:
@@ -173,6 +306,11 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", re.compile(r"^/api/ideas$"), "tailnet", ideas_list),
     Route("GET", re.compile(r"^/api/background$"), "tailnet", background_tab),
     Route("GET", re.compile(r"^/api/devices$"), "tailnet", devices_tab),
+    Route("POST", re.compile(r"^/api/ideas$"), "tailnet", idea_add),
+    Route("POST", re.compile(r"^/api/ideas/(?P<id>\d{4}-\d\d-\d\d-[a-z0-9-]+)/status$"), "tailnet", idea_status),
+    Route("POST", re.compile(r"^/api/ideas/(?P<id>\d{4}-\d\d-\d\d-[a-z0-9-]+)/due$"), "tailnet", idea_due),
+    Route("POST", re.compile(r"^/api/routines/(?P<name>[a-z0-9-]+)/(?P<action>run|pause|resume)$"), "tailnet",
+          routine_action),
     # The page and its assets are open: a phone with no session yet has to load the shell to
     # sign in. Everything the page then reads sits behind the gate.
     Route("GET", re.compile(r"^/(?!api/|auth/).*$"), "open", static),

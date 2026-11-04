@@ -184,6 +184,10 @@ class RouteTest(unittest.TestCase):
             ("GET", "/index.html"),
             ("GET", "/icon.svg"),
             ("GET", "/manifest.webmanifest"),
+            ("POST", "/api/ideas"),
+            ("POST", "/api/ideas/2026-09-26-order-the-desk-lamp/status"),
+            ("POST", "/api/ideas/2026-09-26-order-the-desk-lamp/due"),
+            ("POST", "/api/routines/capture/run"),
         ]
         for route in routes.ROUTES:
             hit = [p for method, p in rows if method == route.method and route.pattern.match(p)]
@@ -227,8 +231,10 @@ class RouteTest(unittest.TestCase):
         no session asked, and its POST carries its own Origin. Refused in the gate, so every
         write in the passkey ceremony is covered without knowing it."""
         table = routes.table(DOOR)
-        writes = [(r.method, r.pattern.pattern.strip("^$")) for r in table if r.method not in ("GET", "HEAD")]
-        self.assertTrue(writes)
+        writes = [(r.method, r.pattern.pattern.strip("^$")) for r in auth.routes(DOOR) if r.method not in ("GET", "HEAD")]
+        writes += [(method, path) for method, path in self.samples() if method == "POST"]
+        for method, path in writes:
+            self.assertTrue(any(r.method == method and r.pattern.match(path) for r in table), path)
         for method, path in writes:
             for headers in ({"origin": "https://evil.example"},
                             {"origin": "null"},

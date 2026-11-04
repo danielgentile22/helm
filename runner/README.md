@@ -71,7 +71,9 @@ two paths handed to them, tested by reading the generated text back with `plistl
 the way launchd reads it. `install-routines.sh` runs `launchd.py --list` for the plan
 and `launchd.py --plist <label>` for each file, and owns `launchctl` and
 `~/Library/LaunchAgents` and nothing else. Both halves of the installer loop over the
-same listing, so what it can install is exactly what `--uninstall` removes.
+same listing, so what it can install is exactly what `--uninstall` removes. A routine
+paused from the dashboard (its plist in `~/.helm/disabled/`) stays paused through a
+reinstall: the installer refreshes the parked plist and loads nothing.
 
 Install or reinstall after adding a routine or a service, or changing a schedule:
 

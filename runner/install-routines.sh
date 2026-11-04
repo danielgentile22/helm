@@ -9,6 +9,9 @@
 # Run this once per machine, and again after adding a routine or a service or
 # changing a schedule in models.json.
 #
+# A routine paused from the dashboard has its plist in ~/.helm/disabled/ and stays
+# paused: this refreshes the parked plist and loads nothing.
+#
 # Pass --uninstall to unload and remove every job.
 
 set -eu
@@ -31,7 +34,9 @@ if [ "${1:-}" = "--uninstall" ]; then
 	exit 0
 fi
 
-mkdir -p "$AGENTS" "${HELM_STATE:-$HOME/.helm}/logs"
+STATE="${HELM_STATE:-$HOME/.helm}"
+DISABLED="$STATE/disabled"
+mkdir -p "$AGENTS" "$STATE/logs"
 
 while IFS=$'\t' read -r label program when; do
 	[ -n "$label" ] || continue
@@ -39,6 +44,16 @@ while IFS=$'\t' read -r label program when; do
 
 	if [ ! -x "$program" ]; then
 		echo "SKIP  $label: ${program#"$ENGINE"/} is missing or not executable"
+		continue
+	fi
+
+	# A paused routine (ADR 0038) stays paused: its fresh plist is parked where resume will
+	# find it, and nothing is loaded or left in LaunchAgents for the next login to load.
+	if [ -f "$DISABLED/$label.plist" ]; then
+		python3 "$ENGINE/runner/launchd.py" --plist "$label" > "$DISABLED/$label.plist"
+		launchctl bootout "gui/$UID_NUM/$label" 2>/dev/null || true
+		rm -f "$plist"
+		echo "paused $label, left unloaded in ${DISABLED/#$HOME/~}"
 		continue
 	fi
 
