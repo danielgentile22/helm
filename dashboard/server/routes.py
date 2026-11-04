@@ -5,11 +5,13 @@ the passkey rows from `auth.py`. Projects come from the file capture writes, so 
 load never calls GitHub (ADR 0037); ideas and devices are read from the vault per request;
 background asks launchd through `machine.py`. An idea write goes through `idea_edit` and
 ends in a vault commit whose subject carries no idea text; a routine write goes through
-`control.py`. The JSON each returns is documented in `dashboard/README.md`.
+`control.py`. Alerts are read and dismissed through `runner/alerts.py`, and push
+subscriptions kept through `runner/push.py` (ADR 0039). The JSON each returns is documented in `dashboard/README.md`.
 """
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import json
 import re
 import sys
@@ -22,6 +24,7 @@ HERE = Path(__file__).resolve().parent
 RUNNER = HERE.parents[1] / "runner"
 sys.path[:0] = [str(HERE), str(RUNNER), str(RUNNER / "producers")]
 
+import alerts  # noqa: E402
 import common  # noqa: E402
 import launchd  # noqa: E402
 import auth  # noqa: E402
@@ -30,6 +33,7 @@ import control  # noqa: E402
 import devices  # noqa: E402
 import idea_edit  # noqa: E402
 import machine  # noqa: E402
+import push  # noqa: E402
 from app import ApiError, Request, Response, Route, json_response, text_response  # noqa: E402
 
 DIST = common.ENGINE / "dashboard" / "dist"
@@ -308,6 +312,64 @@ def routine_action(request: Request, m: "re.Match[str]") -> Response:
     return json_response({"routine": record, "changed": changed})
 
 
+def alerts_list(request: Request, m: "re.Match[str]") -> Response:
+    shown = alerts.visible()
+    found = alerts.counts(shown)
+    return json_response({"alerts": [dataclasses.asdict(a) for a in shown], "counts": found,
+                          "total": sum(found.values())})
+
+
+def alert_dismiss(request: Request, m: "re.Match[str]") -> Response:
+    done = alerts.dismiss(m["key"], common.utc_now())
+    if done is None:
+        raise ApiError(404, "not_found", "no alert has that key")
+    alert, changed = done
+    return json_response({"alert": dataclasses.asdict(alert), "changed": changed})
+
+
+def push_key(request: Request, m: "re.Match[str]") -> Response:
+    try:
+        return json_response({"key": push.public_key()})
+    except push.PushError as e:
+        raise ApiError(503, "push_unavailable", str(e))
+
+
+PUSH_ENDPOINT = re.compile(r"^https://[^\s/]+/\S+$")
+
+
+def endpoint_of(payload: dict) -> str:
+    endpoint = payload.get("endpoint")
+    if not isinstance(endpoint, str) or len(endpoint) > 1024 or not PUSH_ENDPOINT.match(endpoint):
+        raise ApiError(400, "bad_request", "the body needs the subscription's https endpoint")
+    return endpoint
+
+
+def push_subscribe(request: Request, m: "re.Match[str]") -> Response:
+    """The browser's `PushSubscription.toJSON()`: an endpoint and its two keys."""
+    payload = auth.body_of(request)
+    endpoint = endpoint_of(payload)
+    keys = payload.get("keys")
+    if not (isinstance(keys, dict) and all(isinstance(keys.get(k), str) and 0 < len(keys[k]) <= 256
+                                           for k in ("p256dh", "auth"))):
+        raise ApiError(400, "bad_request", "the body needs keys.p256dh and keys.auth")
+    changed = push.subscribe(endpoint, {"p256dh": keys["p256dh"], "auth": keys["auth"]},
+                             alerts.stamp(common.utc_now()))
+    return json_response({"changed": changed})
+
+
+def push_unsubscribe(request: Request, m: "re.Match[str]") -> Response:
+    return json_response({"changed": push.unsubscribe([endpoint_of(auth.body_of(request))]) > 0})
+
+
+def push_test(request: Request, m: "re.Match[str]") -> Response:
+    """Loopback only: a way to check the phone's enrollment from the Mac."""
+    try:
+        sent = push.send("Test notification from helm", "background", len(alerts.visible()))
+    except push.PushError as e:
+        raise ApiError(502, "push_failed", str(e))
+    return json_response(sent)
+
+
 def devices_tab(request: Request, m: "re.Match[str]") -> Response:
     return json_response(devices.assemble(common.VAULT, machine.tailscale_status()))
 
@@ -324,6 +386,12 @@ ROUTES: tuple[Route, ...] = (
     Route("POST", re.compile(r"^/api/ideas/(?P<id>\d{4}-\d\d-\d\d-[a-z0-9-]+)/due$"), "tailnet", idea_due),
     Route("POST", re.compile(r"^/api/routines/(?P<name>[a-z0-9-]+)/(?P<action>run|pause|resume)$"), "tailnet",
           routine_action),
+    Route("GET", re.compile(r"^/api/alerts$"), "tailnet", alerts_list),
+    Route("POST", re.compile(r"^/api/alerts/(?P<key>[^/]+)/dismiss$"), "tailnet", alert_dismiss),
+    Route("GET", re.compile(r"^/api/push/key$"), "tailnet", push_key),
+    Route("POST", re.compile(r"^/api/push/subscribe$"), "tailnet", push_subscribe),
+    Route("POST", re.compile(r"^/api/push/unsubscribe$"), "tailnet", push_unsubscribe),
+    Route("POST", re.compile(r"^/api/push/test$"), "loopback", push_test),
     # The page and its assets are open: a phone with no session yet has to load the shell to
     # sign in. Everything the page then reads sits behind the gate.
     Route("GET", re.compile(r"^/(?!api/|auth/).*$"), "open", static),

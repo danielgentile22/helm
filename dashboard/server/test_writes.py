@@ -398,19 +398,24 @@ class GateTest(WriteTest):
     """Every write row sits behind the same gate as the passkey rows."""
 
     WRITES = ("/api/ideas", f"/api/ideas/{IDEA}/status", f"/api/ideas/{IDEA}/due",
-              "/api/routines/capture/run", "/api/routines/capture/pause", "/api/routines/capture/resume")
+              "/api/routines/capture/run", "/api/routines/capture/pause", "/api/routines/capture/resume",
+              "/api/alerts/routine:backup/dismiss", "/api/push/subscribe", "/api/push/unsubscribe")
+    # Writes that only mean something on this machine, never reachable over the tailnet.
+    LOOPBACK_WRITES = ("/api/push/test",)
 
     def test_every_write_row_has_a_sample_here(self) -> None:
         rows = [r for r in routes.ROUTES if r.method == "POST"]
         for row in rows:
-            self.assertTrue([p for p in self.WRITES if row.pattern.match(p)], row.pattern.pattern)
-        for path in self.WRITES:
-            self.assertEqual(app.reach_of(app.Request("POST", path, {}, b"", "127.0.0.1", 8642), routes.ROUTES),
-                             "tailnet")
+            self.assertTrue([p for p in self.WRITES + self.LOOPBACK_WRITES if row.pattern.match(p)],
+                            row.pattern.pattern)
+        for paths, reach in ((self.WRITES, "tailnet"), (self.LOOPBACK_WRITES, "loopback")):
+            for path in paths:
+                self.assertEqual(app.reach_of(app.Request("POST", path, {}, b"", "127.0.0.1", 8642), routes.ROUTES),
+                                 reach)
 
     def test_a_foreign_origin_or_a_cross_site_fetch_writes_nothing(self) -> None:
         before = (self.notes(), self.subjects())
-        for path in self.WRITES:
+        for path in self.WRITES + self.LOOPBACK_WRITES:
             for headers in ({"origin": "https://evil.example"}, {"origin": "null"},
                             {"origin": None, "sec-fetch-site": "cross-site"}):
                 with self.subTest(path=path, headers=headers):

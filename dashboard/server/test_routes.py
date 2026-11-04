@@ -188,6 +188,12 @@ class RouteTest(unittest.TestCase):
             ("POST", "/api/ideas/2026-09-26-order-the-desk-lamp/status"),
             ("POST", "/api/ideas/2026-09-26-order-the-desk-lamp/due"),
             ("POST", "/api/routines/capture/run"),
+            ("GET", "/api/alerts"),
+            ("POST", "/api/alerts/routine:backup/dismiss"),
+            ("GET", "/api/push/key"),
+            ("POST", "/api/push/subscribe"),
+            ("POST", "/api/push/unsubscribe"),
+            ("POST", "/api/push/test"),
         ]
         for route in routes.ROUTES:
             hit = [p for method, p in rows if method == route.method and route.pattern.match(p)]
