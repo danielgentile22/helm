@@ -197,6 +197,14 @@ export interface Presence {
   last_seen: string | null;
 }
 
+// How hard the machine the dashboard runs on is working. Each part is null when its probe failed.
+export interface Usage {
+  memory: { used: number; total: number; pressure: "normal" | "warn" | "critical" | null } | null;
+  disk: { used: number; total: number } | null;
+  load: { one: number; cpus: number | null } | null;
+  booted: string | null;
+}
+
 export interface Device {
   slug: string;
   title: string;
@@ -211,6 +219,8 @@ export interface Device {
   warranty_until: string | null;
   path: string;
   presence: Presence | null;
+  // Only the device the dashboard runs on has one.
+  usage: Usage | null;
   problems: string[];
 }
 

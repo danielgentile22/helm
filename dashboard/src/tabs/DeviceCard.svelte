@@ -3,6 +3,7 @@
   import { ageOf, isOverdue, localDate, shortDate } from "../lib/time";
   import Dot from "../ui/Dot.svelte";
   import Pill from "../ui/Pill.svelte";
+  import UsageMeters from "./UsageMeters.svelte";
 
   let { device, now }: { device: Device; now: number } = $props();
 
@@ -40,6 +41,7 @@
       <span class="faint small" aria-hidden="true">{presence}</span>
     </div>
   {/if}
+  {#if device.usage !== null}<UsageMeters usage={device.usage} {now} />{/if}
   <button class="btn toggle" aria-expanded={open} onclick={() => (open = !open)}>
     {open ? "Hide details" : "Show details"}
   </button>
