@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fetchJson, type IdeaDraft, type IdeaStatus, type IdeasResponse, type ProjectsResponse } from "../lib/api";
-  import { createIdeaWrites } from "../lib/ideas.svelte";
+  import { createIdeaWrites, promoteTarget, type PromoteTarget } from "../lib/ideas.svelte";
   import { createPoll } from "../lib/poll.svelte";
   import CaptureBox from "../ui/CaptureBox.svelte";
   import LoadState from "../ui/LoadState.svelte";
@@ -39,11 +39,15 @@
   });
 
   // The picker offers projects that have a note, since an idea names its project by title.
+  // Promote shows on an idea whose project has a tracker to promote to.
   let projects = $state<string[]>([]);
+  let targets = $state<Record<string, PromoteTarget | null>>({});
   $effect(() => {
     void fetchJson<ProjectsResponse>("/api/projects").then((answer) => {
       if (answer.state === "ready") {
-        projects = answer.data.projects.flatMap((p) => (p.note === null ? [] : [p.title])).sort();
+        const named = answer.data.projects.filter((p) => p.note !== null);
+        projects = named.map((p) => p.title).sort();
+        targets = Object.fromEntries(named.map((p) => [p.title, promoteTarget(p)]));
       }
     });
   });
@@ -84,7 +88,7 @@
     {:else}
       <ul class="stack">
         {#each ideas as idea (idea.id)}
-          <IdeaRow {idea} {now} {writes} />
+          <IdeaRow {idea} {now} {writes} target={idea.project === null ? null : (targets[idea.project] ?? null)} />
         {/each}
       </ul>
     {/if}

@@ -1,17 +1,38 @@
 <script lang="ts">
   import type { Idea } from "../lib/api";
-  import type { IdeaWrites } from "../lib/ideas.svelte";
+  import { isUrl, type IdeaWrites, type PromoteTarget } from "../lib/ideas.svelte";
   import { daysAgo, dueLabel, localDate } from "../lib/time";
 
-  let { idea, now, writes }: { idea: Idea; now: number; writes?: IdeaWrites } = $props();
+  let {
+    idea,
+    now,
+    writes,
+    target = null,
+  }: { idea: Idea; now: number; writes?: IdeaWrites; target?: PromoteTarget | null } = $props();
 
   const today = $derived(localDate(now));
-  const issueIsLink = $derived(idea.issue !== null && /^https?:\/\//.test(idea.issue));
+  const issueIsLink = $derived(idea.issue !== null && isUrl(idea.issue));
   const pending = $derived(writes?.isPending(idea) ?? false);
   const error = $derived(writes?.errorOf(idea.id) ?? null);
   const editable = $derived(writes !== undefined && !pending && idea.status !== "promoted");
 
   let editingDue = $state(false);
+
+  // Promote: pick a repo when there are several, say yes for a repo someone else owns.
+  type Step = { at: "idle" } | { at: "pick"; repos: string[] } | { at: "confirm"; repo: string } | { at: "sending" };
+  let step = $state<Step>({ at: "idle" });
+
+  function startPromote(): void {
+    if (target?.tracker === "github" && target.repos.length > 1) step = { at: "pick", repos: target.repos };
+    else void promote({});
+  }
+
+  async function promote(body: { repo?: string; confirm?: boolean }): Promise<void> {
+    if (writes === undefined) return;
+    step = { at: "sending" };
+    const result = await writes.promote(idea, body);
+    step = result.kind === "confirm" ? { at: "confirm", repo: result.repo } : { at: "idle" };
+  }
 
   function pickDue(event: Event): void {
     const value = (event.currentTarget as HTMLInputElement).value;
@@ -49,7 +70,20 @@
 
   {#if editable && writes !== undefined}
     <div class="acts">
-      {#if editingDue}
+      {#if step.at === "sending"}
+        <button class="act" disabled>Promoting</button>
+      {:else if step.at === "pick"}
+        <span class="ask">File the issue in which repo?</span>
+        {#each step.repos as repo (repo)}
+          <button class="act" onclick={() => promote({ repo })}>{repo}</button>
+        {/each}
+        <button class="act" onclick={() => (step = { at: "idle" })}>Cancel</button>
+      {:else if step.at === "confirm"}
+        {@const repo = step.repo}
+        <span class="ask">Other people read {repo}. File this idea there as an issue?</span>
+        <button class="btn primary" onclick={() => promote({ repo, confirm: true })}>File the issue</button>
+        <button class="act" onclick={() => (step = { at: "idle" })}>Cancel</button>
+      {:else if editingDue}
         <input
           type="date"
           aria-label="Due date"
@@ -63,6 +97,9 @@
         {#if idea.status === "open"}
           <button class="act" onclick={() => writes.setStatus(idea, "done")}>Done</button>
           <button class="act" onclick={() => writes.setStatus(idea, "dropped")}>Drop</button>
+          {#if target !== null && idea.project !== null}
+            <button class="act" onclick={startPromote}>Promote</button>
+          {/if}
         {:else}
           <button class="act" onclick={() => writes.setStatus(idea, "open")}>Reopen</button>
         {/if}
@@ -130,6 +167,21 @@
     .act,
     input[type="date"] {
       min-height: 28px;
+    }
+  }
+  .act:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+  .ask {
+    flex-basis: 100%;
+    font-size: 12px;
+    color: var(--dim);
+    padding-left: 6px;
+  }
+  @media (min-width: 900px) {
+    .ask {
+      flex-basis: auto;
     }
   }
   .row-error {

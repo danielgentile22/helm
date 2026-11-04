@@ -1,4 +1,14 @@
-import { fetchJson, type Failure, type Idea, type IdeaDraft, type IdeaStatus, type IdeaWrite } from "./api";
+import {
+  fetchJson,
+  type Failure,
+  type Idea,
+  type IdeaDraft,
+  type IdeaStatus,
+  type IdeaWrite,
+  type Project,
+  type PromoteBody,
+  type PromoteWrite,
+} from "./api";
 import { localDate } from "./time";
 
 type Edit = Partial<Pick<Idea, "status" | "due">>;
@@ -6,7 +16,24 @@ type Edit = Partial<Pick<Idea, "status" | "due">>;
 export interface Toast {
   key: number;
   text: string;
-  undo: () => void;
+  undo?: () => void;
+  link?: string;
+}
+
+/** Where an idea of this project can be promoted to, or null when it has no tracker. */
+export type PromoteTarget = { tracker: "github"; repos: string[] } | { tracker: "scratch" };
+
+export function promoteTarget(project: Pick<Project, "tracker" | "repos">): PromoteTarget | null {
+  if (project.tracker === "scratch") return { tracker: "scratch" };
+  if (project.tracker === "none") return null;
+  const repos = project.repos.flatMap((r) => (r.github === null ? [] : [r.github]));
+  return repos.length === 0 ? null : { tracker: "github", repos };
+}
+
+export type PromoteResult = { kind: "done" } | { kind: "confirm"; repo: string } | { kind: "failed" };
+
+export function isUrl(issue: string): boolean {
+  return /^https?:\/\//.test(issue);
 }
 
 export interface IdeaHost {
@@ -43,10 +70,10 @@ export function createIdeaWrites(host: IdeaHost) {
     return failure.detail;
   }
 
-  function showToast(text: string, undo: () => void): void {
+  function showToast(text: string, act: Pick<Toast, "undo" | "link">): void {
     clearTimeout(toastTimer);
     const key = ++seq;
-    toast = { key, text, undo };
+    toast = { key, text, ...act };
     toastTimer = setTimeout(() => {
       if (toast?.key === key) toast = null;
     }, TOAST_MS);
@@ -74,9 +101,11 @@ export function createIdeaWrites(host: IdeaHost) {
     const before = idea.status;
     const undoable = status === "done" || status === "dropped";
     if (undoable) {
-      showToast(status === "done" ? "Marked done" : "Dropped", () => {
-        dismissToast();
-        void write(idea, "status", { status: before });
+      showToast(status === "done" ? "Marked done" : "Dropped", {
+        undo: () => {
+          dismissToast();
+          void write(idea, "status", { status: before });
+        },
       });
     }
     const ok = await write(idea, "status", { status });
@@ -122,6 +151,26 @@ export function createIdeaWrites(host: IdeaHost) {
       return answer.state === "ready" ? null : failed(answer);
     },
     setStatus,
+    /** Files the idea in its project's tracker. A repo someone else owns answers `confirm`
+     *  until the owner says yes; then the same call again with `confirm: true`. */
+    promote(idea: Idea, body: PromoteBody): Promise<PromoteResult> {
+      delete errors[idea.id];
+      return serial(idea.id, async () => {
+        const answer = await fetchJson<PromoteWrite>(`/api/ideas/${encodeURIComponent(idea.id)}/promote`, body);
+        if (answer.state === "ready") {
+          const issue = answer.data.issue;
+          showToast(isUrl(issue) ? "Promoted to an issue" : `Promoted to ${issue}`, isUrl(issue) ? { link: issue } : {});
+          await host.refresh();
+          return { kind: "done" };
+        }
+        const said = answer.body as { needs_confirm?: boolean; repo?: string } | undefined;
+        if (answer.status === 409 && said?.needs_confirm === true && typeof said.repo === "string") {
+          return { kind: "confirm", repo: said.repo };
+        }
+        errors[idea.id] = failed(answer);
+        return { kind: "failed" };
+      });
+    },
     setDue(idea: Idea, due: string | null): Promise<boolean> {
       return write(idea, "due", { due });
     },

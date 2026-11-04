@@ -101,6 +101,18 @@ export interface IdeaWrite {
   changed: boolean;
 }
 
+/** What a promote sends: the repo when the project has several GitHub repos, and the
+ *  owner's yes for a repo someone else owns. */
+export interface PromoteBody {
+  repo?: string;
+  confirm?: boolean;
+}
+
+/** `issue` is a GitHub URL, or a scratch file's path in tilde form. */
+export interface PromoteWrite extends IdeaWrite {
+  issue: string;
+}
+
 export interface ProjectDetail extends Project {
   produced: string;
   error: string | null;
@@ -198,21 +210,21 @@ export interface DevicesResponse {
 export type Load<T> =
   | { state: "loading" }
   | { state: "ready"; data: T; at: number }
-  | { state: "error"; kind: "unauthorized" | "network" | "http"; detail: string };
+  | { state: "error"; kind: "unauthorized" | "network" | "http"; detail: string; status?: number; body?: unknown };
 
 /** What a fetch settles to: everything but loading. */
 export type Answer<T> = Exclude<Load<T>, { state: "loading" }>;
 export type Failure = Extract<Load<never>, { state: "error" }>;
 
-async function errorDetail(res: Response): Promise<string> {
+async function errorOf(res: Response): Promise<{ detail: string; body?: unknown }> {
   try {
     const body: unknown = await res.json();
     const error = (body as { error?: { detail?: unknown } }).error;
-    if (typeof error?.detail === "string") return error.detail;
+    if (typeof error?.detail === "string") return { detail: error.detail, body };
   } catch {
     // Not JSON; fall through to the status line.
   }
-  return `helm answered ${res.status} ${res.statusText}`.trim();
+  return { detail: `helm answered ${res.status} ${res.statusText}`.trim() };
 }
 
 /** A GET, or a POST of `body` as JSON. Never throws. */
@@ -230,8 +242,8 @@ export async function fetchJson<T>(path: string, body?: unknown): Promise<Answer
     const why = e instanceof Error ? e.message : String(e);
     return { state: "error", kind: "network", detail: `Could not reach helm (${why}). Check the connection and try again.` };
   }
-  if (res.status === 401) return { state: "error", kind: "unauthorized", detail: await errorDetail(res) };
-  if (!res.ok) return { state: "error", kind: "http", detail: await errorDetail(res) };
+  if (res.status === 401) return { state: "error", kind: "unauthorized", detail: (await errorOf(res)).detail };
+  if (!res.ok) return { state: "error", kind: "http", status: res.status, ...(await errorOf(res)) };
   try {
     return { state: "ready", data: (await res.json()) as T, at: Date.now() };
   } catch {

@@ -9,7 +9,11 @@
     {#key toast.key}
       <div class="toast">
         <span class="grow">{toast.text}</span>
-        <button class="undo" onclick={toast.undo}>Undo</button>
+        {#if toast.link !== undefined}
+          <a class="undo" href={toast.link} target="_blank" rel="noopener">Open the issue</a>
+        {:else if toast.undo !== undefined}
+          <button class="undo" onclick={toast.undo}>Undo</button>
+        {/if}
       </div>
     {/key}
   {/if}
@@ -53,6 +57,15 @@
     color: var(--accent-line);
     font-weight: 600;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    text-decoration: none;
+    font-size: 13px;
+  }
+  .grow {
+    overflow-wrap: anywhere;
+    padding: 8px 0;
   }
   .undo:hover {
     background: color-mix(in srgb, var(--bg) 12%, transparent);

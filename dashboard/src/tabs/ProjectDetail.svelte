@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fetchJson, type ProjectDetail } from "../lib/api";
-  import { createIdeaWrites } from "../lib/ideas.svelte";
+  import { createIdeaWrites, promoteTarget } from "../lib/ideas.svelte";
   import { layout } from "../lib/layout.svelte";
   import { createPoll } from "../lib/poll.svelte";
   import { ageOf } from "../lib/time";
@@ -73,7 +73,7 @@
   {:else}
     <ul class="stack">
       {#each ideas as idea (idea.id)}
-        <IdeaRow {idea} {now} {writes} />
+        <IdeaRow {idea} {now} {writes} target={promoteTarget(project)} />
       {/each}
     </ul>
   {/if}
