@@ -1,8 +1,8 @@
 # Data shapes
 
-The four records the tabs are built on (ADR 0037). Three are vault notes the owner can
-read and edit by hand; the fourth is assembled by the engine and never stored. Examples
-use the demo vault's cast.
+The records the tabs are built on (ADRs 0037 and 0039). Projects, ideas and devices are
+vault notes the owner can read and edit by hand. The routine record is assembled per
+request, and alerts live in State. Examples use the demo vault's cast.
 
 ## Project
 
@@ -101,3 +101,30 @@ disagrees with the machine.
 
 Run now is `launchctl kickstart`; pause and resume move the plist and boot it out or in.
 Services can be restarted from loopback only.
+
+## Alert
+
+One file per alert at `~/.helm/alerts/<key>.json` (ADR 0039). The key names what the
+alert is about, so evaluating the same condition twice rewrites the same file.
+
+```json
+{
+  "key": "routine:backup",
+  "tab": "background",
+  "title": "backup failed: volume absent",
+  "opened": "2026-11-04T09:00:04Z",
+  "fingerprint": "volume absent",
+  "pushed": "2026-11-04T09:00:05Z",
+  "dismissed": null,
+  "closed": null
+}
+```
+
+- `tab` is one of `projects`, `ideas`, `background`, `devices`.
+- `fingerprint` is what the condition looked like when it opened. A dismissed alert
+  stays hidden while the fingerprint matches and reopens, and pushes again, when it
+  changes.
+- An alert counts toward the badges while `closed` and `dismissed` are both null. The
+  app icon shows the total; each tab shows its own count.
+- Closed alerts older than a week are deleted on the next evaluation.
+- Push subscriptions are in `~/.helm/push/dashboard.json`, one per enrolled browser.

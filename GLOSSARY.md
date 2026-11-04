@@ -147,6 +147,12 @@ Work that is started and unfinished, derived from a repo rather than declared: a
 unmerged branch, an uncommitted change, an open effort. Nobody writes it down, so
 nobody has to remember to.
 
+**Alert**:
+Something wrong that the owner should see: a failed routine, a red pull request, an idea
+past its date. Open while the condition holds, pushed to the phone once, and counted on
+the app icon and on its tab.
+_Avoid_: notification (that is the push), warning, event
+
 **Device**:
 A piece of hardware the owner owns, with one note in the vault: its specs, its role, and
 whether it hosts T3 Code, reaches it as a client, or neither. Online status comes live from

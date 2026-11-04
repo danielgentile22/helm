@@ -63,6 +63,7 @@ project manager over the vault: projects, ideas, background routines and devices
 
 - [0037](0037-helm-is-a-project-manager.md) Helm is a project manager over the vault
 - [0038](0038-the-tailnet-can-add-ideas-and-drive-routines.md) The tailnet can add ideas and drive routines
+- [0039](0039-alerts-push-to-the-phone-and-badge-the-tabs.md) Alerts push to the phone and badge the tabs
 
 ## Numbering after the merge
 
