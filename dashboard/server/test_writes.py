@@ -27,6 +27,9 @@ import machine  # noqa: E402
 import routes  # noqa: E402
 import common  # noqa: E402  after routes, which puts the producers on the path
 import control  # noqa: E402
+import idea_edit  # noqa: E402
+from sources import github  # noqa: E402
+from test_promote import COMPILER_IDEA, KEEL_IDEA, FakeGh, make_projects  # noqa: E402
 
 DEMO = common.ENGINE / "demo-vault"
 GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
@@ -201,6 +204,82 @@ class EditIdeaTest(WriteTest):
         code, body = post(f"/api/ideas/{IDEA}/status", {"status": "done"})
         self.assertEqual(code, 409, body)
         self.assertIn("status: promoted", note.read_text())
+
+
+class PromoteRouteTest(WriteTest):
+    """The promote route against temp repos and a fake `gh` signed in as jordan, so every
+    demo repo (`example/...`) is someone else's."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.gh = FakeGh(login="jordan")
+        for module, name, value in ((common, "PROJECTS_DIR", make_projects(self.vault.parent)),
+                                    (github, "gh", self.gh), (routes, "_login", None)):
+            self.addCleanup(setattr, module, name, getattr(module, name))
+            setattr(module, name, value)
+
+    def promote(self, stem: str, body: object = None) -> tuple[int, dict]:
+        return post(f"/api/ideas/{stem}/promote", body if body is not None else {})
+
+    def test_a_repo_someone_else_owns_waits_for_confirm(self) -> None:
+        code, body = self.promote(KEEL_IDEA)
+        self.assertEqual(code, 409, body)
+        self.assertEqual((body["needs_confirm"], body["repo"]), (True, "example/keel"))
+        self.assertEqual(self.gh.created(), [])
+        self.assertEqual(self.subjects(), ["start"])
+        code, body = self.promote(KEEL_IDEA, {"confirm": True})
+        self.assertEqual(code, 200, body)
+        self.assertEqual((body["issue"], body["changed"], body["idea"]["status"]),
+                         ("https://github.com/example/keel/issues/12", True, "promoted"))
+        self.assertEqual(self.subjects()[0], "Promote an idea")
+        self.assertEqual(self.refreshes, 1)
+
+    def test_the_owner_s_own_repo_needs_no_confirm_and_the_login_is_asked_once(self) -> None:
+        self.gh.login = "Example"
+        self.assertEqual(self.promote(KEEL_IDEA)[0], 200)
+        idea = idea_edit.add(self.vault, "Add a dark theme", project="Keel")
+        self.assertEqual(self.promote(idea.id)[0], 200)
+        self.assertEqual([c for c in self.gh.calls if c[0] == "api"], [("api", "user", "-q", ".login")])
+
+    def test_a_promoted_idea_answers_its_issue_without_asking(self) -> None:
+        self.promote(KEEL_IDEA, {"confirm": True})
+        code, body = self.promote(KEEL_IDEA)
+        self.assertEqual((code, body["changed"], body["issue"]), (200, False, "https://github.com/example/keel/issues/12"))
+        self.assertEqual(len(self.gh.created()), 1)
+        self.assertEqual(self.refreshes, 1)
+
+    def test_a_scratch_tracker_needs_no_confirm(self) -> None:
+        code, body = self.promote(COMPILER_IDEA, {"repo": "importer"})
+        self.assertEqual(code, 200, body)
+        self.assertTrue(body["issue"].endswith(".scratch/ideas/issues/01-fix-the-importer-for-large-pgn-files.md"))
+        self.assertEqual(self.gh.calls, [])
+
+    def test_refusals_answer_with_their_codes_and_write_nothing(self) -> None:
+        wiki = idea_edit.add(self.vault, "Add a search box", project="Team Wiki")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "wiki idea")
+        for stem, body, code in ((wiki.id, {}, 409), (IDEA, {}, 409), ("2026-01-01-no-such-idea", {}, 404),
+                                 (KEEL_IDEA, {"repo": "example/other", "confirm": True}, 400),
+                                 (KEEL_IDEA, {"confirm": "yes"}, 400), (KEEL_IDEA, {"title": "x"}, 400)):
+            with self.subTest(stem=stem, body=body):
+                self.assertEqual(self.promote(stem, body)[0], code)
+        self.gh.down = True
+        self.assertEqual(self.promote(KEEL_IDEA, {"confirm": True})[0], 502)
+        self.assertEqual(self.gh.created()[-1][:2], ("issue", "create"))
+        self.assertEqual(self.subjects()[0], "wiki idea")
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_a_failed_commit_answers_the_issue_and_a_retry_records_it(self) -> None:
+        hook = self.vault / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        code, body = self.promote(KEEL_IDEA, {"confirm": True})
+        self.assertEqual((code, body["error"]["code"]), (500, "unrecorded"))
+        self.assertEqual(body["issue"], "https://github.com/example/keel/issues/12")
+        hook.unlink()
+        code, body = self.promote(KEEL_IDEA)
+        self.assertEqual((code, body["idea"]["status"], body["issue"]), (200, "promoted", "https://github.com/example/keel/issues/12"))
+        self.assertEqual(len(self.gh.created()), 1)
 
 
 class FakeLaunchd:
@@ -397,7 +476,7 @@ class RoutineTest(WriteTest):
 class GateTest(WriteTest):
     """Every write row sits behind the same gate as the passkey rows."""
 
-    WRITES = ("/api/ideas", f"/api/ideas/{IDEA}/status", f"/api/ideas/{IDEA}/due",
+    WRITES = ("/api/ideas", f"/api/ideas/{IDEA}/status", f"/api/ideas/{IDEA}/due", f"/api/ideas/{IDEA}/promote",
               "/api/routines/capture/run", "/api/routines/capture/pause", "/api/routines/capture/resume",
               "/api/alerts/routine:backup/dismiss", "/api/push/subscribe", "/api/push/unsubscribe")
     # Writes that only mean something on this machine, never reachable over the tailnet.
@@ -438,6 +517,12 @@ class GateTest(WriteTest):
 
         with self.assertRaises(app.ApiError) as caught:
             knock()
+        self.assertEqual(caught.exception.status, 401)
+        promote = app.Request("POST", f"/api/ideas/{IDEA}/promote",
+                              {"host": TAILNET_HOST, "origin": "https://" + TAILNET_HOST},
+                              b'{"confirm": true}', "127.0.0.1", 8642, door="tailnet")
+        with self.assertRaises(app.ApiError) as caught:
+            app.dispatch(promote, routes.ROUTES, gate)
         self.assertEqual(caught.exception.status, 401)
         signed_in = True
         self.assertEqual(knock().status, 201)

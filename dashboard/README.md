@@ -29,6 +29,7 @@ nothing more.
 | POST | `/api/ideas` | `{title, project?, department?, due?}` adds an idea and commits it in the vault. 201 with `{"idea", "changed"}` |
 | POST | `/api/ideas/<id>/status` | `{status: open\|done\|dropped}`. 200 with `{"idea", "changed"}`, 404 for an unknown id |
 | POST | `/api/ideas/<id>/due` | `{due: "YYYY-MM-DD"\|null}`. 200 with `{"idea", "changed"}`, 404 for an unknown id |
+| POST | `/api/ideas/<id>/promote` | `{repo?, confirm?}` files the idea as an issue in its project's tracker. 200 with `{"idea", "issue", "changed"}`; 409 `{"needs_confirm": true, "repo"}` for a GitHub repo someone else owns until `confirm: true` |
 | POST | `/api/routines/<name>/run`, `/pause`, `/resume` | a routine in `models.json` only. 200 with `{"routine", "changed"}`, 409 when the state refuses it |
 | GET | `/api/alerts` | `{"alerts", "counts", "total"}`: every open, undismissed alert (shape in `docs/data-shapes.md`), newest first, with a count per tab |
 | POST | `/api/alerts/<key>/dismiss` | hides one alert until its fingerprint changes. 200 with `{"alert", "changed"}`, 404 for an unknown key. A key with `#` in it is sent encoded |
@@ -59,6 +60,17 @@ loopback, behind the passkey over the tailnet (ADR 0016, ADR 0038).
   title is 1 to 200 characters on one line, a project is a project note's title, a due
   date is ISO. Setting what is already set writes nothing and answers `changed: false`.
   A promoted idea is 409.
+- **Promotion** goes through `idea_edit.promote` under the same lock. The idea must be open
+  and belong to a project whose tracker is `github` or `scratch`; `none`, or an idea that is
+  not open, is 409. A GitHub project with several GitHub repos needs `repo`. The issue is
+  filed first (`gh issue create`, or a numbered file in `<workspace>/.scratch/ideas/issues/`),
+  then `issue:` and `status: promoted` are written and committed as `Promote an idea`.
+  When the repo's owner is not the `gh` user (asked once per process), the answer is 409
+  with `needs_confirm` and nothing is filed until the page sends `confirm: true` (ADR 0038).
+  A promoted idea answers its issue again with `changed: false`. A tracker that fails is
+  502 and writes nothing. When the issue is filed but the vault commit fails, the answer
+  is 500 with `issue` beside the error, the note keeps `issue:`, and promoting again
+  commits that issue without filing another.
 - **Routines** go through `server/control.py`. Run is `launchctl kickstart`, refused with
   409 while the routine is paused, running or not loaded. Pause boots the job out, then
   moves its plist from `~/Library/LaunchAgents/` to `~/.helm/disabled/`; resume moves it

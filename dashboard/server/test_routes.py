@@ -187,6 +187,7 @@ class RouteTest(unittest.TestCase):
             ("POST", "/api/ideas"),
             ("POST", "/api/ideas/2026-09-26-order-the-desk-lamp/status"),
             ("POST", "/api/ideas/2026-09-26-order-the-desk-lamp/due"),
+            ("POST", "/api/ideas/2026-09-26-order-the-desk-lamp/promote"),
             ("POST", "/api/routines/capture/run"),
             ("GET", "/api/alerts"),
             ("POST", "/api/alerts/routine:backup/dismiss"),

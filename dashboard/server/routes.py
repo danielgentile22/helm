@@ -294,6 +294,66 @@ def idea_due(request: Request, m: "re.Match[str]") -> Response:
                            lambda idea: idea_edit.DUE_SUBJECT)
 
 
+PROMOTE_FIELDS = ("repo", "confirm")
+_login: str | None = None
+
+
+def github_login() -> str:
+    """The GitHub user `gh` is signed in as, asked once per server process."""
+    global _login
+    if _login is None:
+        _login = idea_edit.gh("api", "user", "-q", ".login").strip()
+    return _login
+
+
+class NeedsConfirm(Exception):
+    def __init__(self, repo: str) -> None:
+        self.repo = repo
+
+
+def idea_promote(request: Request, m: "re.Match[str]") -> Response:
+    """File the idea as an issue in its project's tracker (ADR 0037). An issue on a GitHub repo
+    someone else owns is read by other people, so it waits for `confirm: true` (ADR 0038) and
+    answers 409 with `needs_confirm` until then. A promoted idea answers its issue again."""
+    payload = auth.body_of(request)
+    unknown = sorted(set(payload) - set(PROMOTE_FIELDS))
+    if unknown:
+        raise ApiError(400, "bad_request", f"unknown fields {', '.join(unknown)}; promotion takes repo and confirm")
+    confirm = payload.get("confirm", False)
+    if not isinstance(confirm, bool):
+        raise ApiError(400, "bad_request", "confirm must be true or false")
+    repo = text_field(payload, "repo")
+
+    def approve(to: idea_edit.Target) -> None:
+        if isinstance(to, idea_edit.GitHubTarget) and not confirm \
+                and to.owner.lower() != github_login().lower():
+            raise NeedsConfirm(to.repo)
+
+    with vault_write():
+        try:
+            note = idea_edit.resolve(common.VAULT, m["id"])
+        except idea_edit.UnknownIdea:
+            raise ApiError(404, "not_found", "no idea note has that id")
+        except idea_edit.IdeaError as e:
+            raise ApiError(400, "bad_request", str(e))
+        try:
+            done = idea_edit.promote(common.VAULT, note, repo, approve=approve)
+        except NeedsConfirm as e:
+            return json_response({"needs_confirm": True, "repo": e.repo, "error": {
+                "code": "needs_confirm", "detail": f"{e.repo} is not yours, so other people will read this issue"}}, 409)
+        except idea_edit.Unrecorded as e:
+            return json_response({"issue": e.issue, "error": {"code": "unrecorded", "detail": str(e)}}, 500)
+        except idea_edit.Refused as e:
+            raise ApiError(409, "conflict", str(e))
+        except idea_edit.TrackerFailed as e:
+            raise ApiError(502, "tracker_failed", str(e))
+        except idea_edit.IdeaError as e:
+            raise ApiError(400, "bad_request", str(e))
+    if done.changed:
+        refresh_capture()
+    return json_response({"idea": done.idea.to_row(), "issue": done.issue, "changed": done.changed})
+
+
 ROUTINE_ACTIONS = {"run": control.run, "pause": control.pause, "resume": control.resume}
 
 
@@ -384,6 +444,7 @@ ROUTES: tuple[Route, ...] = (
     Route("POST", re.compile(r"^/api/ideas$"), "tailnet", idea_add),
     Route("POST", re.compile(r"^/api/ideas/(?P<id>\d{4}-\d\d-\d\d-[a-z0-9-]+)/status$"), "tailnet", idea_status),
     Route("POST", re.compile(r"^/api/ideas/(?P<id>\d{4}-\d\d-\d\d-[a-z0-9-]+)/due$"), "tailnet", idea_due),
+    Route("POST", re.compile(r"^/api/ideas/(?P<id>\d{4}-\d\d-\d\d-[a-z0-9-]+)/promote$"), "tailnet", idea_promote),
     Route("POST", re.compile(r"^/api/routines/(?P<name>[a-z0-9-]+)/(?P<action>run|pause|resume)$"), "tailnet",
           routine_action),
     Route("GET", re.compile(r"^/api/alerts$"), "tailnet", alerts_list),
