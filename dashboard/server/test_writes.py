@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -28,6 +29,7 @@ import routes  # noqa: E402
 import common  # noqa: E402  after routes, which puts the producers on the path
 import control  # noqa: E402
 import idea_edit  # noqa: E402
+import refresh  # noqa: E402
 from sources import github  # noqa: E402
 from test_promote import COMPILER_IDEA, KEEL_IDEA, FakeGh, make_projects  # noqa: E402
 
@@ -62,12 +64,15 @@ class WriteTest(unittest.TestCase):
         self.state = root / "state"
         self.refreshes = 0
 
+        self.rereads: list[list[str]] = []
+
         def refreshed() -> None:
             self.refreshes += 1
 
         for module, name, value in ((common, "VAULT", self.vault), (common, "STATE", self.state),
                                     (common, "STATUS", self.state / "status"),
-                                    (routes, "refresh_capture", refreshed)):
+                                    (routes, "refresh_capture", refreshed),
+                                    (refresh, "start", lambda names: self.rereads.append(sorted(names)))):
             self.addCleanup(setattr, module, name, getattr(module, name))
             setattr(module, name, value)
 
@@ -235,6 +240,52 @@ class ChangeIdeaTest(WriteTest):
         self.assertEqual(post(f"/api/ideas/{IDEA}/edit", {"title": "Unpack"})[0], 409)
 
 
+class RefreshTest(WriteTest):
+    def test_the_button_rereads_every_project_source(self) -> None:
+        code, body = post("/api/projects/refresh", {})
+        self.assertEqual((code, body), (202, {"refreshing": True}))
+        self.assertEqual(self.rereads, [["github", "projects", "repos"]])
+
+
+class RefreshWorkerTest(unittest.TestCase):
+    """The worker itself, with a fake source run that waits until the test lets it go."""
+
+    def setUp(self) -> None:
+        self.ran: list[str] = []
+        self.gate = threading.Event()
+
+        def run(name: str) -> None:
+            self.gate.wait(5)
+            self.ran.append(name)
+            if name == "repos":
+                raise RuntimeError("git broke")
+
+        self.addCleanup(setattr, refresh, "run_source", refresh.run_source)
+        refresh.run_source = run
+
+    def settle(self) -> None:
+        for _ in range(500):
+            if not refresh.running():
+                return
+            time.sleep(0.01)
+        self.fail("the refresh never finished")
+
+    def test_taps_during_a_round_join_one_more_round_and_a_failure_does_not_stick(self) -> None:
+        refresh.start(["github"])
+        self.assertTrue(refresh.running())
+        refresh.start(["projects"])
+        refresh.start(["repos", "projects"])
+        self.gate.set()
+        self.settle()
+        self.assertEqual(self.ran, ["github", "projects", "repos"])
+        self.assertFalse(refresh.running())
+
+    def test_only_project_sources(self) -> None:
+        with self.assertRaises(ValueError):
+            refresh.start(["ideas"])
+        self.assertFalse(refresh.running())
+
+
 class PromoteRouteTest(WriteTest):
     """The promote route against temp repos and a fake `gh` signed in as jordan, so every
     demo repo (`example/...`) is someone else's."""
@@ -262,6 +313,7 @@ class PromoteRouteTest(WriteTest):
                          ("https://github.com/example/keel/issues/12", True, "promoted"))
         self.assertEqual(self.subjects()[0], "Promote an idea")
         self.assertEqual(self.refreshes, 1)
+        self.assertEqual(self.rereads, [["github"]])
 
     def test_the_owner_s_own_repo_needs_no_confirm_and_the_login_is_asked_once(self) -> None:
         self.gh.login = "Example"
@@ -276,12 +328,14 @@ class PromoteRouteTest(WriteTest):
         self.assertEqual((code, body["changed"], body["issue"]), (200, False, "https://github.com/example/keel/issues/12"))
         self.assertEqual(len(self.gh.created()), 1)
         self.assertEqual(self.refreshes, 1)
+        self.assertEqual(self.rereads, [["github"]])
 
     def test_a_scratch_tracker_needs_no_confirm(self) -> None:
         code, body = self.promote(COMPILER_IDEA, {"repo": "importer"})
         self.assertEqual(code, 200, body)
         self.assertTrue(body["issue"].endswith(".scratch/ideas/issues/01-fix-the-importer-for-large-pgn-files.md"))
         self.assertEqual(self.gh.calls, [])
+        self.assertEqual(self.rereads, [["projects"]])
 
     def test_refusals_answer_with_their_codes_and_write_nothing(self) -> None:
         wiki = idea_edit.add(self.vault, "Add a search box", project="Team Wiki")
@@ -505,7 +559,7 @@ class RoutineTest(WriteTest):
 class GateTest(WriteTest):
     """Every write row sits behind the same gate as the passkey rows."""
 
-    WRITES = ("/api/ideas", f"/api/ideas/{IDEA}/status", f"/api/ideas/{IDEA}/due", f"/api/ideas/{IDEA}/promote", f"/api/ideas/{IDEA}/edit",
+    WRITES = ("/api/ideas", f"/api/ideas/{IDEA}/status", f"/api/ideas/{IDEA}/due", f"/api/ideas/{IDEA}/promote", f"/api/ideas/{IDEA}/edit", "/api/projects/refresh",
               "/api/routines/capture/run", "/api/routines/capture/pause", "/api/routines/capture/resume",
               "/api/alerts/routine:backup/dismiss", "/api/push/subscribe", "/api/push/unsubscribe")
     # Writes that only mean something on this machine, never reachable over the tailnet.

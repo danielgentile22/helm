@@ -23,6 +23,7 @@ nothing more.
 | GET | `/api/health` | `{"ok", "now", "reach", "dist_built", "service"}`. The integrity check and `serve.py` both probe it |
 | GET | `/api/projects` | every project, from `~/.helm/status/projects.json` (below) |
 | GET | `/api/projects/<slug>` | one project with its issue list and open ideas |
+| POST | `/api/projects/refresh` | no body. Rereads every project source now, in the background; 202 with `{"refreshing": true}` |
 | GET | `/api/ideas?status=` | idea notes, read from the vault per request |
 | GET | `/api/background` | every routine and service, assembled per request |
 | GET | `/api/devices` | device notes with live tailnet presence |
@@ -110,12 +111,16 @@ here will change meaning.
 ### Projects
 
 `GET /api/projects` reads the file capture writes every 30 minutes and calls nothing, so a
-page load never reaches GitHub (ADR 0037).
+page load never reaches GitHub (ADR 0037). `refreshing` is true while the server is
+rereading the project sources, after a promotion or `POST /api/projects/refresh`, and the
+page asks again every two seconds until it is false. A promotion rereads only the tracker
+it wrote to: `projects` for a scratch tracker, `github` for a GitHub one.
 
 ```json
 {
   "produced": "2026-11-04T08:00:00-05:00",
   "error": "github: network: gh pr list -R example/keel: ...",
+  "refreshing": false,
   "projects": [{
     "slug": "keel",
     "title": "Keel",

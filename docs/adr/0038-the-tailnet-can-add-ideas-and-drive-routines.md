@@ -10,6 +10,7 @@ the passkey door of ADR 0025.
 | Read any tab | tailnet, passkey-gated | unchanged from ADR 0016 |
 | Add an idea, change its status | tailnet, passkey-gated | a new file in a folder only ideas live in, committed with a subject that carries no idea text |
 | Promote an idea to an issue | tailnet, passkey-gated | the owner writing to their own tracker; the idea text is the issue body |
+| Refresh the projects now | tailnet, passkey-gated | reruns capture's project sources, the same reads the half-hour capture makes, with no input |
 | Run now, pause, resume a routine | tailnet, passkey-gated | a fixed list of named routines from `models.json`, no arguments, no free text |
 | Run anything else | **loopback only, permanently** | unchanged from ADR 0016 |
 

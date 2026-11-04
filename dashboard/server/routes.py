@@ -34,6 +34,7 @@ import devices  # noqa: E402
 import idea_edit  # noqa: E402
 import machine  # noqa: E402
 import push  # noqa: E402
+import refresh  # noqa: E402
 from app import ApiError, Request, Response, Route, json_response, text_response  # noqa: E402
 
 DIST = common.ENGINE / "dashboard" / "dist"
@@ -129,8 +130,14 @@ def summary(entry: dict) -> dict:
 
 def projects_list(request: Request, m: "re.Match[str]") -> Response:
     doc, entries, error = projects_doc()
-    return json_response({"produced": doc.get("produced"), "error": error,
+    return json_response({"produced": doc.get("produced"), "error": error, "refreshing": refresh.running(),
                           "projects": [summary(e) for e in entries]})
+
+
+def projects_refresh(request: Request, m: "re.Match[str]") -> Response:
+    """Rerun every project source now, in the background. A fixed action with no input."""
+    refresh.start(refresh.PROJECT_SOURCES)
+    return json_response({"refreshing": True}, 202)
 
 
 def open_ideas(project: str) -> list[dict]:
@@ -146,7 +153,7 @@ def project_detail(request: Request, m: "re.Match[str]") -> Response:
     if entry is None:
         raise ApiError(404, "not_found", error or f"no project with the slug {m['slug']!r}")
     ideas = open_ideas(entry["title"])
-    return json_response({"produced": doc.get("produced"), "error": error,
+    return json_response({"produced": doc.get("produced"), "error": error, "refreshing": refresh.running(),
                           **entry, "ideas_open": len(ideas), "ideas": ideas})
 
 
@@ -388,6 +395,8 @@ def idea_promote(request: Request, m: "re.Match[str]") -> Response:
             raise ApiError(400, "bad_request", str(e))
     if done.changed:
         refresh_capture()
+        # The new issue is in the tracker now; reread that tracker so the project shows it.
+        refresh.start(["github"] if done.issue.startswith(("http://", "https://")) else ["projects"])
     return json_response({"idea": done.idea.to_row(), "issue": done.issue, "changed": done.changed})
 
 
@@ -475,6 +484,7 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", re.compile(r"^/api/health$"), "tailnet", health),
     Route("GET", re.compile(r"^/api/projects$"), "tailnet", projects_list),
     Route("GET", re.compile(r"^/api/projects/(?P<slug>[a-z0-9-]+)$"), "tailnet", project_detail),
+    Route("POST", re.compile(r"^/api/projects/refresh$"), "tailnet", projects_refresh),
     Route("GET", re.compile(r"^/api/ideas$"), "tailnet", ideas_list),
     Route("GET", re.compile(r"^/api/background$"), "tailnet", background_tab),
     Route("GET", re.compile(r"^/api/devices$"), "tailnet", devices_tab),
