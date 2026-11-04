@@ -11,7 +11,24 @@
 
   let { slug, at = $bindable() }: { slug: string | null; at: number | null } = $props();
 
-  const poll = createPoll(() => fetchJson<ProjectsResponse>("/api/projects"));
+  const poll = createPoll(
+    () => fetchJson<ProjectsResponse>("/api/projects"),
+    (d) => d.refreshing,
+  );
+
+  // Reread every project's issues, pull requests and branches now instead of at the next
+  // capture. The answers say `refreshing` until it is merged, and the poll follows that.
+  let asking = $state(false);
+  let refreshError = $state<string | null>(null);
+  async function refreshNow(): Promise<void> {
+    asking = true;
+    refreshError = null;
+    const answer = await fetchJson<{ refreshing: boolean }>("/api/projects/refresh", {});
+    if (answer.state === "ready") await poll.refresh();
+    else if (answer.kind === "unauthorized") poll.signedOut(answer);
+    else refreshError = answer.detail;
+    asking = false;
+  }
   $effect(() => {
     poll.start();
     return () => poll.stop();
@@ -43,7 +60,15 @@
 </script>
 
 {#snippet captured(data: ProjectsResponse, now: number)}
-  <p class="faint small captured">captured {ageOf(data.produced, now)}</p>
+  <p class="faint small captured">
+    {#if asking || data.refreshing}
+      <span aria-live="polite">refreshing</span>
+    {:else}
+      captured {ageOf(data.produced, now)} ·
+      <button class="refresh" onclick={refreshNow}>Refresh</button>
+    {/if}
+  </p>
+  {#if refreshError !== null}<p class="notice">{refreshError}</p>{/if}
   {#if data.error !== null}<p class="notice">{data.error}</p>{/if}
 {/snippet}
 
@@ -116,6 +141,17 @@
 <style>
   .captured {
     margin: 0;
+  }
+  .refresh {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    cursor: pointer;
+  }
+  .refresh:hover {
+    text-decoration: underline;
   }
   .cards {
     margin-top: 12px;

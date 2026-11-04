@@ -1,6 +1,8 @@
 import type { Failure, Load } from "./api";
 
 const INTERVAL = 60_000;
+/** How soon to ask again while the answer says the server is still working on it. */
+const SOON = 2_000;
 
 export interface Poll<T> {
   readonly load: Load<T>;
@@ -12,9 +14,12 @@ export interface Poll<T> {
   signedOut(failure: Failure): void;
 }
 
-export function createPoll<T>(fetcher: () => Promise<Load<T>>): Poll<T> {
+/** `busy` says the answer is about to change (a refresh is running on the server), so the
+ *  poll asks again in two seconds instead of waiting the full minute. */
+export function createPoll<T>(fetcher: () => Promise<Load<T>>, busy?: (data: T) => boolean): Poll<T> {
   let load = $state<Load<T>>({ state: "loading" });
   let timer: ReturnType<typeof setInterval> | null = null;
+  let soon: ReturnType<typeof setTimeout> | undefined;
   let latest = 0;
   let inflight = false;
   let waiters: (() => void)[] = [];
@@ -34,6 +39,8 @@ export function createPoll<T>(fetcher: () => Promise<Load<T>>): Poll<T> {
     inflight = false;
     load = next;
     settle();
+    clearTimeout(soon);
+    if (timer !== null && next.state === "ready" && busy?.(next.data) === true) soon = setTimeout(nudge, SOON);
   }
 
   // Focus and visibilitychange fire together on return; one fetch covers both.
@@ -59,6 +66,7 @@ export function createPoll<T>(fetcher: () => Promise<Load<T>>): Poll<T> {
     stop() {
       if (timer !== null) clearInterval(timer);
       timer = null;
+      clearTimeout(soon);
       latest++;
       inflight = false;
       removeEventListener("focus", nudge);

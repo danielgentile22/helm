@@ -59,6 +59,8 @@ export interface Project {
 export interface ProjectsResponse {
   produced: string;
   error: string | null;
+  /** Capture's project sources are being reread now; ask again shortly. */
+  refreshing: boolean;
   projects: Project[];
 }
 
@@ -125,6 +127,7 @@ export interface PromoteWrite extends IdeaWrite {
 export interface ProjectDetail extends Project {
   produced: string;
   error: string | null;
+  refreshing: boolean;
   issues_list: Issue[];
   ideas: Idea[];
 }

@@ -17,7 +17,7 @@
   // One poll per slug, so switching projects never shows the last one's data.
   const poll = $derived.by(() => {
     const path = `/api/projects/${encodeURIComponent(slug)}`;
-    return createPoll(() => fetchJson<ProjectDetail>(path));
+    return createPoll(() => fetchJson<ProjectDetail>(path), (d) => d.refreshing);
   });
 
   $effect(() => {
