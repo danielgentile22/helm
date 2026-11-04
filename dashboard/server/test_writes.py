@@ -6,12 +6,15 @@ temp state folder and a fake launchd. Nothing here touches the real vault, launc
 """
 from __future__ import annotations
 
+import http.client
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -109,6 +112,7 @@ class AddIdeaTest(WriteTest):
         for body in ({}, {"title": ""}, {"title": "   "}, {"title": "x" * 201}, {"title": "two\nlines"},
                      {"title": "tab\there"}, {"title": 7}, {"title": "ok", "project": "Nope"},
                      {"title": "ok", "due": "next week"}, {"title": "ok", "due": "2026-13-01"},
+                     {"title": "ok", "due": "2026-W46-1"}, {"title": "ok", "due": "20261115"},
                      {"title": "ok", "department": "Garden"}, {"title": "ok", "project": "Keel", "department": "Life"},
                      {"title": "ok", "body": "more text"}, {"title": "ok", "due": 20261101}, ["a list"]):
             with self.subTest(body=body):
@@ -135,6 +139,20 @@ class AddIdeaTest(WriteTest):
 
 
 class EditIdeaTest(WriteTest):
+    def test_a_failed_commit_puts_the_note_back(self) -> None:
+        note = self.vault / "Atlas" / "Ideas" / f"{IDEA}.md"
+        before = note.read_text()
+        hook = self.vault / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        for path, body in ((f"/api/ideas/{IDEA}/status", {"status": "done"}),
+                           (f"/api/ideas/{IDEA}/due", {"due": "2026-12-24"})):
+            with self.subTest(path=path):
+                self.assertEqual(post(path, body)[0], 500)
+                self.assertEqual(note.read_text(), before)
+                self.assertEqual(self.git("status", "--porcelain"), "")
+        self.assertEqual(self.refreshes, 0)
+
     def test_status_changes_commit_and_repeat_as_no_change(self) -> None:
         for status, subject in (("done", "Mark an idea done"), ("dropped", "Drop an idea"), ("open", "Reopen an idea")):
             with self.subTest(status=status):
@@ -192,13 +210,23 @@ class FakeLaunchd:
         self.loaded: dict[str, int | None] = {}
         self.calls: list[tuple[str, ...]] = []
         self.refuse_bootstraps = 0
+        self.broken = False
 
     def list(self) -> dict[str, machine.LaunchdJob]:
         return {label: machine.LaunchdJob(label, pid, 0) for label, pid in self.loaded.items()}
 
     def launchctl(self, *args: str) -> tuple[int, str]:
-        self.calls.append(args)
         verb = args[0]
+        if verb == "print":
+            if self.broken:
+                return 1, "TimeoutExpired"
+            label = args[1].rsplit("/", 1)[1]
+            if label not in self.loaded:
+                return control.NO_SUCH_JOB, "Could not find service"
+            pid = self.loaded[label]
+            return 0, f"{label} = {{\n\tstate = {'running' if pid else 'not running'}\n"\
+                      + (f"\tpid = {pid}\n" if pid else "") + "}\n"
+        self.calls.append(args)
         if verb == "kickstart":
             self.loaded[args[1].rsplit("/", 1)[1]] = 4242
             return 0, ""
@@ -334,6 +362,18 @@ class RoutineTest(WriteTest):
         self.assertTrue(self.active.is_file())
         self.assertEqual(self.act("resume")[0], 200)
 
+    def test_a_launchctl_that_fails_to_answer_changes_nothing(self) -> None:
+        """`launchctl list` answers empty when it fails, which would read as unloaded and
+        park a plist launchd still fires. Each job is asked with `print` instead."""
+        self.installed()
+        self.launchd.broken = True
+        for action in ("run", "pause", "resume"):
+            with self.subTest(action=action):
+                self.assertEqual(self.act(action)[0], 502)
+        self.assertTrue(self.active.is_file())
+        self.assertFalse(self.parked.exists())
+        self.assertEqual(self.launchd.calls, [])
+
     def test_pause_refuses_a_running_routine_and_one_with_no_plist(self) -> None:
         self.assertEqual(self.act("pause")[0], 409)
         self.installed()
@@ -398,10 +438,27 @@ class GateTest(WriteTest):
         self.assertEqual(knock().status, 201)
 
     def test_a_log_line_names_the_route_and_not_the_idea(self) -> None:
-        line = app.redact(f'"POST /api/ideas/{IDEA}/status HTTP/1.1" 200 -')
-        self.assertEqual(line, '"POST /api/ideas/-/status HTTP/1.1" 200 -')
-        self.assertEqual(app.redact('"GET /api/ideas?status=open HTTP/1.1" 200 -'),
-                         '"GET /api/ideas?status=open HTTP/1.1" 200 -')
+        """Over a real socket, so the line checked is the one the handler writes."""
+        server = app.make_server("127.0.0.1", 0, routes.ROUTES)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        logged = io.StringIO()
+        with mock.patch("sys.stderr", logged):
+            for path, body in (("/api/ideas", {"title": "Ring Alex Reed about the Lisbon deposit"}),
+                               (f"/api/ideas/{IDEA}/status", {"status": "done"})):
+                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                conn.request("POST", path, json.dumps(body),
+                             {"Origin": f"http://127.0.0.1:{port}", "Content-Type": "application/json"})
+                self.assertIn(conn.getresponse().status, (200, 201))
+                conn.close()
+        text = logged.getvalue()
+        self.assertIn("/api/ideas/-/status", text)
+        self.assertIn('"POST /api/ideas HTTP/1.1" 201', text)
+        for leak in ("desk-lamp", "Lisbon", "Alex"):
+            self.assertNotIn(leak, text)
 
 
 if __name__ == "__main__":

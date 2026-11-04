@@ -80,8 +80,9 @@ class Idea:
 
 
 def valid_day(value: str, what: str) -> str:
+    """YYYY-MM-DD and nothing else: `fromisoformat` alone also takes week dates like 2026-W46-1."""
     try:
-        if len(value) == 10:
+        if re.fullmatch(r"\d{4}-\d\d-\d\d", value):
             date.fromisoformat(value)
             return value
     except ValueError:

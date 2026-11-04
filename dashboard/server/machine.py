@@ -58,13 +58,15 @@ def gui_domain() -> str:
 
 
 def launchctl(*args: str) -> tuple[int, str]:
-    """One launchctl write, and its exit code and stderr. Every argument is built by
-    `control.py` from a label and a path, never from request text."""
+    """One launchctl call, and its exit code and what it printed, stdout then stderr. Every
+    argument is built by `control.py` from a label and a path, never from request text. A
+    launchctl that could not be run or timed out is exit 1, never a code launchctl uses to
+    mean "no such job"."""
     try:
         r = subprocess.run(["launchctl", *args], capture_output=True, text=True, timeout=15)
     except (OSError, subprocess.TimeoutExpired) as e:
         return 1, type(e).__name__
-    return r.returncode, r.stderr.strip()
+    return r.returncode, r.stdout + r.stderr
 
 
 @dataclass(frozen=True)

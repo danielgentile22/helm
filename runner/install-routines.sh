@@ -50,7 +50,8 @@ while IFS=$'\t' read -r label program when; do
 	# A paused routine (ADR 0038) stays paused: its fresh plist is parked where resume will
 	# find it, and nothing is loaded or left in LaunchAgents for the next login to load.
 	if [ -f "$DISABLED/$label.plist" ]; then
-		python3 "$ENGINE/runner/launchd.py" --plist "$label" > "$DISABLED/$label.plist"
+		python3 "$ENGINE/runner/launchd.py" --plist "$label" > "$DISABLED/$label.plist.tmp"
+		mv "$DISABLED/$label.plist.tmp" "$DISABLED/$label.plist"
 		launchctl bootout "gui/$UID_NUM/$label" 2>/dev/null || true
 		rm -f "$plist"
 		echo "paused $label, left unloaded in ${DISABLED/#$HOME/~}"

@@ -9,12 +9,13 @@ ends in a vault commit whose subject carries no idea text; a routine write goes 
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 from urllib.parse import parse_qs
 
 HERE = Path(__file__).resolve().parent
@@ -208,6 +209,18 @@ def idea_title(payload: dict) -> str:
     return title
 
 
+@contextlib.contextmanager
+def vault_write() -> Iterator[None]:
+    """The vault write lock, with any OSError answered as a 500 that names its type alone.
+    Its message would carry the note's path, which is made from the idea's title, and an
+    unanswered exception has its traceback logged."""
+    with common.vault_write_lock():
+        try:
+            yield
+        except OSError as e:
+            raise ApiError(500, "vault_io", f"the idea note could not be read or written ({type(e).__name__})") from None
+
+
 def committed(idea: idea_edit.Idea, subject: str, before: str | None) -> None:
     try:
         idea_edit.commit_or_restore(common.VAULT, idea.path, subject, before)
@@ -222,7 +235,7 @@ def idea_add(request: Request, m: "re.Match[str]") -> Response:
         raise ApiError(400, "bad_request", f"unknown fields {', '.join(unknown)}; an idea takes {', '.join(IDEA_FIELDS)}")
     title = idea_title(payload)
     project, department, due = (text_field(payload, k) for k in ("project", "department", "due"))
-    with common.vault_write_lock():
+    with vault_write():
         try:
             idea = idea_edit.add(common.VAULT, title, project, department, due)
         except idea_edit.IdeaError as e:
@@ -236,7 +249,7 @@ def idea_edit_route(idea_id: str, change: "Callable[[Path], tuple[idea_edit.Idea
                     subject: "Callable[[idea_edit.Idea], str]") -> Response:
     """One field of one idea, committed when it changed. The same value twice writes nothing
     and answers 200 with `changed: false`."""
-    with common.vault_write_lock():
+    with vault_write():
         try:
             note = idea_edit.resolve(common.VAULT, idea_id)
         except idea_edit.UnknownIdea:
