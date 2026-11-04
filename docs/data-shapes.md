@@ -53,7 +53,12 @@ Anything else, in any shape.
 - An idea with neither project nor department gets `department: Life` until edited, so
   nothing is unfiled.
 - Promotion to a scratch tracker writes `<repo>/.scratch/ideas/issues/<NN>-<slug>.md`
-  with `Status: needs-triage` and the idea body, and sets `issue:` to that path.
+  with `# <title>`, `Status: needs-triage`, a `Repo:` line when one is named, and the
+  rest of the idea's body, and sets `issue:` to that path. Promotion to GitHub files the
+  title and the rest of the body, plus a line saying it came from helm, and sets
+  `issue:` to the issue URL. `issue:` is written before `status: promoted`, so an open
+  idea with an `issue:` is a promotion whose commit failed, and promoting it again
+  records that issue instead of filing another.
 - Every write is a vault commit whose subject names the action only: `Add an idea`,
   `Promote an idea`, `Drop an idea`.
 

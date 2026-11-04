@@ -12,15 +12,22 @@ the one path it touched, and the subject names the action only, never the idea's
                                [--due YYYY-MM-DD] [--body <text>] [--created YYYY-MM-DD]
     idea_edit.py status <path-or-slug> open|done|dropped
     idea_edit.py due <path-or-slug> YYYY-MM-DD|none
+    idea_edit.py promote <path-or-slug> [--repo owner/name]
     idea_edit.py list [--status open|done|dropped|promoted] [--json]
 
-`add`, `status` and `due` print one JSON line: the written path, the commit, whether
-anything changed, and the parsed idea. `status` and `due` with the value already set write
-nothing. `--no-commit` writes the note and skips the commit and the capture refresh.
+`add`, `status`, `due` and `promote` print one JSON line: the written path, the commit,
+whether anything changed, and the parsed idea (`promote` adds `issue`). `status` and `due`
+with the value already set write nothing. `--no-commit` writes the note and skips the
+commit and the capture refresh.
 
-Promotion (status `promoted` plus `issue:`) needs a project's tracker, so it is not here
-yet. It will be one more function beside `set_status` that writes `issue:` and the status
-together; `status` refuses `promoted` until then.
+`promote` files an open project idea as an issue in the project's tracker: `gh issue
+create` for a GitHub tracker (`--repo` picks among several GitHub repos), a numbered file
+in `<workspace>/.scratch/ideas/issues/` for a scratch one, and a refusal for `none`. It
+then sets `issue:` and `status: promoted` and commits `Promote an idea`. A promoted idea
+answers its existing issue and files nothing. When the issue is filed but the vault write
+fails, it exits 3 and prints the issue, and the note keeps `issue:` where it could, so
+running it again records that issue instead of filing another. `status` refuses
+`promoted`: promotion is not a status change.
 """
 from __future__ import annotations
 
@@ -33,13 +40,15 @@ import sys
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
-from typing import Literal, get_args
+from typing import Callable, Literal, get_args
 
 HERE = Path(__file__).resolve().parent
 sys.path[:0] = [str(HERE), str(HERE.parent)]
 
 import common  # noqa: E402
 import frontmatter  # noqa: E402
+from sources import github, projects  # noqa: E402
+from sources.repos import tilde  # noqa: E402
 
 Status = Literal["open", "done", "dropped", "promoted"]
 STATUSES: tuple[Status, ...] = get_args(Status)
@@ -284,7 +293,170 @@ def commit_or_restore(vault: Path, rel: str, subject: str, before: str | None) -
         raise
 
 
+# Promotion. An open idea of a project with a tracker becomes an issue there, and the note
+# records it: `issue:` first, then `status: promoted`, committed together. A promoted idea
+# promotes to the issue it already has. An open idea that already carries `issue:` is one
+# whose last promotion filed the issue but never committed, so it records that issue rather
+# than filing a second.
+
+PROMOTE_SUBJECT = "Promote an idea"
+HELM_LINE = "Promoted from an idea in helm."
+ISSUE_URL = re.compile(r"https://github\.com/[^/\s]+/[^/\s]+/issues/\d+")
+
+
+class Refused(IdeaError):
+    """The idea or its project cannot be promoted as it stands: a route answers 409."""
+
+
+class TrackerFailed(IdeaError):
+    """The tracker did not take the issue, so nothing was written anywhere."""
+
+
+class Unrecorded(IdeaError):
+    """The issue exists but the vault does not say so yet. Carries the issue so it is never lost."""
+
+    def __init__(self, issue: str, detail: str) -> None:
+        super().__init__(detail)
+        self.issue = issue
+
+
+@dataclass(frozen=True)
+class GitHubTarget:
+    repo: str                  # owner/name
+
+    @property
+    def owner(self) -> str:
+        return self.repo.split("/", 1)[0]
+
+
+@dataclass(frozen=True)
+class ScratchTarget:
+    folder: Path               # <workspace>/.scratch/ideas/issues
+    repo: str | None           # the `Repo:` line, a repo name in the workspace
+
+
+Target = GitHubTarget | ScratchTarget
+
+
+@dataclass(frozen=True)
+class Promotion:
+    idea: Idea
+    issue: str                 # a GitHub URL, or a scratch file in tilde form
+    changed: bool
+    commit: str | None
+
+
+def gh(*args: str) -> str:
+    """stdout of one `gh` call, through the github source's seam, which the tests replace."""
+    try:
+        return github.gh(*args)
+    except common.SourceError as e:
+        raise TrackerFailed(str(e)) from None
+
+
+def project_of(vault: Path, title: str) -> projects.Project:
+    for p in projects.resolve(vault, common.PROJECTS_DIR):
+        if p.note is not None and p.title == title:
+            return p
+    raise Refused(f"no live project note titled {title!r}")
+
+
+def target(vault: Path, idea: Idea, repo: str | None = None) -> Target:
+    """Where this idea's issue goes, from its project's note and the repos on disk."""
+    if idea.project is None:
+        raise Refused("only an idea that belongs to a project can be promoted")
+    project = project_of(vault, idea.project)
+    if project.tracker == "none":
+        raise Refused(f"{project.title} has no tracker (`tracker: none` in its note), so there is nowhere to promote to")
+    if project.tracker == "scratch":
+        names = [r.name for r in project.repos]
+        if repo is not None and repo not in names:
+            raise IdeaError(f"{repo!r} is not a repo of {project.title}; it has {', '.join(names) or 'none'}")
+        if project.root is None:
+            raise Refused(f"{project.title} tracks in a scratch folder but its note names no `repo:` folder")
+        return ScratchTarget(project.root / ".scratch" / "ideas" / "issues", repo)
+    slugs = [r.github for r in project.repos if r.github]
+    if not slugs:
+        raise Refused(f"{project.title} tracks on GitHub but none of its repos has a GitHub remote")
+    if repo is None:
+        if len(slugs) > 1:
+            raise IdeaError(f"{project.title} has {len(slugs)} GitHub repos; name one with --repo: {', '.join(slugs)}")
+        return GitHubTarget(slugs[0])
+    if repo not in slugs:
+        raise IdeaError(f"{repo!r} is not a GitHub repo of {project.title}; it has {', '.join(slugs)}")
+    return GitHubTarget(repo)
+
+
+def details(note: Path) -> str:
+    """The note's body after its title line."""
+    _, body = frontmatter.split(note.read_text())
+    lines = body.splitlines()
+    first = next((n for n, ln in enumerate(lines) if ln.strip()), len(lines))
+    return "\n".join(lines[first + 1:]).strip()
+
+
+def file_issue(to: Target, title: str, body: str) -> str:
+    if isinstance(to, GitHubTarget):
+        text = f"{body}\n\n{HELM_LINE}" if body else HELM_LINE
+        out = gh("issue", "create", "--repo", to.repo, "--title", title, "--body", text)
+        urls = ISSUE_URL.findall(out)
+        if not urls:
+            raise TrackerFailed(f"gh issue create answered no issue URL for {to.repo}")
+        return urls[-1]
+    try:
+        to.folder.mkdir(parents=True, exist_ok=True)
+        numbers = [int(m.group(1)) for p in to.folder.glob("*.md") if (m := re.match(r"(\d+)", p.name))]
+        path = to.folder / f"{max(numbers, default=0) + 1:02d}-{slugify(title)}.md"
+        head = [f"# {title}", "", "Status: needs-triage"] + ([f"Repo: {to.repo}"] if to.repo else [])
+        with open(path, "x") as fh:
+            fh.write("\n".join(head) + "\n" + (f"\n{body}\n" if body else ""))
+    except OSError as e:
+        raise TrackerFailed(f"the scratch issue could not be written ({type(e).__name__})") from None
+    return tilde(path)
+
+
+def promote(vault: Path, note: Path, repo: str | None = None, *, commit_it: bool = True,
+            approve: "Callable[[Target], None] | None" = None) -> Promotion:
+    """File the idea's issue in its project's tracker, then record it on the note and commit.
+    `approve` sees the target before anything outward happens and may raise to stop it.
+    The caller holds the vault write lock."""
+    idea = load(vault, note)
+    if idea.status == "promoted" and idea.issue:
+        return Promotion(idea, idea.issue, False, None)
+    if idea.status != "open":
+        raise Refused(f"only an open idea can be promoted, and this one is {idea.status}")
+    issue = idea.issue
+    if issue is None:
+        to = target(vault, idea, repo)
+        if approve is not None:
+            approve(to)
+        issue = file_issue(to, idea.title, details(note))
+        try:
+            set_field(vault, note, "issue", issue)
+        except OSError as e:
+            raise Unrecorded(issue, f"the issue is at {issue}, but the note could not be written "
+                                    f"({type(e).__name__}); add `issue: {issue}` to it by hand") from None
+    recorded = note.read_text()
+    try:
+        idea, _ = set_field(vault, note, "status", "promoted")
+    except OSError as e:
+        raise Unrecorded(issue, f"the issue is at {issue} and the note records it, but its status could "
+                                f"not be written ({type(e).__name__}); promote again to finish") from None
+    sha = None
+    if commit_it:
+        try:
+            sha = commit_or_restore(vault, idea.path, PROMOTE_SUBJECT, recorded)
+        except IdeaError:
+            raise Unrecorded(issue, f"the issue is at {issue}, but the vault commit failed; the note keeps "
+                                    "the issue, so promoting again commits it without filing another") from None
+    return Promotion(idea, issue, True, sha)
+
+
 def run(vault: Path, args: argparse.Namespace) -> dict:
+    if args.cmd == "promote":
+        done = promote(vault, resolve(vault, args.ref), args.repo, commit_it=not args.no_commit)
+        return {"path": str(vault / done.idea.path), "commit": done.commit, "changed": done.changed,
+                "issue": done.issue, "idea": done.idea.to_row()}
     if args.cmd == "add":
         idea = add(vault, args.title, args.project, args.department, args.due, args.body, args.created)
         changed, subject, before = True, ADD_SUBJECT, None
@@ -328,7 +500,11 @@ def main(argv: list[str]) -> int:
     d = sub.add_parser("due")
     d.add_argument("ref")
     d.add_argument("value", metavar="YYYY-MM-DD|none")
-    for p in (a, s, d):
+    pr = sub.add_parser("promote")
+    pr.add_argument("ref")
+    pr.add_argument("--repo", help="owner/name, required when the project has several GitHub repos; "
+                                   "for a scratch tracker, the workspace repo the issue names")
+    for p in (a, s, d, pr):
         p.add_argument("--no-commit", action="store_true")
     ls = sub.add_parser("list")
     ls.add_argument("--status")
@@ -352,6 +528,10 @@ def main(argv: list[str]) -> int:
         if result["commit"]:
             refresh_capture()
         print(json.dumps(result, ensure_ascii=False))
+    except Unrecorded as e:
+        print(f"idea_edit: {e}", file=sys.stderr)
+        print(json.dumps({"issue": e.issue, "recorded": False}))
+        return 3
     except IdeaError as e:
         print(f"idea_edit: {e}", file=sys.stderr)
         return 2

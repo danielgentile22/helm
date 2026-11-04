@@ -67,7 +67,10 @@ python3 ~/Projects/helm/runner/producers/idea_edit.py status <id> done      # "I
 python3 ~/Projects/helm/runner/producers/idea_edit.py status <id> dropped   # "drop X"
 python3 ~/Projects/helm/runner/producers/idea_edit.py status <id> open      # a misclick, or "X is back on"
 python3 ~/Projects/helm/runner/producers/idea_edit.py due <id> YYYY-MM-DD|none
+python3 ~/Projects/helm/runner/producers/idea_edit.py promote <id> [--repo owner/name]   # "make X an issue"
 ```
+
+`promote` files the idea in its project's tracker (a GitHub issue, or a numbered file in the workspace's `.scratch/ideas/issues/`) and prints the issue. A GitHub issue on a repo other people read is public: confirm the repo with Daniel before running it. Exit 3 means the issue exists but the vault did not record it; run the same command again, which records it without filing a second.
 
 All are idempotent. Never delete an idea note. If more than one idea could match, show the candidates and ask.
 

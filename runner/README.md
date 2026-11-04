@@ -261,6 +261,7 @@ An idea is one note at `Atlas/Ideas/<created>-<slug>.md`; the shape is in
 python3 runner/producers/idea_edit.py add "<title>" [--project <title>] [--department <D>] [--due YYYY-MM-DD]
 python3 runner/producers/idea_edit.py status <path-or-slug> open|done|dropped
 python3 runner/producers/idea_edit.py due <path-or-slug> YYYY-MM-DD|none
+python3 runner/producers/idea_edit.py promote <path-or-slug> [--repo owner/name]
 python3 runner/producers/idea_edit.py list [--status open] [--json]
 ```
 
