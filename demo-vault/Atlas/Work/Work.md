@@ -13,12 +13,7 @@ The day job, the launch and the team offsite. Router: `WORK.md` at the vault roo
 - Directive 1 is the launch of Compiler's first paid tier; directive 2 is doing well
   at the day job.
 
-## Todos
+## Directives
 
 ### Launch ★1
-- [ ] Write the pricing page copy (due: 2026-10-02)
-  Keep it to one screen. Priya has the numbers.
-
 ### Day job ★2
-- [ ] Finish the first Day job training module (due: 2026-10-01)
-- [ ] Book the one to one with the new lead

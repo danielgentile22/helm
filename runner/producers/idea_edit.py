@@ -173,7 +173,7 @@ def write_atomic(path: Path, text: str) -> None:
 
 
 def slugify(title: str, limit: int = 60) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    slug = re.sub(r"[^a-z0-9]+", "-", re.sub(r"['’]", "", title.lower())).strip("-")
     if len(slug) > limit:
         slug = slug[:limit].rsplit("-", 1)[0]
     return slug or "idea"
@@ -303,6 +303,12 @@ def run(vault: Path, args: argparse.Namespace) -> dict:
     return {"path": str(vault / idea.path), "commit": sha, "changed": changed, "idea": idea.to_row()}
 
 
+def refresh_capture() -> None:
+    """Rerun capture's ideas source so agenda.json shows the write at once."""
+    import capture
+    capture.refresh("ideas")
+
+
 def list_line(idea: Idea) -> str:
     where = idea.project or idea.department
     return f"{idea.status:<9} {idea.due or '-':<10}  {where:<12}  {idea.title}  ({idea.id})"
@@ -345,6 +351,8 @@ def main(argv: list[str]) -> int:
             return 0
         with common.vault_write_lock():
             result = run(vault, args)
+        if result["commit"]:
+            refresh_capture()
         print(json.dumps(result, ensure_ascii=False))
     except IdeaError as e:
         print(f"idea_edit: {e}", file=sys.stderr)

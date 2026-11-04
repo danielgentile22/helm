@@ -4,8 +4,8 @@
 Runs every source as its own failure domain, caches each under
 `~/.helm/status/sources/`, then writes the two merged files the dashboard reads:
 
-    ~/.helm/status/agenda.json     dated things: todos and scheduled jobs, plus every starred
-                                  directive under `directives`, with or without todos
+    ~/.helm/status/agenda.json     open ideas under `ideas`, and the next fire of every
+                                  routine under `routines`
     ~/.helm/status/projects.json   every repo and workspace under ~/Projects, in flight
 
 Both are overwritten, never appended. A source that fails keeps its last good rows and
@@ -13,9 +13,10 @@ says so in its own envelope under `sources.<name>`. Every time-dependent number 
 age, days since touched) is left to the reader, which is the only one holding `now`.
 
     capture.py                        launchd, every 30 minutes; prints nothing on success
-    capture.py --only todos           one source rerun; both merged files rewritten from the
-                                      caches, so a todo ticked a second ago is in agenda.json
-    capture.py --only todos --print   one source, printed, nothing written
+    capture.py --only ideas           one source rerun; both merged files rewritten from the
+                                      caches, so an idea added a second ago is in agenda.json
+    capture.py --only ideas --print   one source, printed, nothing written
+    capture.py --print                every source's rows by name, printed, nothing written
 """
 from __future__ import annotations
 
@@ -31,17 +32,17 @@ sys.path[:0] = [str(HERE), str(HERE.parent)]
 
 import common  # noqa: E402
 from schedule import cadence_seconds, parse_schedule  # noqa: E402
-from sources import repos, routines, todos, trackers  # noqa: E402
+from sources import ideas, repos, routines, trackers  # noqa: E402
 
 ROUTINE = "capture"
 
 SOURCES: dict[str, common.Collector] = {
-    "todos": todos.collect,
+    "ideas": ideas.collect,
     "routines": routines.collect,
     "repos": repos.collect,
     "trackers": trackers.collect,
 }
-AGENDA_SOURCES = ("todos", "routines")
+AGENDA_SOURCES = ("ideas", "routines")
 PROJECT_SOURCES = ("repos", "trackers")
 
 
@@ -58,26 +59,13 @@ def latest_produced(runs: dict[str, common.SourceRun], names: tuple[str, ...]) -
     return max(stamps, key=datetime.fromisoformat) if stamps else None
 
 
-DIRECTIVE_FIELDS = ("dept", "name", "star", "path", "line")
-
-
 def merge_agenda(runs: dict[str, common.SourceRun], tz: str) -> dict:
-    """The todos source reports its starred directives as rows of kind `directive` in the
-    same list as its todos, so they share its cache, its envelope and its failure domain:
-    a failed run keeps the last good directives with the last good todos. They are lifted
-    out here into a top-level `directives`, so `items` stays the dated things alone."""
-    rows = [it for n in AGENDA_SOURCES for it in runs[n].items]
-    items = [it for it in rows if it.get("kind") != "directive"]
-    items.sort(key=lambda it: (it.get("at") is None, it.get("at") or "", it.get("title", "")))
-    directives = [{k: it.get(k) for k in DIRECTIVE_FIELDS} for it in rows if it.get("kind") == "directive"]
-    order = {d: i for i, d in enumerate(common.DEPARTMENTS)}
-    directives.sort(key=lambda d: (order.get(d["dept"], len(order)), d["star"] or 9, d["name"] or ""))
     return {
         "produced": latest_produced(runs, AGENDA_SOURCES),
         "tz": tz,
         "sources": {n: runs[n].meta for n in AGENDA_SOURCES},
-        "items": items,
-        "directives": directives,
+        "ideas": runs["ideas"].items,
+        "routines": sorted(runs["routines"].items, key=lambda it: (it.get("at") or "", it.get("title", ""))),
     }
 
 
@@ -96,23 +84,21 @@ def merge_projects(runs: dict[str, common.SourceRun]) -> dict:
 
 
 def held_for(name: str) -> contextlib.AbstractContextManager:
-    """The vault write lock while the todos source runs, and nothing for the other sources.
+    """The vault write lock while the ideas source runs, and nothing for the other sources.
 
-    The todos source reads the notes the todo editor writes, and its collect takes seconds
-    (a `git log -S` per line). Held from before the read until after the cache is replaced,
-    a collect that started before a board click cannot write pre-click rows over the
-    click's own re-merge; the click waits a few seconds instead. The other sources read
-    nothing the editor writes."""
-    return common.vault_write_lock() if name == "todos" else contextlib.nullcontext()
+    Held from before the read until after the cache is replaced, so a scheduled collect that
+    started before an idea write cannot put pre-write rows over the write's own re-merge;
+    the write waits instead. The other sources read nothing the idea lever writes."""
+    return common.vault_write_lock() if name == "ideas" else contextlib.nullcontext()
 
 
 def write_merged(tz, cadence_s: int) -> str | None:
     """Merge from the caches on disk, never from the runs this process is holding.
 
-    A full run takes as long as the repos and the trackers take, and the dashboard's toggle
-    re-merges in the middle of it. Merging in-memory rows would write the pre-toggle todos
-    over the fresh ones and leave the box ticked in the vault but open in agenda.json until
-    the next capture. `run_source` writes each cache before it returns,
+    A full run takes as long as the repos and the trackers take, and an idea write re-merges
+    in the middle of it. Merging in-memory rows would write the pre-write ideas over the
+    fresh ones and leave an idea done in the vault but open in agenda.json until the next
+    capture. `run_source` writes each cache before it returns,
     so merging from the caches makes the last writer the one with the freshest set."""
     runs = {n: common.cached_run(n, cadence_s) for n in SOURCES}
     agenda = merge_agenda(runs, str(tz))
@@ -122,8 +108,8 @@ def write_merged(tz, cadence_s: int) -> str | None:
 
 
 def refresh(only: str) -> str | None:
-    """Rerun one source and re-merge both files from the caches. The dashboard calls this
-    after its one vault write so agenda.json agrees with the note within a second.
+    """Rerun one source and re-merge both files from the caches. The idea lever calls this
+    after a committed write so agenda.json agrees with the note within a second.
     Returns agenda.json's `produced`, which is the rerun source's own stamp when it is the
     newest one in the file."""
     env = common.load_env()
@@ -145,8 +131,8 @@ def main(argv: list[str]) -> int:
     tz = common.local_tz(env)
     now = datetime.now(tz)
 
-    if a.only and a.print:
-        rows = SOURCES[a.only](env, now)
+    if a.print:
+        rows = SOURCES[a.only](env, now) if a.only else {n: c(env, now) for n, c in SOURCES.items()}
         json.dump(rows, sys.stdout, indent=2, ensure_ascii=False)
         print()
         return 0

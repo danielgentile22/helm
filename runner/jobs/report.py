@@ -191,6 +191,6 @@ def compile_pdf(tex_path: Path, out_pdf: Path) -> str | None:
     return None
 
 
-def todo_text(stem: str, picked: int) -> str:
+def idea_title(stem: str, picked: int) -> str:
     noun = "job" if picked == 1 else "jobs"
     return f"Apply to the {picked} {noun} in [[{stem}]]"

@@ -45,7 +45,6 @@ class Criteria:
     keywords: tuple[str, ...] = ()
     tailor: bool = True
     resume_deny: tuple[str, ...] = ()
-    todo_directive: str = ""
     targets: dict[str, int] = field(default_factory=lambda: {"home": 100, "remote": 100})
     job_types: tuple[str, ...] = ()
     job_functions: tuple[str, ...] = ()
@@ -88,7 +87,6 @@ class Criteria:
             keywords=tuple(k.lower() for k in raw.get("keywords", ())),
             tailor=bool(raw.get("tailor", True)),
             resume_deny=tuple(raw.get("resume_deny", ())),
-            todo_directive=str(raw.get("todo_directive", "")),
             targets=targets,
             job_types=tuple(str(x) for x in raw.get("job_types", ())),
             job_functions=tuple(str(x) for x in raw.get("job_functions", ())),

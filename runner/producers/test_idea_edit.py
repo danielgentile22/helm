@@ -59,7 +59,8 @@ class IdeaTest(unittest.TestCase):
 
     def cli(self, *argv: str) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
+             mock.patch.object(idea_edit, "refresh_capture", lambda: None):
             rc = idea_edit.main(list(argv))
         return rc, out.getvalue(), err.getvalue()
 
@@ -94,16 +95,19 @@ class IdeaTest(unittest.TestCase):
             idea_edit.add(self.vault, "Pack", project="Lisbon")
 
     def test_a_slug_collision_gets_a_number(self) -> None:
-        stems = [idea_edit.add(self.vault, "Order the desk lamp", created="2026-11-01").id for _ in range(3)]
-        self.assertEqual(stems, ["2026-11-01-order-the-desk-lamp", "2026-11-01-order-the-desk-lamp-2",
-                                 "2026-11-01-order-the-desk-lamp-3"])
+        stems = [idea_edit.add(self.vault, "Order the desk lamp", created="2026-09-26").id for _ in range(2)]
+        self.assertEqual(stems, ["2026-09-26-order-the-desk-lamp-2", "2026-09-26-order-the-desk-lamp-3"])
+        self.assertEqual(idea_edit.resolve(self.vault, "order-the-desk-lamp-2").stem, stems[0])
+        idea_edit.add(self.vault, "Order the desk lamp", created="2026-11-01")
+        with self.assertRaisesRegex(idea_edit.IdeaError, "names 2 ideas"):
+            idea_edit.resolve(self.vault, "order-the-desk-lamp")
 
     def test_status_and_due_are_idempotent(self) -> None:
-        idea = idea_edit.add(self.vault, "Order the desk lamp", created="2026-11-01")
+        idea = idea_edit.add(self.vault, "Hang the Lisbon map", created="2026-11-01")
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "seed")
         head = self.git("rev-parse", "HEAD")
-        for argv in (("status", "order-the-desk-lamp", "open"), ("due", idea.path, "none")):
+        for argv in (("status", "hang-the-lisbon-map", "open"), ("due", idea.path, "none")):
             with self.subTest(argv=argv):
                 rc, out, _ = self.cli(*argv)
                 self.assertEqual(rc, 0)
@@ -156,7 +160,9 @@ class IdeaTest(unittest.TestCase):
         idea_edit.add(self.vault, "Second", created="2026-11-02")
         idea_edit.set_status(self.vault, self.vault / a.path, "done")
         rc, out, _ = self.cli("list", "--status", "open", "--json")
-        self.assertEqual([r["title"] for r in json.loads(out)], ["Second"])
+        mine = [r["title"] for r in json.loads(out) if r["created"] >= "2026-11-01"]
+        self.assertEqual(mine, ["Second"])
+        self.assertTrue(all(r["status"] == "open" for r in json.loads(out)))
 
     def test_a_quoted_project_title_reads_back(self) -> None:
         note = self.vault / "Atlas/Projects/Odd.md"

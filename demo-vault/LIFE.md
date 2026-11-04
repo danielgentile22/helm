@@ -2,7 +2,7 @@
 
 Router for the Life department.
 
-- **Files:** `Atlas/Life/Life.md` - the department note: overview, directives and todos
+- **Files:** `Atlas/Life/Life.md` - the department note: overview and directives
 - **Rules:** `CLAUDE.md` - the rules for this vault
 
 ## Not here

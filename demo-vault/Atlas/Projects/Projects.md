@@ -13,11 +13,7 @@ Every repo, and the two side efforts. Router: `PROJECTS.md` at the vault root.
 - [[Keel]] - lead triage for a two person business, with [[Alex Reed]]
 - [[Team Wiki]] - the team wiki site
 
-## Todos
+## Directives
 
 ### Compiler
-- [ ] Compiler: fix the importer for large PGN files
-- [ ] Compiler: write the release notes for 0.4
-
 ### Keel
-- [ ] Keel: export the weekly lead report as CSV

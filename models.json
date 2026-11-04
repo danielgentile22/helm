@@ -71,14 +71,14 @@
           "why": "The years floor, the primary stack and each required skill against the owner's inventory, also a fixed form per posting, a batch per call. Same reasoning: the volume of text read, and the ranker re-checks the survivors at the top of the scale."
         }
       },
-      "writes": "~/Desktop/Job Apps/Jobs <day>.pdf and ~/Desktop/Job Apps/Jobs <day>/, Atlas/Work/research/<day>-jobs-top-10.md and <day>-jobs-dropped.md and Atlas/Work/files/applications/<day>/ in the vault, a todo on Work, and ~/.helm/status/job-search/ (the day's stage files and costs, the pool, the posting and verdict caches)"
+      "writes": "~/Desktop/Job Apps/Jobs <day>.pdf and ~/Desktop/Job Apps/Jobs <day>/, Atlas/Work/research/<day>-jobs-top-10.md and <day>-jobs-dropped.md and Atlas/Work/files/applications/<day>/ in the vault, a Work idea due that day in Atlas/Ideas/, and ~/.helm/status/job-search/ (the day's stage files and costs, the pool, the posting and verdict caches)"
     },
     "capture": {
       "model": null,
       "effort": null,
       "schedule": "every 30m",
       "why": "Deterministic producers. Reading a note and reading git is not a judgment task; HELM measured 689 of 712 headless Claude runs reproducing a deterministic transform (HELM ADR 0008).",
-      "writes": "~/.helm/status/agenda.json and projects.json every run"
+      "writes": "~/.helm/status/agenda.json (open ideas, routine fires) and projects.json every run"
     },
     "backup": {
       "model": null,

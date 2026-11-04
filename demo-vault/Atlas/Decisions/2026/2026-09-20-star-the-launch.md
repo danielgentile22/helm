@@ -13,4 +13,4 @@ tags: [decision, demo]
 The launch and the day job both need attention this quarter.
 
 ## Implications
-The launch carries star 1 on [[Work]], so its todos pull hardest on the dashboard.
+The launch carries star 1 on [[Work]], so it heads the directives list in `CLAUDE.md`.

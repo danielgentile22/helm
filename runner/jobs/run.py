@@ -13,8 +13,8 @@ what every stage decided. The pool at `pool.json` carries judged postings across
                                 no pool, no note, no PDF; the files and the funnel land in <day>/replay/
 
 Safe to run late (the day is today's date at the start, not 04:00) and safe to run twice (every
-file is overwritten, a pool record written today counts as new again, and a todo already on
-the note is left alone).
+file is overwritten, a pool record written today counts as new again, and an idea already
+written with the same title is left alone).
 """
 from __future__ import annotations
 
@@ -30,10 +30,11 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
+sys.path[:0] = [str(HERE), str(HERE.parent / "producers")]
 
 import claude  # noqa: E402
 import funnel  # noqa: E402
+import idea_edit  # noqa: E402
 import linkedin  # noqa: E402
 import passes  # noqa: E402
 import rank  # noqa: E402
@@ -381,7 +382,7 @@ class Run:
 
     def tailor(self) -> None:
         picks = load_picks(self.dir / "picks.json")
-        todo = picks[: self.limit] if self.limit else picks
+        to_tailor = picks[: self.limit] if self.limit else picks
         if self.no_tailor or not self.criteria.tailor:
             self.say("tailor  skipped")
             return
@@ -399,7 +400,7 @@ class Run:
             return done, usage
 
         with ThreadPoolExecutor(max_workers=TAILOR_WORKERS) as workers:
-            done = list(workers.map(one, todo))
+            done = list(workers.map(one, to_tailor))
         cost = Cost()
         for pk, usage in done:
             if usage is None:
@@ -412,7 +413,7 @@ class Run:
         picks = [by_rank.get(pk.rank, pk) for pk in picks]
         dump(self.dir / "picks.json", [pk.to_dict() for pk in picks])
 
-    # report: the funnel, the two vault notes, the mirror, the vault commit, the desktop PDF, the todo
+    # report: the funnel, the two vault notes, the mirror, the vault commit, the desktop PDF, the idea
 
     def dropped_rows(self) -> dict[str, list[report.Row]]:
         """Every drop the day recorded, by stage, each named from cards.json, the cache or the
@@ -467,7 +468,7 @@ class Run:
         if problem:
             raise RuntimeError(f"the report PDF did not compile: {problem}")
         if picks and not failed:
-            self.add_todo(len(picks))
+            self.add_idea(len(picks))
         self.say(f"report  {funnel.line(f)}")
         self.say(f"report  {self.pdf} and {self.note_path.relative_to(VAULT)}")
 
@@ -484,17 +485,19 @@ class Run:
                             f"Record the {self.day.isoformat()} job search", "--", *paths],
                            check=True, capture_output=True)
 
-    def add_todo(self, count: int) -> None:
-        text = report.todo_text(report.note_stem(self.day, self.criteria.count), count)
-        argv = [sys.executable, str(ENGINE / "runner/producers/todo_edit.py"), "add", "Work", text,
-                "--due", self.day.isoformat()]
-        if not (VAULT / ".git").exists():
-            argv.append("--no-commit")
-        if self.criteria.todo_directive:
-            argv += ["--project", self.criteria.todo_directive]
-        r = subprocess.run(argv, capture_output=True, text=True, cwd=str(ENGINE))
-        if r.returncode != 0 and "already" not in (r.stdout + r.stderr):
-            self.say(f"todo    not added: {(r.stdout + r.stderr).strip()[-300:]}")
+    def add_idea(self, count: int) -> None:
+        """A Work idea due today to apply to the picks, once per title. A second run of the
+        same day finds it and writes nothing."""
+        title = report.idea_title(report.note_stem(self.day, self.criteria.count), count)
+        day = self.day.isoformat()
+        try:
+            if any(i.title == title for i in idea_edit.load_ideas(VAULT)):
+                return
+            idea = idea_edit.add(VAULT, title, department="Work", due=day, created=day)
+            if (VAULT / ".git").exists():
+                idea_edit.commit(VAULT, idea.path, idea_edit.ADD_SUBJECT)
+        except idea_edit.IdeaError as e:
+            self.say(f"idea    not added: {e}")
 
     # replay: the cascade again over a past day's cards, from the cache, against no pool
 

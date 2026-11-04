@@ -525,9 +525,9 @@ class Reports(unittest.TestCase):
             tex_path.write_text(text)
             self.assertIsNone(report.compile_pdf(tex_path, Path(d) / "report.pdf"))
 
-    def test_todo_text_links_the_note(self):
-        self.assertEqual(report.todo_text("2026-10-08-jobs-top-10", 10), "Apply to the 10 jobs in [[2026-10-08-jobs-top-10]]")
-        self.assertEqual(report.todo_text("2026-10-08-jobs-top-10", 1), "Apply to the 1 job in [[2026-10-08-jobs-top-10]]")
+    def test_idea_title_links_the_note(self):
+        self.assertEqual(report.idea_title("2026-10-08-jobs-top-10", 10), "Apply to the 10 jobs in [[2026-10-08-jobs-top-10]]")
+        self.assertEqual(report.idea_title("2026-10-08-jobs-top-10", 1), "Apply to the 1 job in [[2026-10-08-jobs-top-10]]")
 
 
 class Funnels(unittest.TestCase):
@@ -857,8 +857,11 @@ class Orchestration(unittest.TestCase):
         status = json.loads((self.state / "status/job-search.json").read_text())
         self.assertEqual((status["result"], status["picks"], status["pool_live"]), ("pass", 2, 1))
         self.assertAlmostEqual(status["cost_usd"], 0.07)
-        work = (self.vault / "Atlas/Work/Work.md").read_text()
-        self.assertIn(f"- [ ] Apply to the 2 jobs in [[{day}-jobs-top-10]] (due: {day})", work)
+        ideas = self.run.idea_edit.load_ideas(self.vault)
+        mine = [(i.title, i.department, i.due) for i in ideas if i.created == day]
+        self.assertEqual(mine, [(f"Apply to the 2 jobs in [[{day}-jobs-top-10]]", "Work", day)])
+        self.assertEqual(self.main("--day", day, "--only", "report"), 0)
+        self.assertEqual(len(self.run.idea_edit.load_ideas(self.vault)), len(ideas), "a rerun adds no second idea")
 
         self.assertEqual(self.main("--day", day, "--only", "eligibility"), 0)
         costs = self.read(day, "costs.json")

@@ -28,11 +28,11 @@ The three starred directives, in order. The stars live on the department notes.
 | Life | `LIFE.md` | travel, errands, home, health |
 
 `TOOLS.md` routes to skills and connectors. People, decisions and meetings sit under
-`Atlas/` and belong to no department.
+`Atlas/` and belong to no department; ideas sit in `Atlas/Ideas/` and name theirs.
 
 ## Rules
 
 - `Atlas/` is canon. `Inbox/` holds only routine output. `Archive/` is cold.
 - Every pointer in a router is a real path. A stale pointer is worse than none.
-- Todos live under `## Todos` on the four department notes, in the syntax that
-  helm's runner README describes.
+- An idea is its own note in `Atlas/Ideas/`, in the shape helm's `docs/data-shapes.md`
+  describes. Directives stay on the department notes under `## Directives`.

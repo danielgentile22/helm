@@ -12,7 +12,6 @@
   "pool_days": 30,
   "batch_size": 4,
   "tailor": false,
-  "todo_directive": "Launch",
   "targets": {
     "home": 20,
     "remote": 20

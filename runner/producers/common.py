@@ -9,7 +9,6 @@ never from a summary written by something else (ADR 0015).
 from __future__ import annotations
 
 import fcntl
-import hashlib
 import json
 import os
 import sys
@@ -114,13 +113,13 @@ def write_json(path: Path, payload: object) -> None:
 
 @contextmanager
 def vault_write_lock() -> Iterator[None]:
-    """One flock around every write to the vault and every read the todos source makes of it.
+    """One flock around every write to the vault and every read the ideas source makes of it.
 
-    The vault's git index is one shared writer between the todo editor's command line and
-    the dashboard server, so a note write and its commit run under this. The todos source
+    The vault's git index is one shared writer between the idea lever's command line and
+    the dashboard server, so a note write and its commit run under this. The ideas source
     holds it too, from before it reads the notes until after its cache file is replaced:
-    a scheduled collect that started before a board click could otherwise write pre-click
-    rows over the click's own cache, and a ticked box would come back open. The lock file
+    a scheduled collect that started before a write could otherwise put pre-write rows
+    over the write's own cache, and a done idea would come back open. The lock file
     lives under ~/.helm/status/, never in a tree the project scan measures, and is found at
     call time so a test that redirects STATUS gets its own."""
     lock_path = STATUS / ".vault-write.lock"
@@ -138,21 +137,6 @@ def read_json(path: Path) -> dict | None:
         return json.loads(path.read_text())
     except (OSError, ValueError):
         return None
-
-
-def content_id(*parts: str) -> str:
-    """Identity for a row with no natural id (a todo line). sha1 of the parts, 12 hex."""
-    return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()[:12]
-
-
-def dept_for_note(note: Path) -> Department:
-    """A note's department is the Atlas folder it lives in."""
-    try:
-        rel = note.resolve().relative_to((VAULT / "Atlas").resolve())
-    except ValueError:
-        return "Life"
-    top = rel.parts[0] if rel.parts else ""
-    return top if top in DEPARTMENTS else "Life"  # type: ignore[return-value]
 
 
 def cached(name: str) -> dict | None:
