@@ -176,13 +176,20 @@ wakeorpoweron MTWRFSU 03:55:00` schedules the wake.
 
 ## Capture
 
-`producers/capture.py` runs four sources, each its own failure domain, and writes
+`producers/capture.py` runs five sources, each its own failure domain, and writes
 the only two files the dashboard reads:
 
 - `status/agenda.json` - open ideas under `ideas`, soonest due first, and the next
   fire of every routine under `routines`
-- `status/projects.json` - every repo and workspace under `~/Projects`, with its
-  tracker joined on by path
+- `status/projects.json` - every project under `projects`: the project notes joined
+  to their repos' branches and last commit, their tracker's open issues, their open
+  pull requests with CI, and their count of open ideas (contract in
+  `producers/sources/projects.py`, served as `dashboard/README.md` describes); and
+  every repo and workspace under `~/Projects` under `in_flight`
+
+`projects` reads only local files and git. `github` is the one source that calls the
+network (`gh`), so GitHub being down keeps the last pull requests and leaves the git
+facts fresh.
 
 Each source also keeps its own cache at `status/sources/<name>.json`, and both
 merged files copy that source's envelope verbatim under `sources.<name>`:

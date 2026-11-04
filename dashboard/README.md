@@ -21,6 +21,11 @@ nothing more.
 | Method | Path | Returns |
 |---|---|---|
 | GET | `/api/health` | `{"ok", "now", "reach", "dist_built", "service"}`. The integrity check and `serve.py` both probe it |
+| GET | `/api/projects` | every project, from `~/.helm/status/projects.json` (below) |
+| GET | `/api/projects/<slug>` | one project with its issue list and open ideas |
+| GET | `/api/ideas?status=` | idea notes, read from the vault per request |
+| GET | `/api/background` | every routine and service, assembled per request |
+| GET | `/api/devices` | device notes with live tailnet presence |
 | GET | `/*` | `dist/`, with `index.html` for any path without a dot. **open**, so a phone with no session can load the page |
 | POST | `/auth/register/options`, `/auth/register/verify` | the passkey enrollment ceremony, gated by the one shot token from `serve.py --enroll` |
 | POST | `/auth/login/options`, `/auth/login/verify` | the sign in ceremony; a good assertion sets the `otto_session` cookie |
@@ -28,7 +33,162 @@ nothing more.
 | GET | `/auth/me` | `{"via", "authenticated", "enrolled"}` |
 
 Errors are one shape everywhere: `{"error": {"code", "detail"}}`. The routes of the
-retired interface are in git history.
+retired interface are in git history. Every `/api` row reaches `tailnet`: free on
+loopback, behind the passkey over the tailnet (ADR 0016, ADR 0038).
+
+## The tabs' JSON
+
+The contract the interface is built against. Times are ISO 8601 with an offset, and the
+reader subtracts (ADR 0020). Fields beyond the ones named here may be added; none named
+here will change meaning.
+
+### Projects
+
+`GET /api/projects` reads the file capture writes every 30 minutes and calls nothing, so a
+page load never reaches GitHub (ADR 0037).
+
+```json
+{
+  "produced": "2026-11-04T08:00:00-05:00",
+  "error": "github: network: gh pr list -R example/keel: ...",
+  "projects": [{
+    "slug": "keel",
+    "title": "Keel",
+    "note": "Atlas/Projects/Keel.md",
+    "status": "active",
+    "pinned": true,
+    "tracker": "github",
+    "pull_requests_scope": "all",
+    "repos": [{"name": "keel", "path": "~/Projects/keel", "github": "example/keel"}],
+    "issues": {"open": 2, "by_status": {"ready-for-agent": 1, "open": 1}},
+    "pull_requests": [{"repo": "keel", "number": 7, "title": "Export leads as CSV",
+                       "url": "https://github.com/example/keel/pull/7", "draft": false,
+                       "ci": "pass", "author": "jordan", "branch": "lead-export"}],
+    "branches": [{"repo": "keel", "name": "lead-export", "ahead": 2, "at": "2026-11-03T10:00:00+00:00"}],
+    "last_commit": {"at": "2026-11-03T10:00:00+00:00", "repo": "keel", "subject": "Export leads"},
+    "ideas_open": 1,
+    "problems": []
+  }]
+}
+```
+
+- `error` is null when every capture source behind the file is succeeding. Otherwise it
+  names each failing one and why, and the rows are that source's last good ones. Before
+  capture has ever run, `projects` is empty and `error` says so.
+- Order: pinned first, then the newest commit or branch, then the title.
+- `note` is null for a folder under `~/Projects` that no project note names, so drift
+  shows. Its `status` is null too. Notes with `status: archived` are left out, and so is
+  the folder they name.
+- `tracker` is `github`, `scratch` or `none`. `issues` is null for `none`, and for a
+  GitHub tracker that GitHub has not answered for yet: unknown, never zero. With
+  `scratch`, `by_status` counts the `Status:` lines of the open files (a file with none
+  counts as `open`); with `github`, the first triage label, else `open`. GitHub's list
+  is capped at 50.
+- `ci` is `pass`, `fail`, `pending` or `none`: any failed check is a fail, then any
+  unfinished one is pending.
+- With `pull_requests_scope: "mine"`, `pull_requests` holds only the GitHub user's own,
+  and `branches` only those whose last commit carries the repo's `git config
+  user.email`.
+- `branches` are local branches not merged into the default branch. `last_commit` is the
+  newest on any local branch of any of the project's repos.
+- `problems` names note fields this could not use, and what it read instead.
+
+`GET /api/projects/<slug>` is one entry with `produced` and `error` beside it, plus:
+
+```json
+{
+  "issues_list": [{"id": "importer/01", "title": "Stream large PGN files", "status": "ready-for-agent",
+                   "url": null, "path": "~/Projects/compiler/.scratch/importer/issues/01-stream.md",
+                   "repo": "importer", "updated": "2026-11-02T10:00:00-05:00"}],
+  "ideas": ["the open ideas for this project, each an idea record as below"]
+}
+```
+
+A scratch issue's `id` is `<effort>/<number>`, its `repo` the file's `Repo:` line; a
+GitHub issue's is `<repo>#<number>` with a `url`. `ideas` and `ideas_open` are read from
+the vault at request time. An unknown slug is 404.
+
+### Ideas
+
+`GET /api/ideas?status=open|done|dropped|promoted|all`, `open` when absent, anything else
+400. Read from the vault per request through `idea_edit.parse_idea`.
+
+```json
+{
+  "ideas": [{"id": "2026-11-01-book-the-lisbon-flights", "path": "Atlas/Ideas/2026-11-01-book-the-lisbon-flights.md",
+             "title": "Book the Lisbon flights", "created": "2026-11-01", "status": "open",
+             "department": "Life", "project": null, "due": "2026-11-15", "issue": null}],
+  "errors": ["Atlas/Ideas/2026-11-02-x.md: unknown status 'someday', want one of open, done, dropped, promoted"]
+}
+```
+
+Soonest due first, undated after, newest first within each. A note that does not parse is
+named in `errors` and the rest are still listed.
+
+### Background
+
+`GET /api/background` assembles the routine record of `docs/data-shapes.md` per request
+from `models.json`, `launchctl list`, `~/.helm/disabled/`, `~/.helm/status/<name>.json` and
+`~/.helm/logs/`.
+
+```json
+{
+  "routines": [{
+    "name": "backup", "kind": "routine", "schedule": "daily 09:00 and on mount",
+    "model": null, "effort": null, "why": "...",
+    "label": "com.helm.backup", "loaded": true, "running": false, "last_exit": 0,
+    "paused": false,
+    "last_run": "2026-11-03T14:00:05+00:00",
+    "result": "fail", "result_text": "volume absent", "failures": null,
+    "last_success": "2026-10-25T16:30:51+00:00",
+    "next_run": "2026-11-04T09:00:00-05:00",
+    "log_tail": ["..."], "log_updated": "2026-11-03T14:00:05+00:00"
+  }],
+  "services": [{
+    "name": "dashboard", "kind": "service", "why": "...", "listed": true,
+    "label": "com.helm.dashboard", "loaded": true, "running": true, "last_exit": -15,
+    "log_tail": ["..."], "log_updated": "2026-11-04T07:50:00+00:00"
+  }]
+}
+```
+
+- `result` is `paused` when the plist is in `~/.helm/disabled/`, else `pass` for a status
+  file that says `pass`, `ok` or `fresh`, `unknown` with no status file, and `fail` for
+  anything else. `result_text` is what the file said.
+- `last_run` reads `last_run`, or backup's `ran`. `last_success` reads the file's own
+  (backup's epoch seconds become ISO), else `last_run` when that run passed.
+- `next_run` is null while paused. `log_tail` is the last 40 lines of whichever of
+  `com.helm.<name>.err` and `.out` was written last.
+- Services are the `services` in `models.json` (`listed: true`) and any other loaded
+  `com.helm.*` job (`listed: false`).
+
+### Devices
+
+`GET /api/devices` reads every `type: device` note in Atlas and joins it to
+`tailscale status --json` on the note's `tailnet` host name. The tailnet answer is asked
+with a 3 second limit and kept for 30 seconds.
+
+```json
+{
+  "devices": [{
+    "slug": "studio-desk-mac", "title": "Studio desk Mac", "kind": "desktop",
+    "status": "in service", "role": "always-on host for helm and T3 Code", "t3": "host",
+    "tailnet": "studio-desk", "specs": {"chip": "M5 Max", "memory": "64 GB"},
+    "purchased": "2026-09-23", "warranty_until": "2029-09-23",
+    "path": "Atlas/Life/Devices/Studio desk Mac.md",
+    "presence": {"online": true, "last_seen": null},
+    "problems": []
+  }],
+  "tailnet_error": null
+}
+```
+
+- `presence` is null when the note has no `tailnet`, and for every device when the
+  tailnet could not be asked, with `tailnet_error` saying why. A name the tailnet does
+  not know is `{"online": false, "last_seen": null}`.
+- A value outside its set is kept as written and named in `problems`; a malformed date,
+  or a `specs` that is not a map, reads as null. One bad note never fails the route.
+- Sorted in service first, then ordered, spare, retired, sold, then by title.
 
 ## The two doors
 
@@ -93,6 +253,8 @@ under `src/`, `index.html`, `public/`, `package.json` or `vite.config.ts` is new
 | `serve.py` | the launcher: probe the port, build if stale, then serve |
 | `server/app.py` | request and response types, `authorize`, `dispatch`, the HTTP handler |
 | `server/routes.py` | the route table and its handlers |
+| `server/background.py`, `server/devices.py` | the Background and Devices records, as functions of what they are handed |
+| `server/machine.py` | the only questions asked of the machine: `launchctl list` and `tailscale status`. Tests replace both |
 | `server/auth.py`, `server/passkey.py` | the passkey rows, and WebAuthn verification (ES256 on P-256) in the standard library |
 | `server/test_*.py` | `python3 -m unittest discover -s dashboard/server -p 'test_*.py'` |
 | `src/App.svelte`, `src/main.ts` | the placeholder page |
