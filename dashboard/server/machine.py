@@ -9,6 +9,7 @@ installed. Everything that turns their answers into records lives in `background
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import threading
@@ -72,9 +73,12 @@ def _ask_tailscale() -> Tailnet:
     binary = tailscale_binary()
     if binary is None:
         return Tailnet(None, "tailscale is not installed on this machine")
+    # The app's own binary is the GUI unless TERM is set, and launchd sets none: it then
+    # prints "The Tailscale GUI failed to start" and exits 0.
+    env = {**os.environ, "TERM": os.environ.get("TERM") or "dumb"}
     try:
         r = subprocess.run([binary, "status", "--json"], capture_output=True, text=True,
-                           timeout=TAILSCALE_TIMEOUT_S)
+                           timeout=TAILSCALE_TIMEOUT_S, env=env)
     except subprocess.TimeoutExpired:
         return Tailnet(None, f"tailscale status took over {TAILSCALE_TIMEOUT_S}s")
     except OSError as e:
