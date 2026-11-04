@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import { ageOf } from "../lib/time";
 
   let {
@@ -6,7 +7,15 @@
     updated,
     now,
     open = false,
-  }: { lines: string[]; updated: string | null; now: number; open?: boolean } = $props();
+    actions,
+  }: {
+    lines: string[];
+    updated: string | null;
+    now: number;
+    open?: boolean;
+    /** Buttons drawn on the toggle's line, to its left. */
+    actions?: Snippet;
+  } = $props();
 
   // Seeded once from the prop; after that the owner's toggle wins over the next poll.
   // svelte-ignore state_referenced_locally
@@ -20,12 +29,17 @@
   });
 </script>
 
-{#if lines.length === 0}
-  <p class="faint small none">No log yet</p>
-{:else}
-  <button class="btn toggle" aria-expanded={shown} onclick={() => (shown = !shown)}>
-    {shown ? "Hide log" : "Show log"}
-  </button>
+<div class="bar">
+  {@render actions?.()}
+  {#if lines.length === 0}
+    <span class="faint small last">No log yet</span>
+  {:else}
+    <button class="btn toggle last" aria-expanded={shown} onclick={() => (shown = !shown)}>
+      {shown ? "Hide log" : "Show log"}
+    </button>
+  {/if}
+</div>
+{#if lines.length > 0}
   {#if shown}
     <pre bind:this={box}>{lines.join("\n")}</pre>
     {#if updated !== null}<p class="faint small none">log updated {ageOf(updated, now)}</p>{/if}
@@ -33,8 +47,24 @@
 {/if}
 
 <style>
-  .toggle {
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
     margin-top: 8px;
+  }
+  .last {
+    margin-left: auto;
+  }
+  .toggle {
+    background: none;
+    border-color: transparent;
+    color: var(--dim);
+  }
+  .toggle:hover {
+    color: var(--ink);
+    border-color: var(--line);
   }
   pre {
     margin: 8px 0 0;

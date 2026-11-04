@@ -88,6 +88,19 @@ export interface Idea {
   issue: string | null;
 }
 
+/** What the capture box sends. The server derives the department from the project. */
+export interface IdeaDraft {
+  title: string;
+  project: string | null;
+  due: string | null;
+}
+
+/** The answer to every idea write. `changed` is false when the value was already set. */
+export interface IdeaWrite {
+  idea: Idea;
+  changed: boolean;
+}
+
 export interface ProjectDetail extends Project {
   produced: string;
   error: string | null;
@@ -137,6 +150,13 @@ export interface Service {
   log_updated: string | null;
 }
 
+export type RoutineAction = "run" | "pause" | "resume";
+
+export interface RoutineWrite {
+  routine: Routine;
+  changed: boolean;
+}
+
 export interface BackgroundResponse {
   routines: Routine[];
   services: Service[];
@@ -182,6 +202,7 @@ export type Load<T> =
 
 /** What a fetch settles to: everything but loading. */
 export type Answer<T> = Exclude<Load<T>, { state: "loading" }>;
+export type Failure = Extract<Load<never>, { state: "error" }>;
 
 async function errorDetail(res: Response): Promise<string> {
   try {

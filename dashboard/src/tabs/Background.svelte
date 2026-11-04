@@ -38,7 +38,12 @@
     {:else}
       <ul class="stack">
         {#each data.routines as routine (routine.name)}
-          <RoutineCard {routine} {now} />
+          <RoutineCard
+            {routine}
+            {now}
+            onchanged={() => poll.refresh()}
+            onsignedout={(failure) => poll.signedOut(failure)}
+          />
         {/each}
       </ul>
     {/if}

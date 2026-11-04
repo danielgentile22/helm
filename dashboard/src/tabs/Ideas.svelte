@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { fetchJson, type IdeaStatus, type IdeasResponse } from "../lib/api";
+  import { fetchJson, type IdeaDraft, type IdeaStatus, type IdeasResponse, type ProjectsResponse } from "../lib/api";
+  import { createIdeaWrites } from "../lib/ideas.svelte";
   import { createPoll } from "../lib/poll.svelte";
-  import CaptureSlot from "../ui/CaptureSlot.svelte";
+  import CaptureBox from "../ui/CaptureBox.svelte";
   import LoadState from "../ui/LoadState.svelte";
+  import Toast from "../ui/Toast.svelte";
   import IdeaRow from "./IdeaRow.svelte";
 
   let { at = $bindable() }: { at: number | null } = $props();
@@ -30,9 +32,30 @@
   $effect(() => {
     at = poll.load.state === "ready" ? poll.load.at : null;
   });
+
+  const writes = createIdeaWrites({
+    refresh: () => poll.refresh(),
+    signedOut: (failure) => poll.signedOut(failure),
+  });
+
+  // The picker offers projects that have a note, since an idea names its project by title.
+  let projects = $state<string[]>([]);
+  $effect(() => {
+    void fetchJson<ProjectsResponse>("/api/projects").then((answer) => {
+      if (answer.state === "ready") {
+        projects = answer.data.projects.flatMap((p) => (p.note === null ? [] : [p.title])).sort();
+      }
+    });
+  });
+
+  function add(draft: IdeaDraft): Promise<string | null> {
+    // A new idea is open, so the list that will show it is the open one.
+    status = "open";
+    return writes.add(draft);
+  }
 </script>
 
-<CaptureSlot />
+<CaptureBox {projects} onadd={add} />
 
 <div class="chips" role="group" aria-label="Show ideas">
   {#each filters as f (f.status)}
@@ -43,7 +66,7 @@
 <LoadState
   load={poll.load}
   empty={filter.empty}
-  isEmpty={(d) => d.ideas.length === 0 && d.errors.length === 0}
+  isEmpty={() => false}
   onretry={() => poll.refresh()}
 >
   {#snippet children(data, now)}
@@ -55,17 +78,20 @@
         </ul>
       </div>
     {/if}
-    {#if data.ideas.length === 0}
+    {@const ideas = writes.view(data.ideas, (i) => i.status === status)}
+    {#if ideas.length === 0}
       <p class="empty">{filter.empty}</p>
     {:else}
       <ul class="stack">
-        {#each data.ideas as idea (idea.id)}
-          <IdeaRow {idea} {now} />
+        {#each ideas as idea (idea.id)}
+          <IdeaRow {idea} {now} {writes} />
         {/each}
       </ul>
     {/if}
   {/snippet}
 </LoadState>
+
+<Toast toast={writes.toast} />
 
 <style>
   .chips {

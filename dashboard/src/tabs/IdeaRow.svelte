@@ -1,38 +1,139 @@
 <script lang="ts">
   import type { Idea } from "../lib/api";
+  import type { IdeaWrites } from "../lib/ideas.svelte";
   import { daysAgo, dueLabel, localDate } from "../lib/time";
 
-  let { idea, now }: { idea: Idea; now: number } = $props();
+  let { idea, now, writes }: { idea: Idea; now: number; writes?: IdeaWrites } = $props();
 
   const today = $derived(localDate(now));
   const issueIsLink = $derived(idea.issue !== null && /^https?:\/\//.test(idea.issue));
+  const pending = $derived(writes?.isPending(idea) ?? false);
+  const error = $derived(writes?.errorOf(idea.id) ?? null);
+  const editable = $derived(writes !== undefined && !pending && idea.status !== "promoted");
+
+  let editingDue = $state(false);
+
+  function pickDue(event: Event): void {
+    const value = (event.currentTarget as HTMLInputElement).value;
+    if (value === "" || writes === undefined) return;
+    editingDue = false;
+    void writes.setDue(idea, value);
+  }
+
+  function clearDue(): void {
+    editingDue = false;
+    void writes?.setDue(idea, null);
+  }
 </script>
 
-<li class="card">
-  <div class="text">{idea.title}</div>
-  <div class="sub">
-    {idea.project ?? idea.department}
-    {#if idea.due !== null}
-      · <span class:warn-text={idea.due <= today}>{dueLabel(idea.due, today)}</span>
-    {/if}
-    · {daysAgo(idea.created, today)}
-  </div>
-  {#if idea.issue !== null}
+<li class="card idea" class:pending aria-busy={pending}>
+  <div class="body">
+    <div class="text">{idea.title}</div>
     <div class="sub">
-      {#if issueIsLink}
-        <a class="link issue" href={idea.issue} target="_blank" rel="noopener">Open the issue</a>
+      {idea.project ?? idea.department}
+      {#if idea.due !== null}
+        · <span class:warn-text={idea.status === "open" && idea.due <= today}>{dueLabel(idea.due, today)}</span>
+      {/if}
+      · {pending ? "adding" : daysAgo(idea.created, today)}
+    </div>
+    {#if idea.issue !== null}
+      <div class="sub">
+        {#if issueIsLink}
+          <a class="link issue" href={idea.issue} target="_blank" rel="noopener">Open the issue</a>
+        {:else}
+          issue at {idea.issue}
+        {/if}
+      </div>
+    {/if}
+  </div>
+
+  {#if editable && writes !== undefined}
+    <div class="acts">
+      {#if editingDue}
+        <input
+          type="date"
+          aria-label="Due date"
+          value={idea.due ?? ""}
+          onchange={pickDue}
+          onkeydown={(e) => e.key === "Escape" && (editingDue = false)}
+        />
+        {#if idea.due !== null}<button class="act" onclick={clearDue}>Clear</button>{/if}
+        <button class="act" onclick={() => (editingDue = false)}>Cancel</button>
       {:else}
-        issue at {idea.issue}
+        {#if idea.status === "open"}
+          <button class="act" onclick={() => writes.setStatus(idea, "done")}>Done</button>
+          <button class="act" onclick={() => writes.setStatus(idea, "dropped")}>Drop</button>
+        {:else}
+          <button class="act" onclick={() => writes.setStatus(idea, "open")}>Reopen</button>
+        {/if}
+        <button class="act" onclick={() => (editingDue = true)}>{idea.due === null ? "Set due" : "Change due"}</button>
       {/if}
     </div>
   {/if}
+  {#if error !== null}<p class="notice row-error" role="alert">{error}</p>{/if}
 </li>
 
 <style>
+  .idea {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+  }
+  .body {
+    flex: 1 1 240px;
+    min-width: 0;
+  }
   .text {
     overflow-wrap: anywhere;
   }
+  .pending {
+    opacity: 0.6;
+  }
   .issue {
     color: var(--accent);
+  }
+  .acts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin: -4px -6px -4px auto;
+  }
+  .act {
+    min-height: 40px;
+    padding: 0 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: none;
+    color: var(--dim);
+    font-size: 12px;
+    cursor: pointer;
+    transition: color 120ms, border-color 120ms, background-color 120ms;
+  }
+  .act:hover {
+    color: var(--ink);
+    border-color: var(--line);
+    background: var(--surface-2);
+  }
+  input[type="date"] {
+    min-height: 40px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--ink);
+    padding: 0 8px;
+    font: inherit;
+    font-size: 12px;
+  }
+  @media (min-width: 900px) {
+    .act,
+    input[type="date"] {
+      min-height: 28px;
+    }
+  }
+  .row-error {
+    flex-basis: 100%;
+    margin: 0;
   }
 </style>

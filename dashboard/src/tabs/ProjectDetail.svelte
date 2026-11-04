@@ -1,11 +1,13 @@
 <script lang="ts">
   import { fetchJson, type ProjectDetail } from "../lib/api";
+  import { createIdeaWrites } from "../lib/ideas.svelte";
   import { layout } from "../lib/layout.svelte";
   import { createPoll } from "../lib/poll.svelte";
   import { ageOf } from "../lib/time";
-  import CaptureSlot from "../ui/CaptureSlot.svelte";
+  import CaptureBox from "../ui/CaptureBox.svelte";
   import LoadState from "../ui/LoadState.svelte";
   import Pill from "../ui/Pill.svelte";
+  import Toast from "../ui/Toast.svelte";
   import { trackerLabel } from "./checks";
   import IdeaRow from "./IdeaRow.svelte";
   import InFlight from "./InFlight.svelte";
@@ -23,6 +25,11 @@
     current.start();
     return () => current.stop();
   });
+
+  const writes = createIdeaWrites({
+    refresh: () => poll.refresh(),
+    signedOut: (failure) => poll.signedOut(failure),
+  });
 </script>
 
 {#snippet detail(project: ProjectDetail, now: number)}
@@ -31,9 +38,9 @@
     <Pill>{trackerLabel[project.tracker]}</Pill>
     {#if project.pull_requests_scope === "mine"}<Pill>only your pull requests</Pill>{/if}
   </div>
-  {#if layout.wide}
-    <div class="capture"><CaptureSlot /></div>
-  {:else if project.error !== null}
+  {#if layout.wide && project.note !== null}
+    <div class="capture"><CaptureBox project={project.title} onadd={(draft) => writes.add(draft)} /></div>
+  {:else if !layout.wide && project.error !== null}
     <p class="notice">{project.error}</p>
   {/if}
 
@@ -60,12 +67,13 @@
   {/if}
 
   <h2>Ideas</h2>
-  {#if project.ideas.length === 0}
+  {@const ideas = writes.view(project.ideas, (i) => i.status === "open" && i.project === project.title)}
+  {#if ideas.length === 0}
     <p class="empty">No open ideas</p>
   {:else}
     <ul class="stack">
-      {#each project.ideas as idea (idea.id)}
-        <IdeaRow {idea} {now} />
+      {#each ideas as idea (idea.id)}
+        <IdeaRow {idea} {now} {writes} />
       {/each}
     </ul>
   {/if}
@@ -82,6 +90,8 @@
     {/if}
   {/snippet}
 </LoadState>
+
+<Toast toast={writes.toast} />
 
 <style>
   .head {
