@@ -32,7 +32,7 @@
     · {routine.paused ? "paused" : routine.next_run === null ? "no next run" : `next ${ageOf(routine.next_run, now)}`}
   </div>
   <div class="sub faint">
-    {routine.last_success === null ? "never succeeded" : `last success ${ageOf(routine.last_success, now)}`}
+    {routine.last_success === null ? "no success recorded yet" : `last success ${ageOf(routine.last_success, now)}`}
     {#if routine.failures !== null}· {routine.failures} {routine.failures === 1 ? "failure" : "failures"}{/if}
   </div>
   <div class="actions" data-slot="actions"></div>

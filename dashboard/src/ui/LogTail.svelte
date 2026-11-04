@@ -11,6 +11,13 @@
   // Seeded once from the prop; after that the owner's toggle wins over the next poll.
   // svelte-ignore state_referenced_locally
   let shown = $state(open);
+  let box: HTMLPreElement | undefined = $state();
+
+  // The newest line is the one that matters, so the box opens scrolled to the end.
+  $effect(() => {
+    void lines;
+    if (box) box.scrollTop = box.scrollHeight;
+  });
 </script>
 
 {#if lines.length === 0}
@@ -20,7 +27,7 @@
     {shown ? "Hide log" : "Show log"}
   </button>
   {#if shown}
-    <pre>{lines.join("\n")}</pre>
+    <pre bind:this={box}>{lines.join("\n")}</pre>
     {#if updated !== null}<p class="faint small none">log updated {ageOf(updated, now)}</p>{/if}
   {/if}
 {/if}
