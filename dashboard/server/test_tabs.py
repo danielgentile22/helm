@@ -18,6 +18,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import app  # noqa: E402
+import history  # noqa: E402
 import machine  # noqa: E402
 import routes  # noqa: E402
 import common  # noqa: E402  after routes, which puts the producers on the path
@@ -241,10 +242,24 @@ class DevicesTabTest(TabTest):
 
     def test_usage_is_shown_on_this_machine_alone(self) -> None:
         self.tailnet = machine.Tailnet(self.TAILNET, None)
+        history.record({"at": "2026-11-04T19:00:00Z", "cpu": 0.25, "memory": 40})
+        self.addCleanup(history._points.clear)
         found = self.by_title()
-        self.assertEqual(found["Studio desk Mac"]["usage"], self.usage)
+        self.assertEqual(found["Studio desk Mac"]["usage"],
+                         {**self.usage, "history": [{"at": "2026-11-04T19:00:00Z", "cpu": 0.25, "memory": 40}]})
         self.assertIsNone(found["Travel laptop"]["usage"])
         self.assertIsNone(found["Desk display"]["usage"])
+
+    def test_a_sample_measures_cpu_from_the_ticks_before_it(self) -> None:
+        ticks = iter([(130, 60, 860, 0), None])
+        for name, value in (("cpu_ticks", lambda: next(ticks)), ("memory_now", lambda: 7)):
+            self.addCleanup(setattr, machine, name, getattr(machine, name))
+            setattr(machine, name, value)
+        first, after = history.sample((100, 50, 800, 0), 1793820000)
+        self.assertEqual(first, {"at": "2026-11-04T19:20:00Z", "cpu": 0.4, "memory": 7})
+        # A failed tick read is a gap in CPU and the next sample starts over.
+        second, after = history.sample(after, 1793820010)
+        self.assertEqual((second["cpu"], second["memory"], after), (None, 7, None))
 
     def test_without_the_tailnet_no_device_is_known_to_be_this_machine(self) -> None:
         self.assertTrue(all(d["usage"] is None for d in self.by_title().values()))
@@ -258,6 +273,9 @@ class DevicesTabTest(TabTest):
         self.assertEqual(counts["translation faults"], 11620813642)
         self.assertEqual(machine.memory_used(counts), (2389532 - 75801 + 302206 + 44300) * 16384)
         self.assertIsNone(machine.memory_used({"page size": 16384}))
+        self.assertEqual(machine.busy_share((100, 50, 800, 0), (130, 60, 860, 0)), 0.4)
+        self.assertIsNone(machine.busy_share((100, 50, 800, 0), (100, 50, 800, 0)))
+        self.assertIsNone(machine.busy_share((100, 50, 800, 0), (90, 50, 900, 0)))
         self.assertEqual(machine.parse_boottime("{ sec = 1792341278, usec = 417449 } Sun Oct 18"), 1792341278)
 
     def test_no_tailnet_means_no_presence_and_says_why(self) -> None:

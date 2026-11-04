@@ -9,6 +9,7 @@ their answers into records lives in `background.py`, `control.py` and `devices.p
 """
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import re
@@ -170,13 +171,52 @@ def parse_boottime(text: str) -> int | None:
     return int(found.group(1)) if found else None
 
 
+def memory_now() -> int | None:
+    """Bytes of memory in use right now, or None when vm_stat will not say."""
+    vm = _run(VM_STAT)
+    return memory_used(parse_vm_stat(vm)) if vm is not None else None
+
+
+# HOST_CPU_LOAD_INFO: ticks every core has spent in each state since boot, in the order
+# user, system, idle, nice. The share busy between two readings is CPU usage over that span.
+HOST_CPU_LOAD_INFO = 3
+_host: tuple[ctypes.CDLL, int] | None = None
+
+
+def cpu_ticks() -> tuple[int, int, int, int] | None:
+    """(user, system, idle, nice) ticks since boot, or None off macOS or on any failure."""
+    global _host
+    try:
+        if _host is None:
+            libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+            libc.mach_host_self.restype = ctypes.c_uint32
+            # One port for the life of the process: each call to mach_host_self takes a new right.
+            _host = (libc, libc.mach_host_self())
+        libc, host = _host
+        info = (ctypes.c_uint32 * 4)()
+        count = ctypes.c_uint32(4)
+        if libc.host_statistics(host, HOST_CPU_LOAD_INFO, info, ctypes.byref(count)) != 0:
+            return None
+    except (OSError, AttributeError):
+        return None
+    return info[0], info[1], info[2], info[3]
+
+
+def busy_share(before: tuple[int, ...], after: tuple[int, ...]) -> float | None:
+    """The share of ticks between two readings that were not idle, from 0 to 1."""
+    spent = [b - a for a, b in zip(before, after)]
+    total = sum(spent)
+    if total <= 0 or any(n < 0 for n in spent):
+        return None
+    return (total - spent[2]) / total
+
+
 def usage() -> dict:
     """How hard the machine the dashboard runs on is working, read fresh. Each part is
     None when its probe fails, so a Mac that refuses one question still answers the rest."""
     memory = None
     total = _run(SYSCTL, "-n", "hw.memsize")
-    vm = _run(VM_STAT)
-    used = memory_used(parse_vm_stat(vm)) if vm is not None else None
+    used = memory_now()
     if total is not None and total.strip().isdigit() and used is not None:
         level = _run(SYSCTL, "-n", "kern.memorystatus_vm_pressure_level")
         memory = {"used": used, "total": int(total.strip()),

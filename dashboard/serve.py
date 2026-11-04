@@ -38,6 +38,7 @@ sys.path[:0] = [str(DASHBOARD / "server"), str(DASHBOARD.parent / "runner" / "pr
 
 import auth  # noqa: E402
 import common  # noqa: E402
+import history  # noqa: E402
 import routes  # noqa: E402
 from app import make_server  # noqa: E402
 
@@ -171,6 +172,7 @@ def main(argv: list[str]) -> int:
     print(f"status files from {common.STATUS}")
     if not args.no_open and sys.platform == "darwin":
         subprocess.run(["open", url], check=False)
+    history.start()
     if tailnet_server is not None:
         threading.Thread(target=tailnet_server.serve_forever, daemon=True, name="tailnet-door").start()
     try:

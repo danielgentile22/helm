@@ -94,6 +94,10 @@ warranty_until: 2029-09-23
   used (counted the way Activity Monitor counts it) and memory pressure, disk used on the
   Data volume, the one-minute load against the core count, and boot time. Read fresh per
   request; each part is null when its probe fails. Every other device has `usage: null`.
+- `usage.history` is the last hour of CPU and memory: the server samples every 10 seconds
+  in memory, up to 360 points, oldest first. It starts empty when the server restarts. A
+  point's `cpu` is the share busy since the point before (0 to 1), `memory` is bytes in use,
+  and either is null when its probe failed. The Devices tab asks every 10 seconds to match.
 - Devices that today share a note (a phone and a watch in one page) get a page each.
 
 ## Routine record

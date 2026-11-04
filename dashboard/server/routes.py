@@ -31,6 +31,7 @@ import auth  # noqa: E402
 import background  # noqa: E402
 import control  # noqa: E402
 import devices  # noqa: E402
+import history  # noqa: E402
 import idea_edit  # noqa: E402
 import machine  # noqa: E402
 import push  # noqa: E402
@@ -477,7 +478,8 @@ def push_test(request: Request, m: "re.Match[str]") -> Response:
 
 
 def devices_tab(request: Request, m: "re.Match[str]") -> Response:
-    return json_response(devices.assemble(common.VAULT, machine.tailscale_status(), machine.usage))
+    return json_response(devices.assemble(common.VAULT, machine.tailscale_status(),
+                                          lambda: {**machine.usage(), "history": history.points()}))
 
 
 ROUTES: tuple[Route, ...] = (
