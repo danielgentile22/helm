@@ -3,7 +3,8 @@
 #
 # Refreshes a local snapshot of what cannot be rebuilt: the vault (a verified git bundle
 # plus a tarball of the working tree, so uncommitted notes survive) and the state worth
-# keeping (chat threads, push subscriptions, passkey credentials, the guard's deny list).
+# keeping (chat threads, push subscriptions, passkey credentials, the guard's deny list, and
+# Doorbook's copy of the phone's log with its daily backups).
 #
 # The destination is one line in ~/.helm/backup/target, a folder inside a folder that
 # already exists on an external volume. The parent is never created.
@@ -62,7 +63,7 @@ git bundle verify "$IN/vault.bundle" >/dev/null 2>&1 || fail "vault bundle does 
 tar -czf "$IN/vault-tree.tar.gz" -C "$(dirname "$VAULT")" --exclude "$(basename "$VAULT")/.git" "$(basename "$VAULT")" 2>/dev/null || fail "vault tree"
 
 state=()
-for p in threads auth push dashboard-auth guard settings.json; do
+for p in threads auth push dashboard-auth guard settings.json doorbook; do
 	[ -e "$STATE/$p" ] && state+=("$p")
 done
 if [ ${#state[@]} -gt 0 ]; then

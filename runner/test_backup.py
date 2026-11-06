@@ -29,6 +29,8 @@ class BackupTest(unittest.TestCase):
         (self.state / "backup").mkdir(parents=True)
         (self.state / "threads").mkdir()
         (self.state / "threads" / "t.json").write_text("{}")
+        (self.state / "doorbook" / "backups").mkdir(parents=True)
+        (self.state / "doorbook" / "latest.json").write_text("{}")
 
     def run_backup(self) -> dict:
         env = {"HOME": str(self.home), "PATH": os.environ["PATH"], "HELM_VAULT_ROOT": str(self.vault)}
@@ -43,6 +45,9 @@ class BackupTest(unittest.TestCase):
         self.assertEqual(self.run_backup()["result"], "ok")
         self.assertEqual(sorted(p.name for p in (self.drive / "latest").iterdir()),
                          ["state.tar.gz", "vault-tree.tar.gz", "vault.bundle"])
+        listed = subprocess.run(["tar", "-tzf", str(self.drive / "latest" / "state.tar.gz")],
+                                capture_output=True, text=True, check=True).stdout.split()
+        self.assertIn("doorbook/latest.json", listed)
         self.assertEqual(self.run_backup()["result"], "fresh", "a second run within 12 hours skips")
 
     def test_an_absent_drive_is_quiet(self) -> None:
