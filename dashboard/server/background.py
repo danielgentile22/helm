@@ -68,7 +68,13 @@ def log_tail(state: Path, label: str) -> tuple[list[str], str | None]:
 def launchd_fields(label: str, jobs: dict[str, LaunchdJob]) -> dict:
     job = jobs.get(label)
     return {"label": label, "loaded": job is not None, "running": job is not None and job.pid is not None,
-            "last_exit": job.last_exit if job else None}
+            "pid": job.pid if job else None, "last_exit": job.last_exit if job else None}
+
+
+def described(spec: dict, command: list[str]) -> dict:
+    """What models.json says the job is for and touches, and what launchd runs, repo-relative."""
+    return {"project": spec.get("project"), "does": spec.get("does"), "writes": spec.get("writes"),
+            "command": " ".join(command) or None}
 
 
 def routine(name: str, spec: dict, jobs: dict[str, LaunchdJob], state: Path, now: datetime) -> dict:
@@ -93,6 +99,7 @@ def routine(name: str, spec: dict, jobs: dict[str, LaunchdJob], state: Path, now
         "model": spec.get("model"),
         "effort": spec.get("effort"),
         "why": spec.get("why"),
+        **described(spec, [f"runner/routines/{name}.sh"]),
         **launchd_fields(label, jobs),
         "paused": paused,
         "last_run": last_run,
@@ -110,6 +117,7 @@ def service(name: str, spec: dict | None, jobs: dict[str, LaunchdJob], state: Pa
     label = PREFIX + name
     tail, updated = log_tail(state, label)
     return {"name": name, "kind": "service", "why": (spec or {}).get("why"), "listed": spec is not None,
+            **described(spec or {}, [str(t) for t in (spec or {}).get("command") or []]),
             **launchd_fields(label, jobs), "log_tail": tail, "log_updated": updated}
 
 

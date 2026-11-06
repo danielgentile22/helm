@@ -107,9 +107,10 @@ disagrees with the machine.
 
 | Field | From |
 |---|---|
-| `name`, `schedule`, `model`, `why` | `models.json` |
+| `name`, `schedule`, `model`, `effort`, `why`, `project`, `does`, `writes` | `models.json` |
+| `command` | what launchd runs, repo-relative: `runner/routines/<name>.sh`, or a service's `command` |
 | `kind` | `routine` when `models.json` lists it, `service` for any other `com.helm.*` job |
-| `loaded`, `running`, `last_exit` | `launchctl list` |
+| `loaded`, `running`, `pid`, `last_exit` | `launchctl list` |
 | `paused` | its plist is in `~/.helm/disabled/` |
 | `last_run`, `result`, `failures`, `last_success` | `~/.helm/status/<name>.json`, normalised at the boundary (backup writes `ran` and epoch seconds; the rest write `last_run`) |
 | `next_run` | `runner/schedule.py` `next_fire`, unless paused |

@@ -152,6 +152,12 @@ ul.stack {
   overflow-wrap: anywhere;
 }
 
+/* What a background job is for, in a sentence, under its name. */
+.does {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+
 .empty {
   color: var(--dim);
   margin: 0;

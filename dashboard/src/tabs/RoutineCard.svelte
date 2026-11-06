@@ -1,7 +1,9 @@
 <script lang="ts">
   import { fetchJson, type Failure, type Routine, type RoutineAction, type RoutineResult, type RoutineWrite } from "../lib/api";
+  import { launchdLine } from "../lib/jobs";
   import { ageOf } from "../lib/time";
   import Dot, { type Tone } from "../ui/Dot.svelte";
+  import Facts from "../ui/Facts.svelte";
   import LogTail from "../ui/LogTail.svelte";
   import Pill from "../ui/Pill.svelte";
 
@@ -47,21 +49,26 @@
   <div class="row">
     <Dot tone={tone[routine.result]} label={said[routine.result]} />
     <span class="grow title">{routine.name}</span>
+    <Pill>routine</Pill>
     {#if routine.result === "paused"}
       <Pill>paused</Pill>
     {:else if routine.result_text !== null}
       <Pill tone={routine.result === "fail" ? "bad" : "plain"}>{routine.result_text}</Pill>
     {/if}
   </div>
-  <div class="sub">
-    {routine.schedule}
-    · {routine.last_run === null ? "never run" : `last run ${ageOf(routine.last_run, now)}`}
-    · {routine.paused ? "paused" : routine.next_run === null ? "no next run" : `next ${ageOf(routine.next_run, now)}`}
-  </div>
-  <div class="sub faint">
-    {routine.last_success === null ? "no success recorded yet" : `last success ${ageOf(routine.last_success, now)}`}
-    {#if routine.failures !== null}· {routine.failures} {routine.failures === 1 ? "failure" : "failures"}{/if}
-  </div>
+  {#if routine.does !== null}<p class="does">{routine.does}</p>{/if}
+  <Facts
+    rows={[
+      ["Schedule", `${routine.schedule} · ${routine.paused ? "paused" : routine.next_run === null ? "no next run" : `next ${ageOf(routine.next_run, now)}`}`],
+      ["Last run", `${routine.last_run === null ? "never run" : ageOf(routine.last_run, now)}${routine.failures !== null ? ` · ${routine.failures} ${routine.failures === 1 ? "failure" : "failures"}` : ""}`],
+      ["Last success", routine.last_success === null ? "none recorded yet" : ageOf(routine.last_success, now)],
+      ["Model", routine.model === null ? "none, plain code" : `${routine.model}${routine.effort === null ? "" : `, ${routine.effort} effort`}`],
+      ["Writes", routine.writes],
+      ["Runs", routine.command],
+      ["launchd", launchdLine(routine)],
+      ["Why", routine.why],
+    ]}
+  />
   <LogTail lines={routine.log_tail} updated={routine.log_updated} {now} open={routine.result === "fail"}>
     {#snippet actions()}
       <div class="actions" data-slot="actions" aria-busy={pending !== null}>

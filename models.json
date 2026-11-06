@@ -48,6 +48,8 @@
   },
   "routines": {
     "integrity-check": {
+      "project": "helm",
+      "does": "Runs helm's test suites and checks that the routers' pointers, the vault's wikilinks, the project notes, capture's sources and the services are all still sound. When something fails, Claude writes a short report naming what to fix in Inbox/runs/integrity and commits it to the vault.",
       "model": "sonnet",
       "effort": "low",
       "schedule": "daily 07:00",
@@ -55,6 +57,8 @@
       "writes": "nothing when everything passes"
     },
     "capture": {
+      "project": "helm",
+      "does": "Rebuilds the agenda and project snapshots the dashboard reads: open ideas and routine fires from the vault, and each project's git and GitHub state.",
       "model": null,
       "effort": null,
       "schedule": "every 30m",
@@ -62,6 +66,8 @@
       "writes": "~/.helm/status/agenda.json (open ideas, routine fires) and projects.json every run"
     },
     "doorbook-listings": {
+      "project": "doorbook",
+      "does": "Rereads the online listing of every house Doorbook marked for sale and records whether it is still on the market or has sold.",
       "model": null,
       "effort": null,
       "schedule": "daily 06:30",
@@ -69,6 +75,8 @@
       "writes": "~/.helm/doorbook/listings.json and ~/.helm/status/doorbook-listings.json"
     },
     "backup": {
+      "project": "helm",
+      "does": "Copies the vault (a verified git bundle and a tarball of the working tree) and the state worth keeping to the backup drive. Skips when the drive is absent and sends one notification once the last good copy is 14 days old.",
       "model": null,
       "effort": null,
       "schedule": "daily 09:00 and on mount",
@@ -99,12 +107,16 @@
   },
   "services": {
     "dashboard": {
+      "project": "helm",
+      "does": "Serves this dashboard on port 8642, to this Mac and the tailnet.",
       "command": ["dashboard/serve.py", "--no-open"],
       "throttle_s": 15,
       "why": "The dashboard is only worth having if it is already answering. launchd starts it at login and restarts it if it exits, so nothing has to be remembered before looking at the day.",
       "writes": "~/.helm/logs/com.helm.dashboard.out and .err"
     },
     "doorbook-sync": {
+      "project": "doorbook",
+      "does": "Answers the Doorbook phone app: takes in the houses it marks for sale and hands back what the listings routine found.",
       "command": ["runner/services/doorbook-sync.sh"],
       "throttle_s": 15,
       "why": "The phone sends the houses it marked for sale and reads back their listings whenever the For sale page opens, so the door has to be answering. Loopback only, fronted by tailscale serve on 8665. Owned by the doorbook project (scripts/listings/serve.py).",

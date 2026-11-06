@@ -1,7 +1,9 @@
 <script lang="ts">
   import { fetchJson, type BackgroundResponse, type Service } from "../lib/api";
   import { createPoll } from "../lib/poll.svelte";
+  import { byProject, launchdLine } from "../lib/jobs";
   import Dot from "../ui/Dot.svelte";
+  import Facts from "../ui/Facts.svelte";
   import LoadState from "../ui/LoadState.svelte";
   import LogTail from "../ui/LogTail.svelte";
   import Pill from "../ui/Pill.svelte";
@@ -32,12 +34,10 @@
   onretry={() => poll.refresh()}
 >
   {#snippet children(data, now)}
-    <h2 class="first">Routines</h2>
-    {#if data.routines.length === 0}
-      <p class="empty">No routines in models.json</p>
-    {:else}
+    {#each byProject(data.routines, data.services) as group, i (group.project)}
+      <h2 class:first={i === 0}>{group.project === "" ? "Not in models.json" : group.project}</h2>
       <ul class="stack">
-        {#each data.routines as routine (routine.name)}
+        {#each group.routines as routine (routine.name)}
           <RoutineCard
             {routine}
             {now}
@@ -45,31 +45,33 @@
             onsignedout={(failure) => poll.signedOut(failure)}
           />
         {/each}
-      </ul>
-    {/if}
-
-    <h2>Services</h2>
-    {#if data.services.length === 0}
-      <p class="empty">No services</p>
-    {:else}
-      <ul class="stack">
-        {#each data.services as service (service.label)}
+        {#each group.services as service (service.label)}
           {@const s = state(service)}
           <li class="card">
             <div class="row">
               <Dot tone={s.tone} label={s.label} />
               <span class="grow title">{service.name}</span>
-              {#if !service.listed}<Pill>not in models.json</Pill>{/if}
+              <Pill>service</Pill>
               {#if service.last_exit !== null && service.last_exit !== 0}
                 <Pill tone="warn">last exit {service.last_exit}</Pill>
               {/if}
             </div>
-            <div class="sub">{s.label}{#if service.why !== null} · {service.why}{/if}</div>
+            {#if service.does !== null}<p class="does">{service.does}</p>{/if}
+            <Facts
+              rows={[
+                ["State", s.label],
+                ["Lifecycle", service.listed ? "starts at login, restarted if it exits" : "installed outside helm, so models.json does not describe it"],
+                ["Writes", service.writes],
+                ["Runs", service.command],
+                ["launchd", launchdLine(service)],
+                ["Why", service.why],
+              ]}
+            />
             <LogTail lines={service.log_tail} updated={service.log_updated} {now} />
           </li>
         {/each}
       </ul>
-    {/if}
+    {/each}
   {/snippet}
 </LoadState>
 

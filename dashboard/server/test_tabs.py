@@ -193,9 +193,15 @@ class BackgroundTabTest(TabTest):
 
         never = self.routine(body, "integrity-check")
         self.assertEqual((never["result"], never["running"], never["last_exit"]), ("unknown", True, 1))
+        self.assertEqual((never["project"], never["command"], never["pid"]),
+                         ("helm", "runner/routines/integrity-check.sh", 512))
+        self.assertTrue(never["does"])
 
         self.assertEqual([(s["name"], s["listed"], s["last_exit"]) for s in body["services"]],
                          [("caffeinate", False, 0), ("dashboard", True, -15), ("doorbook-sync", True, None)])
+        self.assertEqual([(s["project"], s["command"], s["pid"]) for s in body["services"]],
+                         [(None, None, 901), ("helm", "dashboard/serve.py --no-open", 900),
+                          ("doorbook", "runner/services/doorbook-sync.sh", None)])
 
     def test_the_log_tail_is_the_last_forty_lines_of_the_newer_log(self) -> None:
         now = time.time()
