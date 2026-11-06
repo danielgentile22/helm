@@ -44,10 +44,10 @@ def registry(kind: str, name: str) -> tuple[str, str]:
     return _checked(data[kind][name], f"{kind}.{name}", data.get("policy", {}))
 
 
-def pass_registry(routine: str, pass_name: str) -> tuple[str, str]:
+def pass_registry(kind: str, routine: str, pass_name: str) -> tuple[str, str]:
     data = _models()
-    entry = data["routines"][routine]["passes"][pass_name]
-    return _checked(entry, f"routines.{routine}.passes.{pass_name}", data.get("policy", {}))
+    entry = data[kind][routine]["passes"][pass_name]
+    return _checked(entry, f"{kind}.{routine}.passes.{pass_name}", data.get("policy", {}))
 
 
 def parse_usage(d: dict) -> Usage:

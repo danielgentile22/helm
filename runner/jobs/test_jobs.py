@@ -134,17 +134,17 @@ class ClaudeRuns(unittest.TestCase):
 
     def test_registry_rejects_what_the_policy_forbids(self):
         data = {"policy": {"forbidden_models": ["haiku"], "forbidden_effort": ["xhigh", "max"]},
-                "routines": {"job-search": {"model": "opus", "effort": "high",
+                "manual": {"job-search": {"model": "opus", "effort": "high",
                                             "passes": {"eligibility": {"model": "haiku", "effort": "low"},
                                                        "skills": {"model": "sonnet", "effort": "max"},
                                                        "fine": {"model": "sonnet", "effort": "medium"}}}}}
         with mock.patch.object(claude, "_models", lambda: data):
-            self.assertEqual(claude.registry("routines", "job-search"), ("opus", "high"))
-            self.assertEqual(claude.pass_registry("job-search", "fine"), ("sonnet", "medium"))
+            self.assertEqual(claude.registry("manual", "job-search"), ("opus", "high"))
+            self.assertEqual(claude.pass_registry("manual", "job-search", "fine"), ("sonnet", "medium"))
             with self.assertRaises(ValueError):
-                claude.pass_registry("job-search", "eligibility")
+                claude.pass_registry("manual", "job-search", "eligibility")
             with self.assertRaises(ValueError):
-                claude.pass_registry("job-search", "skills")
+                claude.pass_registry("manual", "job-search", "skills")
 
 
 class Parsing(unittest.TestCase):

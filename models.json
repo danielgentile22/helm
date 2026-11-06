@@ -54,25 +54,6 @@
       "why": "Verifying that paths exist is close to mechanical. Runs every day, so cost compounds.",
       "writes": "nothing when everything passes"
     },
-    "job-search": {
-      "model": "opus",
-      "effort": "high",
-      "schedule": "daily 04:00",
-      "why": "Ranking the live pool is a judgment call over up to sixty full postings and their verdicts, with the right to overturn a cheaper pass, so it runs at the top of the scale; the two passes before it have their own entries below, and the ten tailorings that follow run the resume-tailor skill at its own entry. Runs before the owner wakes so the folder in ~/Desktop/Job Apps is waiting.",
-      "passes": {
-        "eligibility": {
-          "model": "sonnet",
-          "effort": "medium",
-          "why": "Three facts read off each posting into a fixed form, a batch of postings per call. Sonnet reads the whole text and the code decides the drop; the input is a hundred full postings a morning, which is where cost compounds."
-        },
-        "skills": {
-          "model": "sonnet",
-          "effort": "medium",
-          "why": "The years floor, the primary stack and each required skill against the owner's inventory, also a fixed form per posting, a batch per call. Same reasoning: the volume of text read, and the ranker re-checks the survivors at the top of the scale."
-        }
-      },
-      "writes": "~/Desktop/Job Apps/Jobs <day>.pdf and ~/Desktop/Job Apps/Jobs <day>/, Atlas/Work/research/<day>-jobs-top-10.md and <day>-jobs-dropped.md and Atlas/Work/files/applications/<day>/ in the vault, a Work idea due that day in Atlas/Ideas/, and ~/.helm/status/job-search/ (the day's stage files and costs, the pool, the posting and verdict caches)"
-    },
     "capture": {
       "model": null,
       "effort": null,
@@ -93,6 +74,27 @@
       "schedule": "daily 09:00 and on mount",
       "why": "The vault has no remote, so a local snapshot is its only copy. Pure code: a git bundle, two tarballs and a timestamp. It runs whenever a volume mounts and does nothing unless the backup drive is the one that appeared.",
       "writes": "the folder named in ~/.helm/backup/target, ~/.helm/backup, and ~/.helm/status/backup.json"
+    }
+  },
+  "manual": {
+    "job-search": {
+      "model": "opus",
+      "effort": "high",
+      "run": "By hand: runner/routines/job-search.sh. Never scheduled, so install-routines.sh, alerts and the Background tab do not know it.",
+      "why": "Ranking the live pool is a judgment call over up to sixty full postings and their verdicts, with the right to overturn a cheaper pass, so it runs at the top of the scale; the two passes before it have their own entries below, and the ten tailorings that follow run the resume-tailor skill at its own entry.",
+      "passes": {
+        "eligibility": {
+          "model": "sonnet",
+          "effort": "medium",
+          "why": "Three facts read off each posting into a fixed form, a batch of postings per call. Sonnet reads the whole text and the code decides the drop; the input is a hundred full postings a morning, which is where cost compounds."
+        },
+        "skills": {
+          "model": "sonnet",
+          "effort": "medium",
+          "why": "The years floor, the primary stack and each required skill against the owner's inventory, also a fixed form per posting, a batch per call. Same reasoning: the volume of text read, and the ranker re-checks the survivors at the top of the scale."
+        }
+      },
+      "writes": "~/Desktop/Job Apps/Jobs <day>.pdf and ~/Desktop/Job Apps/Jobs <day>/, Atlas/Work/research/<day>-jobs-top-10.md and <day>-jobs-dropped.md and Atlas/Work/files/applications/<day>/ in the vault, a Work idea due that day in Atlas/Ideas/, and ~/.helm/status/job-search/ (the day's stage files and costs, the pool, the posting and verdict caches)"
     }
   },
   "services": {

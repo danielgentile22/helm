@@ -1,7 +1,8 @@
 #!/bin/bash
-# Routine: job search.
+# Job search, run by hand. Not a scheduled routine: its entry sits under `manual`
+# in models.json, so install-routines.sh never installs it.
 #
-# Every morning: search LinkedIn's public listings against the criteria in the
+# Each run: search LinkedIn's public listings against the criteria in the
 # vault, screen them, have a cheaper model judge each posting's eligibility and
 # skills, have Claude rank the live pool and pick the day's ten, tailor a resume
 # and cover letter for each, and leave a PDF in ~/Desktop/Job Apps with the funnel and

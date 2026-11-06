@@ -166,13 +166,13 @@ class BackgroundTabTest(TabTest):
                                                       "result": "pass", "failures": 0}))
         self.write("status/backup.json", json.dumps({"ran": "2026-11-03T14:00:05Z", "result": "volume absent",
                                                      "last_success": 1792945851}))
-        self.write("disabled/com.helm.job-search.plist", "<plist/>")
-        self.write("status/job-search.json", json.dumps({"last_run": "2026-11-01T09:01:01Z", "result": "fail",
+        self.write("disabled/com.helm.doorbook-listings.plist", "<plist/>")
+        self.write("status/doorbook-listings.json", json.dumps({"last_run": "2026-11-01T09:01:01Z", "result": "fail",
                                                          "failures": 1}))
         status, body = get("/api/background")
         self.assertEqual(status, 200)
         self.assertEqual([r["name"] for r in body["routines"]],
-                         ["integrity-check", "job-search", "capture", "doorbook-listings", "backup"])
+                         ["integrity-check", "capture", "doorbook-listings", "backup"])
 
         capture = self.routine(body, "capture")
         self.assertEqual((capture["result"], capture["result_text"], capture["loaded"], capture["running"]),
@@ -186,7 +186,7 @@ class BackgroundTabTest(TabTest):
         self.assertEqual(backup["last_run"], "2026-11-03T14:00:05+00:00")
         self.assertEqual(backup["last_success"], "2026-10-25T16:30:51+00:00")
 
-        paused = self.routine(body, "job-search")
+        paused = self.routine(body, "doorbook-listings")
         self.assertEqual((paused["result"], paused["result_text"], paused["paused"], paused["loaded"]),
                          ("paused", "fail", True, False))
         self.assertIsNone(paused["next_run"])

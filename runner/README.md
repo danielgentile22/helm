@@ -50,7 +50,6 @@ runner/
 |---|---|---|---|
 | `integrity-check` | daily 07:00 | sonnet, low | Verifies every router pointer, every wikilink, every repo against its project note, and the dashboard checks and tests. Writes a report only when something is broken |
 | `capture` | every 30 min | none | Refreshes `status/agenda.json` and `status/projects.json` from the deterministic producers. No Claude call |
-| `job-search` | daily 04:00 | opus, high; sonnet, medium for the two passes | Searches LinkedIn against the vault's criteria, screens, judges each posting's eligibility and skills, ranks the live pool, tailors a resume and cover letter for each pick, and leaves a PDF with the funnel and the apply links in `~/Desktop/Job Apps`. The record goes in the vault |
 | `doorbook-listings` | daily 06:30 | none | Runs the doorbook project's `scripts/listings/check.py`: checks the online listing of each house the phone marked for sale and records for sale, under contract, sold or off market. The addresses stay in `~/.helm/doorbook`. ADR 0040 |
 
 A routine is a script on a timer. A service is a process launchd keeps alive, and
@@ -134,6 +133,10 @@ worth reading if their pointers are real.
 
 ## Job search
 
+Not scheduled. Its entry sits under `manual` in `models.json`, not `routines`, so
+`install-routines.sh` never installs it and the alerts and the Background tab never
+list it. It keeps its models there and runs by hand with `runner/routines/job-search.sh`.
+
 `jobs/run.py` runs seven stages, each leaving its result as JSON under
 `status/job-search/<day>/` beside a `dropped-<stage>.json` naming every drop and its
 reason, so one can be rerun alone with `--only` and a bad morning can be read back:
@@ -163,11 +166,11 @@ regexes, the owner's work status, profile and thresholds, and the path of the sk
 inventory the skills pass reads. `demo-vault/` carries a fictional one. A batch call that
 fails twice drops its postings closed with the failure as the reason; a stage where every
 call fails, or any other failure, still writes the note and the PDF, saying what failed,
-and `status/job-search.json` reads `fail`. It is the one routine that is not silent on
+and `status/job-search.json` reads `fail`. It is not silent on
 success: the report is the point.
 
 ```sh
-python3 runner/jobs/run.py                      # what launchd runs
+python3 runner/jobs/run.py                      # what the routine script runs
 python3 runner/jobs/run.py --limit 2            # tailor the first two picks only
 python3 runner/jobs/run.py --only rank          # rerun one stage from the previous stage's file
 python3 runner/jobs/run.py --desktop /tmp/d     # the morning folder somewhere other than ~/Desktop/Job Apps

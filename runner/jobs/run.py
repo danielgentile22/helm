@@ -50,6 +50,8 @@ ENGINE = HERE.parents[1]
 STATE = Path(os.environ.get("HELM_STATE") or Path.home() / ".helm")
 VAULT = Path(os.environ.get("HELM_VAULT_ROOT") or Path.home() / "Vault")
 ROUTINE = "job-search"
+# Under `manual` in models.json, not `routines`: run by hand, never scheduled.
+KIND = "manual"
 STAGES = ("search", "detail", "eligibility", "skills", "rank", "tailor", "report")
 RANK_TIMEOUT_S = 15 * 60
 PASS_TIMEOUT_S = 4 * 60
@@ -221,7 +223,7 @@ class Run:
         every prompt. Returns the rows that passed, each with the verdict added, and the
         drops."""
         c = self.criteria
-        model, effort = claude.pass_registry(ROUTINE, stage)
+        model, effort = claude.pass_registry(KIND, ROUTINE, stage)
         key = verdict_key(stage, c, self.skills_text())
         self.sandbox.mkdir(parents=True, exist_ok=True)
         cost = Cost()
@@ -353,7 +355,7 @@ class Run:
         dump(self.dir / "ranked.json", [{"id": r["posting"].id, "source": r["source"]} for r in short])
         text = rank.prompt(short, c, self.day, "Atlas/Work/Job Search.md")
         (self.dir / "rank-prompt.txt").write_text(text)
-        model, effort = claude.registry("routines", ROUTINE)
+        model, effort = claude.registry(KIND, ROUTINE)
         out = claude.run(text, model, effort, cwd=VAULT, timeout_s=RANK_TIMEOUT_S, read_only=True)
         (self.dir / "rank-answer.txt").write_text(out.stdout + "\n--- stderr ---\n" + out.stderr)
         cost = Cost()
