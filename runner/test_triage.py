@@ -12,7 +12,7 @@ import tempfile
 import time
 import unittest
 from contextlib import redirect_stderr
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -105,6 +105,9 @@ class StartTest(TriageTest):
         self.status("capture", {"result": "pass", "last_run": alerts.stamp(self.now - timedelta(hours=2))})
         self.up = False
         self.run_once()
+        self.assertEqual(self.start.requests, [], "a blip waits for the settle time")
+        self.now += timedelta(minutes=30)
+        self.run_once()
         self.assertEqual({r.key for r in self.start.requests}, {"quiet:capture", "service:dashboard"})
         self.assertIsNotNone(self.files()["service:dashboard"]["session"])
 
@@ -134,6 +137,8 @@ class StartTest(TriageTest):
         self.status("integrity-check", {"result": "fail", "failures": 1, "last_run": alerts.stamp(self.now)})
         self.status("capture", {"result": "pass", "last_run": alerts.stamp(self.now - timedelta(hours=2))})
         self.up = False
+        self.run_once()
+        self.now += timedelta(minutes=30)
         err = self.quietly()
         self.assertEqual(len(self.start.requests), 3)
         self.assertEqual(len(self.ledger()), 3)
@@ -193,9 +198,14 @@ class BriefTest(TriageTest):
     def test_a_service_brief_names_its_command(self) -> None:
         self.up = False
         self.run_once()
+        self.now += timedelta(minutes=30)
+        self.run_once()
         text = self.start.requests[0].brief
         self.assertIn("Command: `dashboard/serve.py --no-open`", text)
         self.assertIn("This service is down.", text)
+
+
+LATER = datetime(2026, 9, 20, 13, 0, tzinfo=timezone.utc)
 
 
 class PlanTest(unittest.TestCase):
@@ -206,16 +216,22 @@ class PlanTest(unittest.TestCase):
         found = [self.alert("routine:a"), self.alert("idea:abc"), self.alert("ci:keel#1"),
                  self.alert("routine:b", dismissed="x"), self.alert("routine:c", closed="x"),
                  self.alert("service:d", session="https://t3.example/1")]
-        self.assertEqual(triage.plan(found, {}), triage.Plan({}, ("routine:a",), ()))
+        self.assertEqual(triage.plan(found, {}, LATER), triage.Plan({}, ("routine:a",), ()))
 
     def test_a_claim_still_starting_is_neither_reattached_nor_started_again(self) -> None:
         ledger = {"routine:a": triage.Entry("routine:a", "f", "t")}
-        self.assertEqual(triage.plan([self.alert("routine:a")], ledger), triage.Plan({}, (), ()))
+        self.assertEqual(triage.plan([self.alert("routine:a")], ledger, LATER), triage.Plan({}, (), ()))
+
+    def test_a_service_or_quiet_alert_waits_out_its_settle_time_and_a_failure_does_not(self) -> None:
+        found = [self.alert("routine:a", opened="2026-09-20T12:58:00Z"),
+                 self.alert("service:b", opened="2026-09-20T12:58:00Z"),
+                 self.alert("quiet:c", opened="2026-09-20T12:50:00Z")]
+        self.assertEqual(triage.plan(found, {}, LATER), triage.Plan({}, ("quiet:c", "routine:a"), ()))
 
     def test_the_cap_counts_today_s_ledger_and_this_pass(self) -> None:
         ledger = {"quiet:x": triage.Entry("quiet:x", "f", "t", "t3", "s")}
         found = [self.alert(f"routine:{n}", opened=f"2026-09-20T12:0{i}:00Z") for i, n in enumerate("abc")]
-        self.assertEqual(triage.plan(found, ledger), triage.Plan({}, ("routine:a", "routine:b"), ("routine:c",)))
+        self.assertEqual(triage.plan(found, ledger, LATER), triage.Plan({}, ("routine:a", "routine:b"), ("routine:c",)))
 
 
 class ProjectTest(unittest.TestCase):
@@ -278,6 +294,13 @@ class StarterTest(unittest.TestCase):
                           "--title", "Fix: capture failed", str(self.project), "-"])
         self.assertEqual((self.root / "stdin").read_text(), self.request.brief)
         self.assertEqual((self.entry()["via"], self.entry()["session"]), ("t3", "https://t3.example/th_1"))
+
+    def test_a_thread_id_is_looked_up_in_the_thread_list_for_its_link(self) -> None:
+        t3 = script(self.bin / "t3", 'if [ "$2" = list ]; then echo \'[{"threadId": "x"}, {"threadId": "th_3", '
+                                     '"link": "https://t3.example/th_3"}]\'; exit 0; fi\n'
+                                     'cat >/dev/null\necho \'{"threadId": "th_3"}\'\n')
+        self.assertEqual(self.launch(HELM_T3_BIN=str(t3), HELM_CLAUDE_BIN=str(self.bin / "missing")),
+                         triage.Started("t3", "https://t3.example/th_3"))
 
     def test_a_thread_id_alone_is_the_session_when_there_is_no_link(self) -> None:
         t3 = script(self.bin / "t3", 'cat >/dev/null\necho \'{"threadId": "th_2"}\'\n')

@@ -25,7 +25,7 @@ import re
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Iterable, Literal
 from urllib.parse import quote
@@ -42,6 +42,9 @@ if TYPE_CHECKING:
 
 PREFIXES = ("routine:", "quiet:", "service:")
 DAILY_CAP = 3
+# A service or a schedule can blip: a restart, a reinstall, a Mac waking. Those alerts start a
+# session only once they have held this long, which on capture's beat is the next evaluation.
+SETTLE = {"quiet:": timedelta(minutes=5), "service:": timedelta(minutes=5)}
 LOG_LINES = 80
 LOG_READ_BYTES = 128 * 1024
 T3_TIMEOUT_S = 60
@@ -71,16 +74,20 @@ class Plan:
     capped: tuple[str, ...]
 
 
-def plan(alerts: Iterable[Alert], ledger: dict[str, Entry], cap: int = DAILY_CAP) -> Plan:
+def plan(alerts: Iterable[Alert], ledger: dict[str, Entry], now: datetime, cap: int = DAILY_CAP) -> Plan:
     """What to do with each alert that has no session yet. An alert whose key already has a
     session today gets that one back: a changed fingerprint opens a fresh alert, and it is
-    still the same broken job. Pure."""
+    still the same broken job. A quiet or service alert younger than its settle time waits.
+    Pure."""
     attach: dict[str, str] = {}
     start: list[str] = []
     capped: list[str] = []
     used = len(ledger)
     for a in sorted(alerts, key=lambda a: (a.opened, a.key)):
         if not a.visible or a.session is not None or not a.key.startswith(PREFIXES):
+            continue
+        settle = SETTLE.get(a.key.split(":", 1)[0] + ":")
+        if settle and now - datetime.fromisoformat(a.opened.replace("Z", "+00:00")) < settle:
             continue
         entry = ledger.get(a.key)
         if entry is not None:
@@ -360,6 +367,19 @@ def settings(registry: dict | None = None) -> tuple[str, str]:
     return model, effort
 
 
+def thread_link(binary: str, project: Path, thread_id: object) -> str | None:
+    """`thread start --json` answers with the id only; `thread list` carries the link."""
+    if not isinstance(thread_id, str):
+        return None
+    try:
+        r = subprocess.run([binary, "thread", "list", "--json", "--project", str(project)],
+                           capture_output=True, text=True, timeout=T3_TIMEOUT_S)
+        rows = json.loads(r.stdout) if r.returncode == 0 else []
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+    return next((t.get("link") for t in rows if isinstance(t, dict) and t.get("threadId") == thread_id), None)
+
+
 def via_t3(request: Request, slug: str) -> Started | None:
     """A T3 thread in the owning project. None when T3 cannot take it. T3's command line has
     no effort flag, so a thread runs at the provider's default effort."""
@@ -372,7 +392,8 @@ def via_t3(request: Request, slug: str) -> Started | None:
     except (OSError, subprocess.TimeoutExpired, ValueError) as e:
         sys.stderr.write(f"triage: T3 is unavailable ({type(e).__name__})\n")
         return None
-    session = (doc.get("link") or doc.get("threadId")) if isinstance(doc, dict) else None
+    session = (doc.get("link") or thread_link(binary, request.project, doc.get("threadId"))
+               or doc.get("threadId")) if isinstance(doc, dict) else None
     if not isinstance(session, str) or not session:
         sys.stderr.write(f"triage: T3 is unavailable (exit {r.returncode})\n")
         return None

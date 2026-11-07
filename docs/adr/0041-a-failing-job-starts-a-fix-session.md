@@ -42,6 +42,9 @@ against the policy like every other entry (ADR 0011).
 - The ledger at `~/.helm/triage/<day>/` is the only record of what started, and it sets
   the limits: one session per alert key per local day, and three a day in all. An alert
   that reopens with a new fingerprint the same day gets the same session back.
+- A quiet or service alert starts a session only once it has held for five minutes, which
+  on capture's half-hour beat means the next evaluation. A service restarting on purpose, or
+  a Mac waking, otherwise looks like an outage for a moment.
 - A claim is written before the session starts and removed if the start fails, so a crash
   costs at most one session and never starts a second one for the same key.
 - A start that fails never fails the evaluation, the same rule as a push.

@@ -236,7 +236,8 @@ python3 runner/triage.py --brief routine:capture   # print the brief a session w
 ```
 
 `~/.helm/triage/<day>/` holds each session's brief, its claim and a headless run's log.
-It allows one session per alert key a day and three a day in all; a start that fails
+A quiet or service alert waits five minutes before it starts one, so a restart is not an
+outage. It allows one session per alert key a day and three a day in all; a start that fails
 leaves no claim and is tried on the next evaluation.
 
 ## Capture

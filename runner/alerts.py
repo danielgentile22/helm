@@ -387,7 +387,7 @@ def start_pending(w: World, start: triage.Start) -> list[str]:
     with locked("files"):
         alerts = load_all()
     day = triage.ledger_dir(w.now)
-    decided = triage.plan(alerts.values(), triage.read_ledger(day))
+    decided = triage.plan(alerts.values(), triage.read_ledger(day), w.now)
     if decided.capped:
         sys.stderr.write(f"triage: {triage.DAILY_CAP} fix sessions a day is the cap, "
                          f"{len(decided.capped)} alert(s) wait for tomorrow\n")
