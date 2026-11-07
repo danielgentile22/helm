@@ -14,6 +14,9 @@ export interface Alert {
   pushed: string | null;
   dismissed: string | null;
   closed: string | null;
+  // The fix session a failing job started (ADR 0041): a T3 thread's link or id, or the
+  // ~-shortened log of a headless run.
+  session: string | null;
 }
 
 export interface AlertsResponse {

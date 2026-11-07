@@ -26,6 +26,13 @@
             <div class="grow">
               <div class="title">{alert.title}</div>
               <div class="sub faint">opened {ageOf(alert.opened, Date.now())}</div>
+              {#if alert.session?.startsWith("https://")}
+                <div class="sub"><a class="link" href={alert.session} target="_blank" rel="noopener">Claude is on it</a></div>
+              {:else if alert.session?.startsWith("~") || alert.session?.startsWith("/")}
+                <div class="sub faint">Claude ran headless, notes in {alert.session}</div>
+              {:else if alert.session}
+                <div class="sub faint">Claude is on it in T3</div>
+              {/if}
             </div>
             <button class="btn" onclick={() => dismiss(alert.key)}>Dismiss</button>
           </div>
