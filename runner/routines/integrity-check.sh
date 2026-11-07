@@ -16,6 +16,9 @@
 
 set -u
 ENGINE="$(cd "$(dirname "$0")/../.." && pwd)"
+# Alerts read the status written below, after this run has printed its output, so a
+# fix session's log tail includes this run (ADR 0039, ADR 0041).
+trap 'python3 "$ENGINE/runner/alerts.py"' EXIT
 DAY="$(date +%Y-%m-%d)"
 VAULT="${HELM_VAULT_ROOT:-$HOME/Vault}"
 REPORT_DIR="$VAULT/Inbox/runs/integrity"
@@ -91,9 +94,6 @@ failures=$(printf '%s\n' "$out" | grep -E '^ *FAIL' | grep -vcE 'checked|driftin
 python3 "$ENGINE/runner/status.py" integrity-check \
 	"$([ "$rc" = 0 ] && echo pass || echo fail)" "$failures" \
 	"report=$([ "$rc" = 0 ] && echo null || echo "${REPORT/#$HOME/~}")"
-
-# Alerts read the status just written (ADR 0039). Never the routine's own result.
-python3 "$ENGINE/runner/alerts.py"
 
 if [ "$rc" = 0 ]; then
 	# Safe to run twice means the artifacts agree with the status, not just that
