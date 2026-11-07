@@ -26,7 +26,8 @@ runner/
 ├── logs/                 launchd stdout and stderr
 ├── metrics/              metrics.csv, one row per reading
 ├── dashboard-auth/       the dashboard's passkeys and sessions
-└── backup/               where the backup routine writes, and when it last did
+├── backup/               where the backup routine writes, and when it last did
+└── triage/               fix sessions: the enabled switch and one ledger folder per day
 ```
 
 ## The rules every routine follows
@@ -183,10 +184,10 @@ wakeorpoweron MTWRFSU 03:55:00` schedules the wake.
 
 ## Alerts
 
-`alerts.py` runs at the end of every routine, after its status file is written, so it also
-runs on capture's half-hour beat (ADR 0039). It evaluates five conditions and keeps one file
-per alert at `~/.helm/alerts/<key>.json`, its name the key percent-encoded (shape in
-`docs/data-shapes.md`):
+`alerts.py` runs when every routine exits, after its status file is written and its output
+printed, so it also runs on capture's half-hour beat (ADR 0039). It evaluates five
+conditions and keeps one file per alert at `~/.helm/alerts/<key>.json`, its name the key
+percent-encoded (shape in `docs/data-shapes.md`):
 
 | Key | Tab | Opens when | Closes when |
 |---|---|---|---|
@@ -211,6 +212,32 @@ idea text reaches a file, a log line or a push.
 ```sh
 python3 runner/alerts.py    # one evaluation, silent unless something fails
 ```
+
+### Fix sessions
+
+After the pushes, every visible `routine:`, `quiet:` or `service:` alert with no session
+starts a Claude session that diagnoses and fixes the job unattended (ADR 0041). CI and idea
+alerts never do. `triage.py` builds the brief from `models.json`, the job's status file,
+the last 80 lines of its two logs, launchd, and the commits in its owning project since its
+last success. The session fixes, tests, commits under that repo's CLAUDE.md, reruns the
+job, and stops before deleting data, rewriting vault history or touching a credential.
+
+It starts as a T3 thread (`~/.t3/bin/t3`, or `HELM_T3_BIN`) and falls back to a detached
+`claude -p` (`HELM_CLAUDE_BIN`) when T3 does not answer. Model and effort are
+`on_alert.triage` in `models.json`. The alert's `session` holds the thread link or the
+headless run's log, and the dashboard shows it under the alert.
+
+It is off until you turn it on:
+
+```sh
+touch ~/.helm/triage/enabled                       # turn fix sessions on
+rm ~/.helm/triage/enabled                          # and off
+python3 runner/triage.py --brief routine:capture   # print the brief a session would get
+```
+
+`~/.helm/triage/<day>/` holds each session's brief, its claim and a headless run's log.
+It allows one session per alert key a day and three a day in all; a start that fails
+leaves no claim and is tried on the next evaluation.
 
 ## Capture
 

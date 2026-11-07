@@ -122,5 +122,13 @@
       "why": "The phone sends the houses it marked for sale and reads back their listings whenever the For sale page opens, so the door has to be answering. Loopback only, fronted by tailscale serve on 8665. Owned by the doorbook project (scripts/listings/serve.py).",
       "writes": "~/.helm/doorbook/watchlist.json, and ~/.helm/logs/com.helm.doorbook-sync.out and .err"
     }
+  },
+  "on_alert": {
+    "triage": {
+      "model": "opus",
+      "effort": "high",
+      "does": "Starts a Claude session when a routine fails, goes quiet or a service is down. The session finds the cause, fixes it, tests it, reruns the job and commits, and stops before anything hard to undo. At most one per alert a day and three a day in all, and only once ~/.helm/triage/enabled exists. ADR 0041.",
+      "why": "Diagnosing a broken job from its logs, its status and the commits since it last worked is judgment over unfamiliar code with nobody watching, so it runs at the top of the policy. It fires rarely, so cost does not compound."
+    }
   }
 }

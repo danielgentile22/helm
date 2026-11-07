@@ -65,6 +65,7 @@ project manager over the vault: projects, ideas, background routines and devices
 - [0038](0038-the-tailnet-can-add-ideas-and-drive-routines.md) The tailnet can add ideas and drive routines
 - [0039](0039-alerts-push-to-the-phone-and-badge-the-tabs.md) Alerts push to the phone and badge the tabs
 - [0040](0040-a-project-can-own-a-routine.md) A project can own a routine
+- [0041](0041-a-failing-job-starts-a-fix-session.md) A failing job starts a fix session
 
 ## Numbering after the merge
 

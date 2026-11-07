@@ -1,5 +1,6 @@
 """Alert evaluation against a temp state folder, a copy of the demo vault, a made-up launchd
-and a recording sender. Nothing here asks the machine or sends a push.
+and a recording sender and starter. Nothing here asks the machine, sends a push or starts
+a session.
 
     python3 -m unittest discover -s runner -p 'test_alerts.py'
 """
@@ -15,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 import alerts
 import common
+import triage
 from machine import LaunchdJob
 
 DEMO = common.ENGINE / "demo-vault"
@@ -42,6 +44,18 @@ class Sender:
         self.sent.append((title, tab, count))
 
 
+class Starter:
+    def __init__(self) -> None:
+        self.requests: list[triage.Request] = []
+        self.broken = False
+
+    def __call__(self, request: triage.Request) -> triage.Started:
+        if self.broken:
+            raise RuntimeError("T3 and claude both missing")
+        self.requests.append(request)
+        return triage.Started("t3", f"https://t3.example/thread/{len(self.requests)}")
+
+
 class AlertTest(unittest.TestCase):
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
@@ -57,6 +71,7 @@ class AlertTest(unittest.TestCase):
         self.jobs = dict(RUNNING)
         self.up = True
         self.send = Sender()
+        self.start = Starter()
         for name in REGISTRY["routines"]:
             self.status(name, {"result": "pass", "last_run": alerts.stamp(self.now - timedelta(minutes=5))})
 
@@ -75,7 +90,7 @@ class AlertTest(unittest.TestCase):
         return alerts.World(REGISTRY, self.jobs, self.state, self.vault, self.now, lambda: self.up)
 
     def run_once(self, sources: dict | None = None) -> list[str]:
-        return alerts.evaluate(self.world(), sources or alerts.SOURCES, self.send)
+        return alerts.evaluate(self.world(), sources or alerts.SOURCES, self.send, self.start)
 
     def files(self) -> dict[str, dict]:
         return {json.loads(p.read_text())["key"]: json.loads(p.read_text())

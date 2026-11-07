@@ -133,7 +133,8 @@ alert is about, so evaluating the same condition twice rewrites the same file.
   "fingerprint": "volume absent",
   "pushed": "2026-11-04T09:00:05Z",
   "dismissed": null,
-  "closed": null
+  "closed": null,
+  "session": "https://t3.example/thread/1"
 }
 ```
 
@@ -145,3 +146,29 @@ alert is about, so evaluating the same condition twice rewrites the same file.
   app icon shows the total; each tab shows its own count.
 - Closed alerts older than a week are deleted on the next evaluation.
 - Push subscriptions are in `~/.helm/push/dashboard.json`, one per enrolled browser.
+- `session` is the fix session a failing job's alert started (ADR 0041): a T3 thread's
+  link (or its id when T3 gave no link), or the `~`-shortened log of a headless run. Null
+  for every other alert, and in alert files written before it existed.
+
+## Triage ledger
+
+What fix sessions started, one folder per local day at `~/.helm/triage/<YYYY-MM-DD>/`
+(ADR 0041). Per session, under the alert key percent-encoded: `<key>.md` is the brief
+exactly as sent, `<key>.json` the claim below, and `<key>.log` the output of a headless
+run.
+
+```json
+{
+  "key": "routine:backup",
+  "fingerprint": "volume absent",
+  "started": "2026-11-04T09:00:06Z",
+  "via": "t3",
+  "session": "https://t3.example/thread/1"
+}
+```
+
+- The claim is written before the session starts, with `via` and `session` null, and
+  filled in after. A start that fails deletes it, so the next evaluation tries again.
+- The ledger is the only count: one session per key per day, three a day in all. An
+  alert whose key already has a session today gets that session copied onto it.
+- Nothing starts unless `~/.helm/triage/enabled` exists.

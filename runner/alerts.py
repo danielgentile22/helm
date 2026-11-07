@@ -21,6 +21,7 @@ A paused routine never alerts. A source that raises leaves every alert under its
 it was, so one broken source cannot close or open anything it did not see. An open alert
 that is not dismissed and has never been pushed is pushed once; the due ideas of one
 evaluation share one notification. A push that fails is logged and tried again next time.
+Last, a failing job's alert starts a Claude session that fixes it, if turned on (ADR 0041).
 
 No idea text reaches an alert: an idea's key is a hash of its id and its title is fixed.
 """
@@ -47,6 +48,7 @@ import idea_edit  # noqa: E402
 import launchd  # noqa: E402
 import machine  # noqa: E402
 import push  # noqa: E402
+import triage  # noqa: E402
 from schedule import cadence_seconds, parse_schedule  # noqa: E402
 
 Tab = Literal["projects", "ideas", "background", "devices"]
@@ -73,6 +75,7 @@ class Alert:
     pushed: str | None = None
     dismissed: str | None = None
     closed: str | None = None
+    session: str | None = None
 
     @property
     def visible(self) -> bool:
@@ -373,13 +376,48 @@ def push_pending(now: datetime, send: Send) -> list[str]:
     return pushed
 
 
-def evaluate(w: World, sources: dict[str, Source] = SOURCES, send: Send = push.send) -> list[str]:
+# --- Fix sessions ---------------------------------------------------------------------------
+
+def start_pending(w: World, start: triage.Start) -> list[str]:
+    """Give every failing job's alert a fix session (ADR 0041): reattach today's session for
+    its key, or start one under the daily cap. Like a push, a start happens outside the files
+    lock and one that fails never fails the evaluation. Returns the keys started."""
+    if not triage.enabled():
+        return []
+    with locked("files"):
+        alerts = load_all()
+    day = triage.ledger_dir(w.now)
+    decided = triage.plan(alerts.values(), triage.read_ledger(day))
+    if decided.capped:
+        sys.stderr.write(f"triage: {triage.DAILY_CAP} fix sessions a day is the cap, "
+                         f"{len(decided.capped)} alert(s) wait for tomorrow\n")
+    sessions = dict(decided.attach)
+    for key in decided.start:
+        alert = alerts[key]
+        try:
+            started = triage.launch(triage.request(w, alert, day), alert.fingerprint, stamp(w.now), start)
+        except Exception as e:  # noqa: BLE001  a brief or a ledger that fails costs only this session
+            sys.stderr.write(f"triage: no fix session for {key} ({type(e).__name__})\n")
+            continue
+        if started is not None:
+            sessions[key] = started.session
+    with locked("files"):
+        current = load_all()
+        write({k: replace(current[k], session=s) for k, s in sessions.items()
+               if k in current and current[k].fingerprint == alerts[k].fingerprint and current[k].session is None})
+    return [k for k in decided.start if k in sessions]
+
+
+def evaluate(w: World, sources: dict[str, Source] = SOURCES, send: Send = push.send,
+             start: triage.Start = triage.start) -> list[str]:
     """One full pass. Returns the keys pushed."""
     readings = read(w, sources)
     with locked("evaluate"):
         with locked("files"):
             write(reconcile(load_all(), readings, w.now))
-        return push_pending(w.now, send)
+        pushed = push_pending(w.now, send)
+        start_pending(w, start)
+        return pushed
 
 
 def main() -> int:

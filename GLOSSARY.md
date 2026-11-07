@@ -153,6 +153,11 @@ past its date. Open while the condition holds, pushed to the phone once, and cou
 the app icon and on its tab.
 _Avoid_: notification (that is the push), warning, event
 
+**Fix session**:
+A Claude session that an alert about a failing job starts by itself, to find the cause,
+fix it and rerun the job while the owner is away. Turned on by `~/.helm/triage/enabled`;
+at most one per alert a day and three a day in all.
+
 **Device**:
 A piece of hardware the owner owns, with one note in the vault: its specs, its role, and
 whether it hosts T3 Code, reaches it as a client, or neither. Online status comes live from
