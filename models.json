@@ -74,6 +74,15 @@
       "why": "Reading a listing page for its status is a parse, not a judgment. Owned by the doorbook project, which keeps the code in scripts/listings; helm runs it before the work day so a house that sold overnight is on the phone by the first knock.",
       "writes": "~/.helm/doorbook/listings.json and ~/.helm/status/doorbook-listings.json"
     },
+    "doorbook-market": {
+      "project": "doorbook",
+      "does": "Sweeps every listing in Doorbook's area, for sale, under contract and sold, with its listing agent and brokerage, for the realtor list.",
+      "model": null,
+      "effort": null,
+      "schedule": "daily 06:00",
+      "why": "Reading listing pages for stage, dates and agent is a parse, not a judgment. Owned by the doorbook project, which keeps the code in scripts/market; helm runs it early each morning, before the listings check.",
+      "writes": "~/.helm/doorbook/market.json and ~/.helm/status/doorbook-market.json"
+    },
     "doorbook-debrief": {
       "project": "doorbook",
       "does": "Writes the evening debrief the Doorbook app shows: three things that worked that day, one thing to try tomorrow, and the best opener once pitch metrics exist.",

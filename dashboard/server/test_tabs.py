@@ -172,7 +172,7 @@ class BackgroundTabTest(TabTest):
         status, body = get("/api/background")
         self.assertEqual(status, 200)
         self.assertEqual([r["name"] for r in body["routines"]],
-                         ["integrity-check", "capture", "doorbook-listings", "doorbook-debrief", "backup"])
+                         ["integrity-check", "capture", "doorbook-listings", "doorbook-market", "doorbook-debrief", "backup"])
 
         capture = self.routine(body, "capture")
         self.assertEqual((capture["result"], capture["result_text"], capture["loaded"], capture["running"]),

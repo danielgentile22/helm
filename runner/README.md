@@ -52,6 +52,7 @@ runner/
 | `integrity-check` | daily 07:00 | sonnet, low | Verifies every router pointer, every wikilink, every repo against its project note, and the dashboard checks and tests. Writes a report only when something is broken |
 | `capture` | every 30 min | none | Refreshes `status/agenda.json` and `status/projects.json` from the deterministic producers. No Claude call |
 | `doorbook-listings` | daily 06:30 | none | Runs the doorbook project's `scripts/listings/check.py`: checks the online listing of each house the phone marked for sale and records for sale, under contract, sold or off market. The addresses stay in `~/.helm/doorbook`. ADR 0040 |
+| `doorbook-market` | daily 06:00 | none | Runs the doorbook project's `scripts/market/sweep.py`: reads every listing in the area, for sale, under contract and sold, with agent and brokerage, into `~/.helm/doorbook/market.json`. A site that blocks the request is skipped, not failed. No Claude call. ADR 0040 |
 | `doorbook-debrief` | daily 21:00 | sonnet, medium | Runs the doorbook project's `scripts/debrief/debrief.py`: one headless Claude call with no tools over the latest finished work day's log, writing the debrief the phone's Review tab shows to `~/.helm/doorbook/debrief.json`. A day off writes nothing, and a day already debriefed is skipped without a call. ADR 0040 |
 
 A routine is a script on a timer. A service is a process launchd keeps alive, and
