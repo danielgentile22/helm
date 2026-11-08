@@ -74,6 +74,15 @@
       "why": "Reading a listing page for its status is a parse, not a judgment. Owned by the doorbook project, which keeps the code in scripts/listings; helm runs it before the work day so a house that sold overnight is on the phone by the first knock.",
       "writes": "~/.helm/doorbook/listings.json and ~/.helm/status/doorbook-listings.json"
     },
+    "doorbook-debrief": {
+      "project": "doorbook",
+      "does": "Writes the evening debrief the Doorbook app shows: three things that worked that day, one thing to try tomorrow, and the best opener once pitch metrics exist.",
+      "model": "sonnet",
+      "effort": "medium",
+      "schedule": "daily 21:00",
+      "why": "Coaching from a day's log is a judgment over a short printout, and it is Doorbook's one AI step; the calendar sync and the listings stay plain code. Sonnet at medium is enough for three sentences from a few hundred lines and it runs every work evening, so cost compounds. It runs every evening at 21:00, after the 19:30 end of every work day, and a day off has no knocks and writes nothing. Owned by the doorbook project (scripts/debrief).",
+      "writes": "~/.helm/doorbook/debrief.json and ~/.helm/status/doorbook-debrief.json"
+    },
     "backup": {
       "project": "helm",
       "does": "Copies the vault (a verified git bundle and a tarball of the working tree) and the state worth keeping to the backup drive. Skips when the drive is absent and sends one notification once the last good copy is 14 days old.",
