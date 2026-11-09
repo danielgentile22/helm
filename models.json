@@ -94,7 +94,7 @@
     },
     "backup": {
       "project": "helm",
-      "does": "Copies the vault (a verified git bundle and a tarball of the working tree) and the state worth keeping to the backup drive. Skips when the drive is absent and sends one notification once the last good copy is 14 days old.",
+      "does": "Copies the vault (a verified git bundle and a tarball of the working tree) and the state worth keeping to the backup drive. Skips quietly when the drive is absent, and alerts and sends one notification once the last good copy is 14 days old.",
       "model": null,
       "effort": null,
       "schedule": "daily 09:00 and on mount",

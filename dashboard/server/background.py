@@ -18,10 +18,11 @@ from machine import LaunchdJob
 from schedule import next_fire, parse_schedule
 
 Result = Literal["pass", "fail", "paused", "unknown"]
-# What the routines write when they did their job. Backup says `ok`, or `fresh` when the
-# last one is recent enough to skip; anything else it writes ("volume absent", "failed: x")
-# is a run that left no backup, which is the alert ADR 0039 names.
-PASSING = {"pass", "ok", "fresh"}
+# What the routines write when they did their job. Backup says `ok`, `fresh` when the last
+# one is recent enough to skip, or `away` when the drive is unplugged but the last copy is
+# under 14 days old. Anything else it writes ("volume absent", "failed: x") means the
+# snapshot is stale or broken, which is the alert ADR 0039 names.
+PASSING = {"pass", "ok", "fresh", "away"}
 LOG_LINES = 40
 LOG_READ_BYTES = 64 * 1024
 

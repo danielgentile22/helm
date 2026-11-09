@@ -223,7 +223,7 @@ from `models.json`, `launchctl list`, `~/.helm/disabled/`, `~/.helm/status/<name
 ```
 
 - `result` is `paused` when the plist is in `~/.helm/disabled/`, else `pass` for a status
-  file that says `pass`, `ok` or `fresh`, `unknown` with no status file, and `fail` for
+  file that says `pass`, `ok`, `fresh` or `away`, `unknown` with no status file, and `fail` for
   anything else. `result_text` is what the file said.
 - `last_run` reads `last_run`, or backup's `ran`. `last_success` reads the file's own
   (backup's epoch seconds become ISO), else `last_run` when that run passed.

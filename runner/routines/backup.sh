@@ -9,8 +9,9 @@
 # The destination is one line in ~/.helm/backup/target, a folder inside a folder that
 # already exists on an external volume. The parent is never created.
 # launchd runs this daily and whenever any volume mounts. If the volume is absent it does
-# nothing, unless the last good backup is over 14 days old, and then it sends one macOS
-# notification until the next success. It writes only inside the target folder and
+# nothing and reports `away`, a pass, while the last good backup is under 14 days old. Past
+# that it reports `volume absent`, which alerts, and sends one macOS notification until the
+# next success. It writes only inside the target folder and
 # ~/.helm/backup, never creates the volume path, and is silent on success.
 
 set -u
@@ -47,6 +48,7 @@ remind() {
 }
 
 if [ ! -d "$VOLUME" ]; then
+	if [ $((now - last)) -le "$STALE_S" ]; then status "away"; exit 0; fi
 	remind "plug in the backup drive."
 	status "volume absent"
 	exit 0

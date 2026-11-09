@@ -201,9 +201,10 @@ percent-encoded (shape in `docs/data-shapes.md`):
 
 A paused routine never alerts. Evaluating twice writes nothing the second time. A dismissed
 alert stays hidden while its fingerprint matches, so backup's "volume absent" alerts once
-and only a different failure reopens it. CI that is still running, and every CI alert while
-the GitHub source is failing, is left as it was. A source that raises leaves its own alerts
-alone and the others still run. Closed alerts older than a week are deleted.
+and only a different failure reopens it. An unplugged drive is not a failure until the
+last good copy is 14 days old: until then backup reports `away`, a pass. CI that is still
+running, and every CI alert while the GitHub source is failing, is left as it was. A source
+that raises leaves its own alerts alone and the others still run. Closed alerts older than a week are deleted.
 
 Each newly opened alert is pushed once through `push.py`, which calls
 `dashboard/scripts/push.mjs` with a timeout; the due ideas of one evaluation share one

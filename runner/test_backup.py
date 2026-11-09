@@ -50,9 +50,14 @@ class BackupTest(unittest.TestCase):
         self.assertIn("doorbook/latest.json", listed)
         self.assertEqual(self.run_backup()["result"], "fresh", "a second run within 12 hours skips")
 
-    def test_an_absent_drive_is_quiet(self) -> None:
+    def test_an_absent_drive_is_a_pass_while_the_last_copy_is_recent(self) -> None:
         (self.state / "backup" / "target").write_text(f"{self.root}/missing/latest\n")
-        (self.state / "backup" / "last-success").write_text(str(int(time.time())))
+        (self.state / "backup" / "last-success").write_text(str(int(time.time()) - 13 * 86400))
+        self.assertEqual(self.run_backup()["result"], "away")
+
+    def test_an_absent_drive_fails_once_the_last_copy_is_over_14_days_old(self) -> None:
+        (self.state / "backup" / "target").write_text(f"{self.root}/missing/latest\n")
+        (self.state / "backup" / "last-success").write_text(str(int(time.time()) - 15 * 86400))
         self.assertEqual(self.run_backup()["result"], "volume absent")
 
 
