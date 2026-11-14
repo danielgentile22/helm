@@ -31,7 +31,7 @@ ROUTERS = [(ENGINE / "CLAUDE.md", ENGINE)] + [
 POINTER = re.compile(r"`((?:~|/|Atlas/|Inbox/|Archive/|runner/|dashboard/|docs/|scripts/)[^`]*)`")
 
 # Paths that are illustrative rather than pointers.
-SKIP = re.compile(r"[*?<{]|YYYY|^/bin/|^/usr/|^/[\w-]+$")  # globs, placeholders, slash commands
+SKIP = re.compile(r"[*?<{]|YYYY|^/bin/|^/usr/|^/[\w-]+(\s|$)")  # globs, placeholders, slash commands (with or without arguments)
 
 
 def show(path: Path) -> str:

@@ -32,6 +32,14 @@ class SkipTest(unittest.TestCase):
     def test_a_plain_path_is_a_pointer(self):
         self.assertFalse(check_pointers.SKIP.search("~/Projects/helm/CLAUDE.md"))
 
+    def test_slash_commands_with_or_without_arguments_are_not_pointers(self):
+        for raw in ("/doctor", "/doctor prompt-audit", "/code-review ultra 12"):
+            self.assertTrue(check_pointers.SKIP.search(raw), raw)
+
+    def test_absolute_paths_with_spaces_are_still_pointers(self):
+        for raw in ("/Volumes/T9 Backup/helm", "/Applications/Some App.app"):
+            self.assertFalse(check_pointers.SKIP.search(raw), raw)
+
 
 if __name__ == "__main__":
     unittest.main()
