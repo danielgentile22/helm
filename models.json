@@ -1,5 +1,5 @@
 {
-  "_comment": "Single source of truth for which model and effort each skill and routine runs at. The runner reads this to build claude -p invocations; the dashboard Skills Deck renders cards straight from it. Prose policy for agents lives in ~/.claude/CLAUDE.md and pstack-models.md.",
+  "_comment": "Single source of truth for which model and effort each skill and routine runs at. The runner reads this to build claude -p invocations; the dashboard Skills Deck renders cards straight from it. Prose policy for agents lives in ~/.claude/CLAUDE.md.",
   "policy": {
     "models": ["sonnet", "opus", "fable"],
     "forbidden_models": ["haiku"],
