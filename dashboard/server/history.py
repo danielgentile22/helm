@@ -1,9 +1,10 @@
-"""The last hour of this Mac's CPU and memory, for the graphs on its device card.
+"""The last hour of this Mac's CPU, GPU and memory, for the graphs on its device card.
 
 A daemon thread started by `serve.py` samples every 10 seconds and keeps 360 points in
 memory, so the graph covers an hour once the server has run that long; a restart starts it
-empty. A point's `cpu` is the share busy since the sample before it, and either value is
-None when its probe failed, which the page draws as a gap.
+empty. A point's `cpu` is the share busy since the sample before it, `gpu` is the GPU's
+share busy as its driver reports it, and any value is None when its probe failed, which the
+page draws as a gap.
 """
 from __future__ import annotations
 
@@ -29,7 +30,9 @@ def sample(before: tuple[int, ...] | None, at: float) -> tuple[dict, tuple[int, 
     """One point, and the ticks the next sample measures from."""
     after = machine.cpu_ticks()
     cpu = machine.busy_share(before, after) if before is not None and after is not None else None
-    return {"at": stamp(at), "cpu": None if cpu is None else round(cpu, 4), "memory": machine.memory_now()}, after
+    gpu = machine.gpu_now()
+    return {"at": stamp(at), "cpu": None if cpu is None else round(cpu, 4),
+            "gpu": None if gpu is None else round(gpu, 4), "memory": machine.memory_now()}, after
 
 
 def record(point: dict) -> None:
@@ -49,7 +52,7 @@ def _loop() -> None:
         try:
             point, ticks = sample(ticks, time.time())
         except Exception:  # noqa: BLE001  one bad sample is a gap, never a dead sampler
-            point, ticks = {"at": stamp(time.time()), "cpu": None, "memory": None}, machine.cpu_ticks()
+            point, ticks = {"at": stamp(time.time()), "cpu": None, "gpu": None, "memory": None}, machine.cpu_ticks()
         record(point)
 
 

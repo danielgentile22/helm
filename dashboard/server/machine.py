@@ -12,6 +12,7 @@ from __future__ import annotations
 import ctypes
 import json
 import os
+import plistlib
 import re
 import shutil
 import subprocess
@@ -131,6 +132,7 @@ DATA_VOLUME = Path("/System/Volumes/Data")
 # By full path: launchd starts the dashboard with a PATH that leaves out /usr/sbin.
 SYSCTL = "/usr/sbin/sysctl"
 VM_STAT = "/usr/bin/vm_stat"
+IOREG = "/usr/sbin/ioreg"
 
 
 def _run(*args: str) -> str | None:
@@ -175,6 +177,33 @@ def memory_now() -> int | None:
     """Bytes of memory in use right now, or None when vm_stat will not say."""
     vm = _run(VM_STAT)
     return memory_used(parse_vm_stat(vm)) if vm is not None else None
+
+
+def parse_gpu(raw: bytes) -> float | None:
+    """GPU use from 0 to 1, from `ioreg -a` over the IOAccelerator class: the driver's
+    "Device Utilization %", the figure Activity Monitor's GPU History draws. With more than
+    one GPU it is the busiest. None when no accelerator reports one."""
+    try:
+        found = plistlib.loads(raw)
+    except Exception:  # noqa: BLE001  plistlib raises several types on bad input
+        return None
+    shares = []
+    for entry in found if isinstance(found, list) else []:
+        stats = entry.get("PerformanceStatistics") if isinstance(entry, dict) else None
+        value = stats.get("Device Utilization %") if isinstance(stats, dict) else None
+        if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 100:
+            shares.append(value / 100)
+    return max(shares) if shares else None
+
+
+def gpu_now() -> float | None:
+    """How busy the GPU is right now, 0 to 1, or None off macOS or on any failure. Needs no
+    root, unlike `powermetrics`."""
+    try:
+        r = subprocess.run([IOREG, "-r", "-d", "1", "-c", "IOAccelerator", "-a"], capture_output=True, timeout=3)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return parse_gpu(r.stdout) if r.returncode == 0 else None
 
 
 # HOST_CPU_LOAD_INFO: ticks every core has spent in each state since boot, in the order

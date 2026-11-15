@@ -220,6 +220,7 @@ export interface Usage {
 export interface UsagePoint {
   at: string;
   cpu: number | null; // share busy since the point before, 0 to 1
+  gpu: number | null; // GPU share busy as its driver reports it, 0 to 1
   memory: number | null; // bytes in use
 }
 

@@ -6,7 +6,7 @@
 
   let { at = $bindable() }: { at: number | null } = $props();
 
-  // Every 10 seconds, the rate the server samples CPU and memory at, so the graphs move live.
+  // Every 10 seconds, the rate the server samples CPU, GPU and memory at, so the graphs move live.
   const poll = createPoll(() => fetchJson<DevicesResponse>("/api/devices"), undefined, 10_000);
   $effect(() => {
     poll.start();

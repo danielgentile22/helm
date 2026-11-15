@@ -258,11 +258,11 @@ class DevicesTabTest(TabTest):
 
     def test_a_sample_measures_cpu_from_the_ticks_before_it(self) -> None:
         ticks = iter([(130, 60, 860, 0), None])
-        for name, value in (("cpu_ticks", lambda: next(ticks)), ("memory_now", lambda: 7)):
+        for name, value in (("cpu_ticks", lambda: next(ticks)), ("memory_now", lambda: 7), ("gpu_now", lambda: 0.36)):
             self.addCleanup(setattr, machine, name, getattr(machine, name))
             setattr(machine, name, value)
         first, after = history.sample((100, 50, 800, 0), 1793820000)
-        self.assertEqual(first, {"at": "2026-11-04T19:20:00Z", "cpu": 0.4, "memory": 7})
+        self.assertEqual(first, {"at": "2026-11-04T19:20:00Z", "cpu": 0.4, "gpu": 0.36, "memory": 7})
         # A failed tick read is a gap in CPU and the next sample starts over.
         second, after = history.sample(after, 1793820010)
         self.assertEqual((second["cpu"], second["memory"], after), (None, 7, None))
@@ -283,6 +283,18 @@ class DevicesTabTest(TabTest):
         self.assertIsNone(machine.busy_share((100, 50, 800, 0), (100, 50, 800, 0)))
         self.assertIsNone(machine.busy_share((100, 50, 800, 0), (90, 50, 900, 0)))
         self.assertEqual(machine.parse_boottime("{ sec = 1792341278, usec = 417449 } Sun Oct 18"), 1792341278)
+
+    def test_gpu_use_is_the_busiest_accelerator_the_driver_reports(self) -> None:
+        import plistlib
+        raw = plistlib.dumps([
+            {"PerformanceStatistics": {"Device Utilization %": 36, "Renderer Utilization %": 35}},
+            {"PerformanceStatistics": {"Device Utilization %": 80}},
+            {"PerformanceStatistics": {"Device Utilization %": 140}},
+            {"model": "no statistics"},
+        ])
+        self.assertEqual(machine.parse_gpu(raw), 0.8)
+        self.assertIsNone(machine.parse_gpu(plistlib.dumps([{"model": "no statistics"}])))
+        self.assertIsNone(machine.parse_gpu(b"not a plist"))
 
     def test_no_tailnet_means_no_presence_and_says_why(self) -> None:
         status, body = get("/api/devices")

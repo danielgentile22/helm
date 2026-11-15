@@ -19,12 +19,18 @@
   // The graph needs two points to draw a line; until then it says it is collecting.
   const collecting = $derived(history.length < 2);
 
-  const cpu = $derived.by(() => {
-    const points = history.map((p) => ({ t: p.t, v: p.cpu }));
+  // A share from 0 to 1 over the hour, toned by its latest value.
+  function busy(points: { t: number; v: number | null }[]) {
     const latest = [...points].reverse().find((p) => p.v !== null)?.v ?? null;
     const tone: Tone = latest !== null && latest >= 0.9 ? "bad" : latest !== null && latest >= 0.7 ? "warn" : "ok";
     return { points, tone, text: latest === null ? "measuring" : `${Math.round(latest * 100)}%` };
-  });
+  }
+
+  const cpu = $derived(busy(history.map((p) => ({ t: p.t, v: p.cpu }))));
+  // Hidden on a machine whose driver never reports GPU use, rather than "measuring" forever.
+  const gpu = $derived(
+    history.some((p) => p.gpu !== null) ? busy(history.map((p) => ({ t: p.t, v: p.gpu ?? null }))) : null,
+  );
 
   const memory = $derived.by(() => {
     const m = usage.memory;
@@ -63,6 +69,14 @@
       <HourChart points={cpu.points} tone={cpu.tone} label="CPU use over the last hour, now {cpu.text}" />
     {/if}
   </div>
+  {#if gpu !== null}
+    <div class="block">
+      <div class="head"><span class="faint small">GPU</span><span class="small">{gpu.text}</span></div>
+      {#if !collecting}
+        <HourChart points={gpu.points} tone={gpu.tone} label="GPU use over the last hour, now {gpu.text}" />
+      {/if}
+    </div>
+  {/if}
   {#if memory !== null}
     <div class="block">
       <div class="head"><span class="faint small">Memory</span><span class="small">{memory.text}</span></div>
