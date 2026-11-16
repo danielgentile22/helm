@@ -66,6 +66,7 @@ project manager over the vault: projects, ideas, background routines and devices
 - [0039](0039-alerts-push-to-the-phone-and-badge-the-tabs.md) Alerts push to the phone and badge the tabs
 - [0040](0040-a-project-can-own-a-routine.md) A project can own a routine
 - [0041](0041-a-failing-job-starts-a-fix-session.md) A failing job starts a fix session
+- [0042](0042-the-desk-reads-t3-through-a-read-only-mcp-session.md) The desk reads T3 through a read-only MCP session
 
 ## Numbering after the merge
 
