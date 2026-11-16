@@ -182,6 +182,8 @@ class RouteTest(unittest.TestCase):
             ("GET", "/api/ideas"),
             ("GET", "/api/background"),
             ("GET", "/api/devices"),
+            ("GET", "/api/machine/usage"),
+            ("GET", "/api/t3/threads"),
             ("GET", "/index.html"),
             ("GET", "/icon.svg"),
             ("GET", "/manifest.webmanifest"),

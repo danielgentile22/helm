@@ -1,7 +1,8 @@
 # dashboard
 
 The four tabs (ADR 0037) and the server behind them: a Python server, its passkey door, and
-a Svelte page that reads the routes below and makes the writes ADR 0038 allows.
+a Svelte page that reads the routes below and makes the writes ADR 0038 allows. `/desk` is
+a fifth view with no tab bar, for a phone kept on beside the Mac (below).
 
 ```sh
 python3 dashboard/serve.py
@@ -27,6 +28,8 @@ nothing more.
 | GET | `/api/ideas?status=` | idea notes, read from the vault per request |
 | GET | `/api/background` | every routine and service, assembled per request |
 | GET | `/api/devices` | device notes with live tailnet presence |
+| GET | `/api/machine/usage?since=` | the desk's fast feed: this Mac's CPU, GPU and memory every 2 seconds over the last 5 minutes, or only the points after `since` (below) |
+| GET | `/api/t3/threads` | T3 Code's running, waiting and recently finished threads, read through a read-only session (below, ADR 0042) |
 | POST | `/api/ideas` | `{title, project?, department?, due?}` adds an idea and commits it in the vault. 201 with `{"idea", "changed"}` |
 | POST | `/api/ideas/<id>/status` | `{status: open\|done\|dropped}`. 200 with `{"idea", "changed"}`, 404 for an unknown id |
 | POST | `/api/ideas/<id>/due` | `{due: "YYYY-MM-DD"\|null}`. 200 with `{"idea", "changed"}`, 404 for an unknown id |
@@ -260,6 +263,57 @@ with a 3 second limit and kept for 30 seconds.
   or a `specs` that is not a map, reads as null. One bad note never fails the route.
 - Sorted in service first, then ordered, spare, retired, sold, then by title.
 
+### Desk
+
+`/desk` is the page a spare phone shows all day beside the Mac: this Mac's CPU, GPU and
+memory over the last five minutes, T3 Code's threads, and the open alert count in a
+corner. It has no tab bar and its own manifest (`/desk.webmanifest`, start URL `/desk`),
+so Add to Home Screen from that page opens straight into it. It reads two routes.
+
+`GET /api/machine/usage` starts a sampler on its first request that reads every 2
+seconds and stops itself after 90 seconds with no request, so a closed desk costs nothing.
+Points are kept in memory, 150 at most, oldest first. The page sends the newest `at` it
+holds as `since` and gets only what is newer.
+
+```json
+{
+  "interval_s": 2.0, "window_s": 300.0, "memory_total": 68719476736,
+  "points": [{"at": "2026-11-16T14:30:02.120Z", "cpu": 0.41, "gpu": 0.08, "memory": 0.62}]
+}
+```
+
+- `cpu` and `gpu` are shares busy from 0 to 1, `memory` the share of memory in use the
+  way Activity Monitor counts it. Any is null when its probe failed, drawn as a gap.
+
+`GET /api/t3/threads` asks T3 through a read-only MCP session (ADR 0042), cached for 4
+seconds. It never fails: a T3 that cannot be read is a `state` with empty lists.
+
+```json
+{
+  "state": "ok", "detail": null, "checked": "2026-11-16T14:30:04Z",
+  "running": [{"id": "thr-1", "title": "Tune the Keel parser", "project": "Keel", "status": "running",
+               "started": "2026-11-16T14:12:40.000Z", "updated": "2026-11-16T14:30:01.000Z",
+               "created": "2026-11-16T14:12:39.000Z"}],
+  "waiting": [{"id": "thr-2", "title": "Book the Lisbon flights", "project": "Life", "status": "waiting",
+               "started": "2026-11-16T14:20:00.000Z", "updated": "2026-11-16T14:28:10.000Z",
+               "created": "2026-11-16T14:19:58.000Z"}],
+  "finished": [{"id": "thr-3", "title": "Compiler release notes", "project": "Compiler", "status": "completed",
+                "outcome": "done", "finished": "2026-11-16T13:58:00.000Z", "updated": "2026-11-16T13:58:00.000Z",
+                "created": "2026-11-16T13:40:00.000Z", "started": null}]
+}
+```
+
+- `state` is `ok`, `not_running` (no runtime file, or its process is gone), `unreachable`
+  (the server did not answer) or `error`, with `detail` saying why in words that name no
+  thread.
+- `running` holds T3's `preparing`, `queued`, `starting` and `running` threads, longest
+  running first; `waiting` holds `waiting` ones (an approval or an answer the owner owes).
+  `started` is when the current run started, null when T3 would not say.
+- `finished` is the last 8 that ended, newest first. `outcome` is `done` (completed),
+  `failed`, or `stopped` (interrupted or cancelled). `finished` is T3's `updatedAt`.
+- Top-level threads only; a delegated child is counted in its parent's work, not listed.
+  Titles are personal: they are in this answer and never in a log line.
+
 ## The two doors
 
 Every socket binds to loopback. On the Mac, `http://127.0.0.1:8642/` is the dashboard
@@ -325,11 +379,13 @@ under `src/`, `index.html`, `public/`, `package.json` or `vite.config.ts` is new
 | `server/routes.py` | the route table and its handlers |
 | `server/background.py`, `server/devices.py` | the Background and Devices records, as functions of what they are handed |
 | `server/machine.py` | everything asked of or told to the machine: `launchctl list`, `tailscale status`, the `launchctl` writes and where `LaunchAgents` is. Tests replace all of it |
+| `server/pulse.py`, `server/t3.py` | the desk's two feeds: usage every 2 seconds while someone is looking, and T3's threads through a read-only session |
 | `server/control.py` | run now, pause and resume a routine, convergent from any state between the two |
 | `server/auth.py`, `server/passkey.py` | the passkey rows, and WebAuthn verification (ES256 on P-256) in the standard library |
 | `server/test_*.py` | `python3 -m unittest discover -s dashboard/server -p 'test_*.py'` |
 | `src/App.svelte`, `src/app.css` | the shell: header, the tab rail or tab bar, the colour tokens |
 | `src/lib/` | `api.ts` (the contract above as types, one `fetchJson`), `route.svelte.ts` (the URL is the state), `poll.svelte.ts` (each open tab refetches every 60 seconds and on focus), `auth.ts` (the sign in ceremony), `ideas.svelte.ts` (an idea list's writes, drawn before the server answers, with undo), `time.ts` |
+| `src/desk/` | the `/desk` view: the three meters, the thread board, the burn-in drift, the wake lock |
 | `src/tabs/` | one component per tab, plus the project, routine, device and idea cards |
 | `src/ui/` | the small parts: dot, pill, badge, icons, load states, the capture box, the toast |
 | `public/` | the app mark, its PNG sizes (`npm run icons`), and the manifest Chrome installs |

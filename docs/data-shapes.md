@@ -99,6 +99,9 @@ warranty_until: 2029-09-23
   restarts. A point's `cpu` is the share busy since the point before (0 to 1), `gpu` is the
   GPU's "Device Utilization %" from `ioreg` (0 to 1, no root needed), `memory` is bytes in
   use, and any is null when its probe failed. The Devices tab asks every 10 seconds to match.
+- The desk (`/desk`) has a finer feed of its own, `GET /api/machine/usage`: a point every
+  2 seconds for the last 5 minutes, with `memory` as a share of the total rather than
+  bytes. Its sampler runs only while the desk asks. The shape is in `dashboard/README.md`.
 - Devices that today share a note (a phone and a watch in one page) get a page each.
 
 ## Routine record

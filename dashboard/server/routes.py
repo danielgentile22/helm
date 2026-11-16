@@ -6,7 +6,8 @@ load never calls GitHub (ADR 0037); ideas and devices are read from the vault pe
 background asks launchd through `machine.py`. An idea write goes through `idea_edit` and
 ends in a vault commit whose subject carries no idea text; a routine write goes through
 `control.py`. Alerts are read and dismissed through `runner/alerts.py`, and push
-subscriptions kept through `runner/push.py` (ADR 0039). The JSON each returns is documented in `dashboard/README.md`.
+subscriptions kept through `runner/push.py` (ADR 0039). The desk reads `pulse.py` and T3
+through `t3.py` (ADR 0042). The JSON each returns is documented in `dashboard/README.md`.
 """
 from __future__ import annotations
 
@@ -34,8 +35,10 @@ import devices  # noqa: E402
 import history  # noqa: E402
 import idea_edit  # noqa: E402
 import machine  # noqa: E402
+import pulse  # noqa: E402
 import push  # noqa: E402
 import refresh  # noqa: E402
+import t3  # noqa: E402
 from app import ApiError, Request, Response, Route, json_response, text_response  # noqa: E402
 
 DIST = common.ENGINE / "dashboard" / "dist"
@@ -482,6 +485,23 @@ def devices_tab(request: Request, m: "re.Match[str]") -> Response:
                                           lambda: {**machine.usage(), "history": history.points()}))
 
 
+SINCE = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")
+
+
+def machine_usage(request: Request, m: "re.Match[str]") -> Response:
+    """The desk's fast usage feed: points every two seconds over the last five minutes, or
+    only those after `since`, the newest `at` the page already holds."""
+    since = (parse_qs(request.query).get("since") or [None])[-1]
+    if since is not None and not SINCE.match(since):
+        raise ApiError(400, "bad_request", "since is a point's at, like 2026-11-16T14:30:02.120Z")
+    return json_response(pulse.answer(since))
+
+
+def t3_threads(request: Request, m: "re.Match[str]") -> Response:
+    """T3 Code's running, waiting and recently finished threads, read only (ADR 0042)."""
+    return json_response(t3.READER.threads())
+
+
 ROUTES: tuple[Route, ...] = (
     Route("GET", re.compile(r"^/api/health$"), "tailnet", health),
     Route("GET", re.compile(r"^/api/projects$"), "tailnet", projects_list),
@@ -490,6 +510,8 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", re.compile(r"^/api/ideas$"), "tailnet", ideas_list),
     Route("GET", re.compile(r"^/api/background$"), "tailnet", background_tab),
     Route("GET", re.compile(r"^/api/devices$"), "tailnet", devices_tab),
+    Route("GET", re.compile(r"^/api/machine/usage$"), "tailnet", machine_usage),
+    Route("GET", re.compile(r"^/api/t3/threads$"), "tailnet", t3_threads),
     Route("POST", re.compile(r"^/api/ideas$"), "tailnet", idea_add),
     Route("POST", re.compile(r"^/api/ideas/(?P<id>\d{4}-\d\d-\d\d-[a-z0-9-]+)/status$"), "tailnet", idea_status),
     Route("POST", re.compile(r"^/api/ideas/(?P<id>\d{4}-\d\d-\d\d-[a-z0-9-]+)/due$"), "tailnet", idea_due),
