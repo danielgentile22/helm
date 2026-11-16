@@ -248,6 +248,49 @@ export interface DevicesResponse {
   tailnet_error: string | null;
 }
 
+// The desk's fast feed: GET /api/machine/usage. Points every interval_s, oldest first.
+export interface PulsePoint {
+  at: string;
+  cpu: number | null; // share busy, 0 to 1
+  gpu: number | null;
+  memory: number | null; // share of memory in use, 0 to 1
+}
+
+export interface PulseResponse {
+  interval_s: number;
+  window_s: number;
+  memory_total: number | null;
+  points: PulsePoint[];
+}
+
+// GET /api/t3/threads (ADR 0042).
+export type T3State = "ok" | "not_running" | "unreachable" | "error";
+export type Outcome = "done" | "failed" | "stopped";
+
+export interface T3Thread {
+  id: string;
+  title: string;
+  project: string | null;
+  status: string;
+  started: string | null;
+  updated: string | null;
+  created: string | null;
+}
+
+export interface T3Finished extends T3Thread {
+  outcome: Outcome;
+  finished: string | null;
+}
+
+export interface T3Response {
+  state: T3State;
+  detail: string | null;
+  checked: string;
+  running: T3Thread[];
+  waiting: T3Thread[];
+  finished: T3Finished[];
+}
+
 export type Load<T> =
   | { state: "loading" }
   | { state: "ready"; data: T; at: number }
