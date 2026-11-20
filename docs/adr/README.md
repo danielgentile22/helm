@@ -67,6 +67,7 @@ project manager over the vault: projects, ideas, background routines and devices
 - [0040](0040-a-project-can-own-a-routine.md) A project can own a routine
 - [0041](0041-a-failing-job-starts-a-fix-session.md) A failing job starts a fix session
 - [0042](0042-the-desk-reads-t3-through-a-read-only-mcp-session.md) The desk reads T3 through a read-only MCP session
+- [0043](0043-the-desk-reads-a-finished-run-for-background-work.md) The desk reads a finished run's last items for background work
 
 ## Numbering after the merge
 

@@ -288,21 +288,21 @@ holds as `since` and gets only what is newer.
 - `cpu` and `gpu` are shares busy from 0 to 1, `memory` the share of memory in use the
   way Activity Monitor counts it. Any is null when its probe failed, drawn as a gap.
 
-`GET /api/t3/threads` asks T3 through a read-only MCP session (ADR 0042), cached for 4
-seconds. It never fails: a T3 that cannot be read is a `state` with empty lists.
+`GET /api/t3/threads` asks T3 through a read-only MCP session (ADR 0042, ADR 0043), cached
+for 4 seconds. It never fails: a T3 that cannot be read is a `state` with empty lists.
 
 ```json
 {
   "state": "ok", "detail": null, "checked": "2026-11-16T14:30:04Z",
   "running": [{"id": "thr-1", "title": "Tune the Keel parser", "project": "Keel", "status": "running",
                "started": "2026-11-16T14:12:40.000Z", "updated": "2026-11-16T14:30:01.000Z",
-               "created": "2026-11-16T14:12:39.000Z"}],
+               "created": "2026-11-16T14:12:39.000Z", "background": false}],
   "waiting": [{"id": "thr-2", "title": "Book the Lisbon flights", "project": "Life", "status": "waiting",
                "started": "2026-11-16T14:20:00.000Z", "updated": "2026-11-16T14:28:10.000Z",
-               "created": "2026-11-16T14:19:58.000Z"}],
+               "created": "2026-11-16T14:19:58.000Z", "background": false}],
   "finished": [{"id": "thr-3", "title": "Compiler release notes", "project": "Compiler", "status": "completed",
                 "outcome": "done", "finished": "2026-11-16T13:58:00.000Z", "updated": "2026-11-16T13:58:00.000Z",
-                "created": "2026-11-16T13:40:00.000Z", "started": null}]
+                "created": "2026-11-16T13:40:00.000Z", "started": null, "background": false}]
 }
 ```
 
@@ -312,6 +312,11 @@ seconds. It never fails: a T3 that cannot be read is a `state` with empty lists.
 - `running` holds T3's `preparing`, `queued`, `starting` and `running` threads, longest
   running first; `waiting` holds `waiting` ones (an approval or an answer the owner owes).
   `started` is when the current run started, null when T3 would not say.
+- `running` also holds a thread whose run completed in the last 12 hours but that T3 still
+  shows as Working, because the run ended waiting on background work (a task passed to
+  `t3_background_wait`, or a background subagent). It has `background: true`, `status`
+  `completed`, and `started` set to when the wait began. The desk finds it in the run's
+  last 12 timeline items, read once per run and only for a top-level thread (ADR 0043).
 - `finished` is the last 8 that ended, newest first. `outcome` is `done` (completed),
   `failed`, or `stopped` (interrupted or cancelled). `finished` is T3's `updatedAt`.
 - Top-level threads only; a delegated child is counted in its parent's work, not listed.

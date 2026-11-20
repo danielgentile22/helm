@@ -3,8 +3,9 @@
 T3's server answers MCP at `<origin>/mcp`; the origin is in its runtime file, read on every
 connection because it changes when T3 restarts. The session is a read-only MCP client one,
 issued by T3's own CLI and kept in this process's memory only, so the token is never on
-disk, in a log or in the repo. Only `t3_thread_list`, `t3_project_list` and a one item
-`t3_thread_read` of a running thread are ever called.
+disk, in a log or in the repo. Only `t3_thread_list`, `t3_project_list` and `t3_thread_read`
+are ever called: one item of a running thread for its start, and the last few timeline items
+of a top-level thread's finished run to see whether T3 still holds it in Working (ADR 0043).
 
 `issue_session`, `post` and `RUNTIME` are module attributes so the tests replace them, the
 way they replace `machine.usage`: a test never asks the T3 on the machine running it.
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -37,6 +39,12 @@ TIMEOUT_S = 6
 PROJECTS_S = 300.0
 FINISHED_SHOWN = 8
 ACTIVE_LIMIT = 50
+# Finished threads looked at for background work, newest first, and how far back. A run that
+# ended this long ago is not shown as working, which bounds a hold T3 dropped on a restart.
+FINISHED_SCAN = 50
+HOLD_MAX_S = 12 * 3600
+TAIL_ITEMS = 12
+TAIL_CHARS = 2000
 
 RUNNING = ("preparing", "queued", "starting", "running")
 WAITING = ("waiting",)
@@ -193,11 +201,41 @@ def epoch(text: object) -> float | None:
         return None
 
 
+ACTIVE_ITEM = ("starting", "running", "waiting")
+WAIT_TOOL = re.compile(r'"toolName":\s*"[^"]*t3_background_wait"')
+WAIT_CLEARED = re.compile(r'"waiting":\s*false')
+WAIT_MATCHED = re.compile(r'matched\\*"\s*:\s*\[\s*\\*"')
+
+
+def held_since(items: list, run: str) -> str | None:
+    """When T3 began holding a finished run in Working, or None when it is not held.
+
+    T3 keeps a completed thread in Working while it waits on background work: a task the
+    agent passed to `t3_background_wait`, or a background subagent. Neither is in the thread
+    list, so it is read off the run's last timeline items. The wait ends when the task does,
+    and T3 then wakes the thread into a new run, which this function is never asked about.
+    """
+    since: str | None = None
+    for item in items:
+        if not isinstance(item, dict) or item.get("runId") != run:
+            continue
+        text = str(item.get("text") or "")
+        kind = item.get("type")
+        if kind == "dynamic_tool" and WAIT_TOOL.search(text):
+            if WAIT_CLEARED.search(text):
+                since = None
+            elif WAIT_MATCHED.search(text):
+                since = item.get("updatedAt") or since
+        elif kind == "subagent" and item.get("status") in ACTIVE_ITEM:
+            since = since or item.get("updatedAt")
+    return since
+
+
 def row(thread: dict, projects: dict[str, str]) -> dict:
     return {"id": thread.get("threadId"), "title": thread.get("title") or "Untitled thread",
             "project": projects.get(str(thread.get("projectId")), None),
             "status": thread.get("status"), "updated": thread.get("updatedAt"),
-            "created": thread.get("createdAt")}
+            "created": thread.get("createdAt"), "background": False}
 
 
 class Reader:
@@ -210,6 +248,7 @@ class Reader:
         self.cached: tuple[float, dict] | None = None
         self.projects: tuple[float, dict[str, str]] | None = None
         self.starts: dict[str, str | None] = {}
+        self.holds: dict[str, str | None] = {}
 
     def project_names(self) -> dict[str, str]:
         if self.projects is not None and time.monotonic() - self.projects[0] < PROJECTS_S:
@@ -244,27 +283,57 @@ class Reader:
                 self.starts.pop(next(iter(self.starts)))
         return self.starts[run]
 
+    def hold(self, thread: dict) -> str | None:
+        """When T3 began holding this finished thread in Working, read once per run. Only a
+        top-level thread is read: reading a delegated child's final result marks it delivered,
+        and the read here stops at the timeline, never the result."""
+        run = thread.get("latestRunId")
+        if (thread.get("status") != "completed" or not isinstance(run, str)
+                or thread.get("parentThreadId") is not None or thread.get("relationshipToParent") is not None):
+            return None
+        finished = epoch(thread.get("updatedAt"))
+        if finished is None or time.time() - finished > HOLD_MAX_S:
+            return None
+        if run not in self.holds:
+            count = thread.get("itemCount")
+            args: dict = {"threadId": thread["threadId"], "view": "activity", "limit": TAIL_ITEMS,
+                          "runLimit": 1, "maxCharsPerItem": TAIL_CHARS}
+            if isinstance(count, int) and count > TAIL_ITEMS:
+                args["afterPosition"] = count - TAIL_ITEMS - 1
+            try:
+                found = self.client.tool("t3_thread_read", args)
+            except T3Error:
+                return None
+            self.holds[run] = held_since(found.get("items") or [], run)
+            if len(self.holds) > 500:
+                self.holds.pop(next(iter(self.holds)))
+        return self.holds[run]
+
     def fresh(self) -> dict:
         projects = self.project_names()
         active = self.client.tool("t3_thread_list", {"allProjects": True, "statuses": [*RUNNING, *WAITING],
                                                      "includeSubagents": False, "limit": ACTIVE_LIMIT})
         done = self.client.tool("t3_thread_list", {"allProjects": True, "statuses": list(FINISHED),
-                                                   "includeSubagents": False, "limit": FINISHED_SHOWN})
+                                                   "includeSubagents": False, "limit": FINISHED_SCAN})
         running, waiting = [], []
         for t in active.get("threads") or []:
             if not isinstance(t, dict) or not t.get("threadId"):
                 continue
             entry = {**row(t, projects), "started": self.started(t)}
             (waiting if t.get("status") in WAITING else running).append(entry)
-        # Longest running first, so the one that has run away stays at the top.
-        running.sort(key=lambda e: epoch(e["started"]) or epoch(e["created"]) or 0)
         waiting.sort(key=lambda e: epoch(e["updated"]) or 0)
         finished = []
         for t in done.get("threads") or []:
             if isinstance(t, dict) and t.get("threadId"):
                 entry = row(t, projects)
+                since = self.hold(t)
+                if since is not None:
+                    running.append({**entry, "started": since, "background": True})
+                    continue
                 finished.append({**entry, "outcome": OUTCOME.get(str(t.get("status")), "done"),
                                  "finished": entry["updated"]})
+        # Longest running first, so the one that has run away stays at the top.
+        running.sort(key=lambda e: epoch(e["started"]) or epoch(e["created"]) or 0)
         finished.sort(key=lambda e: epoch(e["finished"]) or 0, reverse=True)
         return {"state": "ok", "detail": None, "running": running, "waiting": waiting,
                 "finished": finished[:FINISHED_SHOWN]}

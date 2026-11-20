@@ -40,10 +40,24 @@ def get(path: str, query: str = "") -> tuple[int, dict]:
 
 
 def thread(tid: str, status: str, title: str, project: str = "p-keel", updated: str = "2026-11-16T10:00:00.000Z",
-           run: str | None = None) -> dict:
+           run: str | None = None, parent: str | None = None, items: int = 40) -> dict:
     return {"threadId": tid, "projectId": project, "title": title, "status": status,
             "latestRunId": run, "createdAt": "2026-11-16T09:00:00.000Z", "updatedAt": updated,
-            "settled": False, "snoozed": False}
+            "settled": False, "snoozed": False, "parentThreadId": parent,
+            "relationshipToParent": None if parent is None else "subagent", "itemCount": items}
+
+
+def ago(seconds: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() - seconds))
+
+
+def waited(run: str, at: str, matched: bool = True, waiting: bool | None = None) -> dict:
+    """The timeline item `t3_background_wait` leaves, as T3 writes it."""
+    args = {"taskIds": ["bg-1"]} if waiting is None else {"taskIds": ["bg-1"], "waiting": waiting}
+    out = json.dumps({"matched": ["bg-1"] if matched else []})
+    text = json.dumps({"toolName": "mcp__t3-code__t3_background_wait", "input": args,
+                       "output": {"content": out}}, indent=2)
+    return {"runId": run, "type": "dynamic_tool", "status": "completed", "text": text, "updatedAt": at}
 
 
 class FakeT3:
@@ -54,6 +68,7 @@ class FakeT3:
         self.active: list[dict] = []
         self.finished: list[dict] = []
         self.runs: dict[str, dict] = {}
+        self.tails: dict[str, list[dict]] = {}
         self.calls: list[tuple[str, dict]] = []
         self.issued = 0
         self.refuse_next = False
@@ -77,6 +92,8 @@ class FakeT3:
         elif name == "t3_thread_list":
             pool = self.finished if "completed" in args["statuses"] else self.active
             content = {"threads": pool[: args["limit"]], "nextCursor": None, "total": len(pool)}
+        elif name == "t3_thread_read" and args.get("view") == "activity":
+            content = {"thread": {}, "recentRuns": [], "items": self.tails.get(args["threadId"], [])}
         elif name == "t3_thread_read":
             content = {"thread": {}, "recentRuns": [self.runs[args["threadId"]]]}
         else:
@@ -134,10 +151,54 @@ class T3Test(unittest.TestCase):
         listed = [a for n, a in self.fake.calls if n == "t3_thread_list"]
         self.assertTrue(all(a["allProjects"] and not a["includeSubagents"] for a in listed))
 
-    def test_a_finished_thread_is_never_read(self) -> None:
-        self.fake.finished = [thread("t4", "completed", "Alex Reed's review", run="r4")]
+    def test_a_child_an_old_run_or_a_failure_is_never_read(self) -> None:
+        self.fake.finished = [thread("t4", "completed", "Alex Reed's review", run="r4", parent="t0", updated=ago(60)),
+                              thread("t5", "completed", "Keel docs", run="r5", updated=ago(13 * 3600)),
+                              thread("t6", "failed", "Compiler build", run="r6", updated=ago(60))]
         get("/api/t3/threads")
         self.assertNotIn("t3_thread_read", [n for n, _ in self.fake.calls])
+
+    def test_a_run_that_waits_on_background_work_is_still_running(self) -> None:
+        at = ago(3600)
+        self.fake.finished = [thread("t4", "completed", "Train the Keel model", run="r4", updated=ago(3590), items=40),
+                              thread("t5", "completed", "Alex Reed's review", run="r5", updated=ago(4000))]
+        self.fake.tails = {"t4": [{"runId": "r4", "type": "command_execution", "status": "completed",
+                                   "text": "$ train", "updatedAt": at}, waited("r4", at)]}
+        _, body = get("/api/t3/threads")
+        self.assertEqual([(t["id"], t["background"], t["started"]) for t in body["running"]], [("t4", True, at)])
+        self.assertEqual([t["id"] for t in body["finished"]], ["t5"])
+        read = next(a for n, a in self.fake.calls if n == "t3_thread_read" and a["threadId"] == "t4")
+        self.assertEqual((read["view"], read["limit"], read["afterPosition"]), ("activity", t3.TAIL_ITEMS, 40 - t3.TAIL_ITEMS - 1))
+
+    def test_a_cleared_or_unmatched_wait_is_finished(self) -> None:
+        self.fake.finished = [thread("t4", "completed", "Train the Keel model", run="r4", updated=ago(60)),
+                              thread("t5", "completed", "Sam's grammar idea", run="r5", updated=ago(60))]
+        self.fake.tails = {"t4": [waited("r4", ago(120)), waited("r4", ago(90), waiting=False)],
+                           "t5": [waited("r5", ago(120), matched=False)]}
+        _, body = get("/api/t3/threads")
+        self.assertEqual(body["running"], [])
+        self.assertEqual(sorted(t["id"] for t in body["finished"]), ["t4", "t5"])
+
+    def test_a_wait_from_an_earlier_run_does_not_count(self) -> None:
+        self.fake.finished = [thread("t4", "completed", "Train the Keel model", run="r4", updated=ago(60))]
+        self.fake.tails = {"t4": [waited("r3", ago(600))]}
+        _, body = get("/api/t3/threads")
+        self.assertEqual(body["running"], [])
+
+    def test_a_background_subagent_holds_the_run(self) -> None:
+        at = ago(300)
+        self.fake.finished = [thread("t4", "completed", "Survey the Lisbon hotels", run="r4", updated=ago(200))]
+        self.fake.tails = {"t4": [{"runId": "r4", "type": "subagent", "status": "running", "text": "", "updatedAt": at}]}
+        _, body = get("/api/t3/threads")
+        self.assertEqual([(t["id"], t["background"]) for t in body["running"]], [("t4", True)])
+
+    def test_each_finished_run_is_read_once(self) -> None:
+        self.fake.finished = [thread("t4", "completed", "Train the Keel model", run="r4", updated=ago(60))]
+        self.fake.tails = {"t4": [waited("r4", ago(120))]}
+        get("/api/t3/threads")
+        t3.READER.cached = None
+        get("/api/t3/threads")
+        self.assertEqual([n for n, _ in self.fake.calls].count("t3_thread_read"), 1)
 
     def test_answers_are_cached_for_a_few_seconds(self) -> None:
         get("/api/t3/threads")
