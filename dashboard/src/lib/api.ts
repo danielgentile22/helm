@@ -312,8 +312,15 @@ async function errorOf(res: Response): Promise<{ detail: string; body?: unknown 
 }
 
 /** A GET, or a POST of `body` as JSON. Never throws. */
-export async function fetchJson<T>(path: string, body?: unknown): Promise<Answer<T>> {
+/** `timeoutMs` gives up on a request that never answers, which a phone can leave hanging after
+ *  a sleep or a network change; without it a poll waiting on that request never runs again. */
+export async function fetchJson<T>(path: string, body?: unknown, timeoutMs?: number): Promise<Answer<T>> {
   const init: RequestInit = { credentials: "same-origin", headers: { accept: "application/json" } };
+  if (timeoutMs !== undefined) {
+    const abort = new AbortController();
+    setTimeout(() => abort.abort(new Error(`no answer in ${Math.round(timeoutMs / 1000)}s`)), timeoutMs);
+    init.signal = abort.signal;
+  }
   if (body !== undefined) {
     init.method = "POST";
     init.headers = { accept: "application/json", "content-type": "application/json" };

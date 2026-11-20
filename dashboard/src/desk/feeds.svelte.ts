@@ -47,6 +47,8 @@ const BUILD_MS = 5 * 60_000;
 const WEDGED_MS = 10 * 60_000;
 /** Answers older than this draw dimmed, with the corner saying so. */
 export const STALE_MS = 12_000;
+/** Each request gives up after this, so one that hangs cannot stop its feed. */
+const TIMEOUT_MS = 8_000;
 
 export function createDesk() {
   let points = $state<PulsePoint[]>([]);
@@ -73,6 +75,8 @@ export function createDesk() {
     const newest = points.at(-1)?.at;
     const got = await fetchJson<PulseResponse>(
       newest === undefined ? "/api/machine/usage" : `/api/machine/usage?since=${encodeURIComponent(newest)}`,
+      undefined,
+      TIMEOUT_MS,
     );
     if (got.state !== "ready") return failed(got.kind);
     good();
@@ -86,7 +90,7 @@ export function createDesk() {
   }
 
   async function t3(): Promise<void> {
-    const got = await fetchJson<T3Response>("/api/t3/threads");
+    const got = await fetchJson<T3Response>("/api/t3/threads", undefined, TIMEOUT_MS);
     if (got.state !== "ready") return failed(got.kind);
     good();
     threads = got.data;
@@ -94,14 +98,14 @@ export function createDesk() {
   }
 
   async function alertCount(): Promise<void> {
-    const got = await fetchJson<{ total: number }>("/api/alerts");
+    const got = await fetchJson<{ total: number }>("/api/alerts", undefined, TIMEOUT_MS);
     if (got.state !== "ready") return failed(got.kind);
     alerts = got.data.total;
   }
 
   /** A new build of the page is picked up without anyone touching the phone. */
   async function build(): Promise<void> {
-    const got = await fetchJson<{ dist_built: string | null }>("/api/health");
+    const got = await fetchJson<{ dist_built: string | null }>("/api/health", undefined, TIMEOUT_MS);
     if (got.state !== "ready") return;
     if (built !== null && got.data.dist_built !== null && got.data.dist_built !== built) location.reload();
     built = got.data.dist_built ?? built;
