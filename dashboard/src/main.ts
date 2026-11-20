@@ -16,7 +16,29 @@ function becomeDesk(): void {
   for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.setAttribute("content", "#000000");
 }
 
-if (location.pathname.replace(/\/+$/, "") === "/desk") {
+/** iOS opens a home screen app at the start URL of the manifest the page had when it was
+ *  added, so the helm icon always opens `/`. A phone that last showed the desk goes back to
+ *  it on a cold launch; leaving the desk (a long press) clears the choice. */
+const DESK_KEY = "helm.desk";
+const standalone =
+  matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+function remembered(): boolean {
+  try {
+    return localStorage.getItem(DESK_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+const path = location.pathname.replace(/\/+$/, "");
+if (path === "" && standalone && remembered()) {
+  location.replace("/desk");
+} else if (path === "/desk") {
+  try {
+    localStorage.setItem(DESK_KEY, "1");
+  } catch {
+    // Private mode: the desk still works, it is just not reopened on a cold launch.
+  }
   becomeDesk();
   mount(Desk, { target });
 } else {

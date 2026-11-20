@@ -78,6 +78,34 @@
     return `translate3d(${x}px, ${y}px, 0)`;
   });
 
+  // A home screen app has no back button, so holding a finger anywhere for a second goes
+  // back to helm, and the phone stops reopening the desk on launch.
+  const HOLD_MS = 1_000;
+  $effect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cancel = () => clearTimeout(timer);
+    const down = () => {
+      cancel();
+      timer = setTimeout(() => {
+        try {
+          localStorage.removeItem("helm.desk");
+        } catch {
+          // Nothing was remembered.
+        }
+        location.assign("/devices");
+      }, HOLD_MS);
+    };
+    addEventListener("pointerdown", down);
+    addEventListener("pointerup", cancel);
+    addEventListener("pointercancel", cancel);
+    return () => {
+      cancel();
+      removeEventListener("pointerdown", down);
+      removeEventListener("pointerup", cancel);
+      removeEventListener("pointercancel", cancel);
+    };
+  });
+
   let signingIn = $state(false);
   let signInError = $state<string | null>(null);
   async function startSignIn(): Promise<void> {
@@ -138,6 +166,7 @@
     -webkit-user-select: none;
     user-select: none;
     -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
   }
   :global(html.desk-page #app) {
     height: 100%;

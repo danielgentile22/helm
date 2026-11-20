@@ -267,8 +267,11 @@ with a 3 second limit and kept for 30 seconds.
 
 `/desk` is the page a spare phone shows all day beside the Mac: this Mac's CPU, GPU and
 memory over the last five minutes, T3 Code's threads, and the open alert count in a
-corner. It has no tab bar and its own manifest (`/desk.webmanifest`, start URL `/desk`),
-so Add to Home Screen from that page opens straight into it. It reads two routes.
+corner. It has no tab bar and its own manifest (`/desk.webmanifest`, start URL `/desk`).
+iOS keeps the manifest a page loaded with, so a helm icon opens `/`: the Devices tab has an
+Open desk view button, and a home screen app that last showed the desk reopens it on launch.
+Holding a finger on the desk for a second goes back to helm and clears that. It reads two
+routes.
 
 `GET /api/machine/usage` starts a sampler on its first request that reads every 2
 seconds and stops itself after 90 seconds with no request, so a closed desk costs nothing.

@@ -40,6 +40,12 @@
   }
 </script>
 
+<div class="desk">
+  <!-- A full page load, not the tab router: /desk is its own page with no tab bar. -->
+  <a class="btn" href="/desk">Open desk view</a>
+  <span class="faint small">Full screen CPU, GPU, memory and T3 threads. Hold anywhere to leave.</span>
+</div>
+
 <LoadState
   load={poll.load}
   empty="No device notes in the vault yet."
@@ -68,6 +74,19 @@
 <style>
   .tailnet {
     margin: 0 0 16px;
+  }
+  .desk {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 16px;
+  }
+  .desk .btn {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    text-decoration: none;
+    font-weight: 600;
   }
   .groups > section:first-child h2 {
     margin-top: 0;
