@@ -275,6 +275,9 @@ export interface T3Thread {
   started: string | null;
   updated: string | null;
   created: string | null;
+  /** T3 still holds the thread in Working: its run ended waiting on background work, and
+   *  `started` is when that wait began. */
+  background: boolean;
 }
 
 export interface T3Finished extends T3Thread {

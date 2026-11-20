@@ -74,11 +74,14 @@
   };
 </script>
 
-{#snippet mark(kind: "running" | "waiting" | "done" | "failed" | "stopped")}
+{#snippet mark(kind: "running" | "background" | "waiting" | "done" | "failed" | "stopped")}
   <svg class="mark {kind}" viewBox="0 0 20 20" aria-hidden="true">
     {#if kind === "running"}
       <circle class="track" cx="10" cy="10" r="7" />
       <path class="arc" d="M10 3a7 7 0 0 1 7 7" />
+    {:else if kind === "background"}
+      <circle class="track" cx="10" cy="10" r="7" />
+      <circle class="orbit" cx="10" cy="3" r="2" />
     {:else if kind === "waiting"}
       <circle class="halo" cx="10" cy="10" r="7.5" />
       <circle class="core" cx="10" cy="10" r="4" />
@@ -93,11 +96,11 @@
 {/snippet}
 
 {#snippet active(t: T3Thread, waiting: boolean)}
-  <li class="row" class:waiting>
-    {@render mark(waiting ? "waiting" : "running")}
+  <li class="row" class:waiting class:background={t.background}>
+    {@render mark(waiting ? "waiting" : t.background ? "background" : "running")}
     <span class="text">
       <span class="title">{t.title}</span>
-      <span class="sub">{t.project ?? "No project"}{waiting ? " · needs you" : ""}</span>
+      <span class="sub">{t.project ?? "No project"}{waiting ? " · needs you" : t.background ? " · in background" : ""}</span>
     </span>
     <span class="clock">{span(since(waiting ? t.updated : (t.started ?? t.created)))}</span>
   </li>
@@ -300,6 +303,22 @@
     transform-origin: 10px 10px;
     animation: turn 1.8s linear infinite;
   }
+  .mark.background {
+    color: var(--d-calm);
+  }
+  .mark.background .track {
+    opacity: 0.22;
+    stroke-dasharray: 2 3;
+  }
+  .mark.background .orbit {
+    fill: currentColor;
+    stroke: none;
+    transform-origin: 10px 10px;
+    animation: turn 6s linear infinite;
+  }
+  .row.background .clock {
+    color: var(--d-dim);
+  }
   .mark.waiting {
     color: var(--d-wait);
   }
@@ -365,6 +384,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .mark.running .arc,
+    .mark.background .orbit,
     .mark.waiting .halo {
       animation: none;
     }
